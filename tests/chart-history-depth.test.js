@@ -151,31 +151,45 @@ check("the period the chart opens with is a real period, not a bar count", () =>
   return d + " days";
 });
 
-check("reaching the oldest bar asks for more, once at a time", () => {
+check("reaching the oldest bar fetches one slab BEHIND it, once at a time", () => {
   /* Run rather than read. The first version of this grepped for the
      names of the two guards, which still appear in the source when the
-     guards themselves are deleted - both mutations sailed through. */
+     guards themselves are deleted - both mutations sailed through.
+
+     What is being checked changed with the complaint "the chart loads
+     far too much". A drag used to re-ask for a BIGGER NEWEST window,
+     so every bar already on the screen came down the wire again and
+     the sixth month cost a quarter of a million M1 bars. A drag now
+     asks for one bounded slab ENDING at the oldest bar held, which
+     the engine reads out of AURION's own database. */
+  const bar = (i) => ({ time: "2026-01-01 00:" + String(i % 60).padStart(2, "0") + ":00", open: 1, high: 1, low: 1, close: 1 });
+  const held = [];
+  for (let i = 0; i < 800; i += 1) held.push(bar(i));
   const box = {
-    S: { chartFocus: { symbol: "EURUSD", timeframe: "M15" }, candles: new Array(800), chart: { setBars() {} } },
+    S: { chartFocus: { symbol: "EURUSD", timeframe: "M15" }, candles: held, chart: { setBars(b) { box.S.candles = b; } } },
     calls: [],
-    API: { get(url) { box.calls.push(url); return Promise.resolve({ data: new Array(1600) }); } },
-    /* No document in here, so the edge note finds no element and bows
-       out - which is all this check needs from it. It is lifted rather
-       than stubbed so that a rename in app.js fails here too. */
+    API: {
+      get(url) {
+        box.calls.push(url);
+        const out = [];
+        for (let i = 0; i < 400; i += 1) out.push({ time: "2025-12-31 " + String(Math.floor(i / 60)).padStart(2, "0") + ":" + String(i % 60).padStart(2, "0") + ":00" });
+        return Promise.resolve({ data: out });
+      },
+    },
     $: () => null,
     console,
   };
   vm.createContext(box);
-  /* chartDays() came with the lazy loading: the widening ask is sized
-     by the period the chart is set to, not by the full promise. Lifted
-     too, or loadMoreHistory throws ReferenceError in here and the
-     "no requests went out" that follows looks like a passing guard. */
   vm.runInContext((consts ? consts[0] : "") + "\n" + days[0] + "\n" + cap[0] + "\n"
     + /const CHART_OPEN_DAYS = \d+;/.exec(APP)[0] + "\n"
     + /const HIST_RETRY_MS = \d+;/.exec(APP)[0] + "\n"
     + liftFn("barsForDays") + "\n" + liftFn("chartDays")
+    + "\n" + liftFn("historyStep") + "\n" + liftFn("oldestHeldTime")
+    + "\n" + liftFn("mergeOlder")
     + "\n" + liftFn("noteHistoryDepth") + "\n" + liftFn("historyDepthOf")
-    + "\n" + liftFn("paintHistoryEdge") + "\n" + liftFn("loadMoreHistory")
+    + "\n" + liftFn("noteHistoryProgress")
+    + "\n" + liftFn("paintHistoryEdge") + "\n" + liftFn("loadOlderSlab")
+    + "\n" + liftFn("loadMoreHistory")
     + "\nthis.loadMoreHistory = loadMoreHistory;", box);
 
   /* Two scrolls in the same tick must produce one request. */
@@ -183,17 +197,25 @@ check("reaching the oldest bar asks for more, once at a time", () => {
   const b = box.loadMoreHistory();
   return Promise.all([a, b]).then(() => {
     if (box.calls.length !== 1) throw new Error(box.calls.length + " requests went out for one burst");
-    const got = Number(/count=(\d+)/.exec(box.calls[0])[1]);
-    if (!(got > 800)) throw new Error("it did not widen the window: " + box.calls[0]);
+    const url = box.calls[0];
+    const before = /before=([^&]+)/.exec(url);
+    if (!before) throw new Error("the ask does not say where the held history begins: " + url);
+    if (decodeURIComponent(before[1]) !== held[0].time) {
+      throw new Error("it asked from the wrong edge: " + decodeURIComponent(before[1]));
+    }
+    const got = Number(/count=(\d+)/.exec(url)[1]);
+    if (!(got > 0) || got > 8000) throw new Error("the slab is not bounded: " + got);
+    if (box.S.candles.length !== 1200) {
+      throw new Error("the older bars were not put in front: " + box.S.candles.length);
+    }
 
-    /* Now the broker has no more. The answer stops growing, so the desk
-       must stop asking - otherwise every scroll at the start of history
-       is a request forever. */
-    box.S.candles = new Array(1600);
-    box.API.get = (url) => { box.calls.push(url); return Promise.resolve({ data: new Array(1600) }); };
+    /* Now there is nothing older, anywhere. The desk must stop asking -
+       otherwise every scroll at the start of history is a request
+       forever. */
+    box.API.get = (url2) => { box.calls.push(url2); return Promise.resolve({ data: [] }); };
     return box.loadMoreHistory().then(() => box.loadMoreHistory()).then(() => {
       if (box.calls.length !== 2) {
-        throw new Error("kept asking after the answer stopped growing (" + box.calls.length + " calls)");
+        throw new Error("kept asking after the history ran out (" + box.calls.length + " calls)");
       }
     });
   });

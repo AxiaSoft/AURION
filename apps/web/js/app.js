@@ -14968,6 +14968,42 @@ function chartDays() {
  * up the next time the trader goes looking for them. */
 const HIST_RETRY_MS = 30000;
 
+/* How big one slab of older history is.
+ *
+ * Dragging used to re-ask for a BIGGER NEWEST window: two months to
+ * see the second month, six to see the sixth. Everything already on
+ * the screen came down the wire again every time, and on M1 the last
+ * of those requests is a quarter of a million bars to reveal one more
+ * screenful. That is the "too much loading" this replaces.
+ *
+ * Now each drag fetches one slab that ENDS where the chart currently
+ * begins - and the engine reads it out of AURION's own database, so
+ * no download happens at all for bars that have been seen once. A
+ * slab is about three weeks, floored so a slow timeframe still gets a
+ * useful jump and capped so M1 does not send a month in one reply.
+ */
+function historyStep(timeframe) {
+  return Math.max(1000, Math.min(8000, barsForDays(timeframe, 20)));
+}
+
+/** The oldest bar held, as the engine spells times. */
+function oldestHeldTime() {
+  const first = (S.candles || [])[0];
+  const t = first && String(first.time || "");
+  return t || "";
+}
+
+/** Older bars in front of what is held, without duplicating the joint. */
+function mergeOlder(older, have) {
+  const rows = Array.isArray(older) ? older : [];
+  const kept = Array.isArray(have) ? have : [];
+  if (!rows.length) return kept;
+  const seen = new Set(kept.map((b) => String(b && b.time)));
+  const add = rows.filter((b) => b && !seen.has(String(b.time)));
+  if (!add.length) return kept;
+  return add.concat(kept);
+}
+
 async function loadMoreHistory(opts) {
   if (S._histBusy) return;
   const f = S.chartFocus;
@@ -14979,6 +15015,11 @@ async function loadMoreHistory(opts) {
   /* An explicit ask is honoured whatever the last reply said. */
   if (!asked && S._histDone && S._histDone.key === key
       && Date.now() - S._histDone.at < HIST_RETRY_MS) return;
+  /* The ordinary case: one slab older than the oldest bar on screen. */
+  const before = (opts && opts.before) || oldestHeldTime();
+  if (before && have) {
+    return loadOlderSlab(f, before, asked || historyStep(f.timeframe), key);
+  }
   if (asked && have >= asked) return;
   S._histBusy = true;
   paintHistoryEdge();
@@ -15030,6 +15071,55 @@ async function loadMoreHistory(opts) {
     /* The reply is what turns "we have no more" into "there IS no
        more", so the edge note is decided here rather than on the
        gesture that triggered the fetch. */
+    paintHistoryEdge();
+  }
+}
+
+/**
+ * One slab of older bars, prepended.
+ *
+ * The engine answers this out of the candles table, which is where
+ * every downloaded bar now lives, so going back through months of
+ * history asks nothing of MetaTrader and costs one indexed read. An
+ * empty answer means there is genuinely nothing older on disk or in
+ * the terminal - believed for half a minute, like every other short
+ * reply, because the expert may still be streaming.
+ */
+async function loadOlderSlab(f, before, count, key) {
+  S._histBusy = true;
+  paintHistoryEdge();
+  try {
+    const c = await API.get(`/api/candles?symbol=${encodeURIComponent(f.symbol)}`
+      + `&timeframe=${encodeURIComponent(f.timeframe)}`
+      + `&count=${Math.max(1, Math.round(count))}`
+      + `&before=${encodeURIComponent(before)}`);
+    noteHistoryDepth(f.symbol, f.timeframe, c && c.depth);
+    const older = (c && c.data) || [];
+    if (!older.length) {
+      S._histDone = { key, at: Date.now() };
+      return 0;
+    }
+    const merged = mergeOlder(older, S.candles || []);
+    const gained = merged.length - (S.candles || []).length;
+    if (gained <= 0) {
+      S._histDone = { key, at: Date.now() };
+      return 0;
+    }
+    S.candles = merged;
+    S._histDone = null;
+    /* setBars keeps the span and the offset, which are measured from
+       the newest bar - so bars appearing BEHIND the view leave the
+       view exactly where the trader left it. */
+    S.chart.setBars(merged);
+    noteHistoryProgress({
+      symbol: f.symbol, timeframe: f.timeframe,
+      have: merged.length, want: merged.length, done: true, depth: c && c.depth,
+    });
+    return gained;
+  } catch (e) {
+    return 0;
+  } finally {
+    S._histBusy = false;
     paintHistoryEdge();
   }
 }
@@ -15238,14 +15328,6 @@ function openCalendarMoment(dayKey, at) {
   openChartDesk(symbol, timeframe, { fullscreen: true });
 }
 
-/* How far back the chart has to reach to show that day, in bars of the
-   timeframe in question, with a week of margin either side so the
-   target does not sit jammed against the oldest candle. */
-function barsBackTo(timeframe, at) {
-  const days = Math.ceil((Date.now() - Number(at)) / 86400000) + 7;
-  return barsForDays(timeframe, Math.max(1, days));
-}
-
 async function goPendingMoment() {
   const want = S.pendingMoment;
   if (!want || !S.chart || !S.chartFocus) return;
@@ -15262,10 +15344,31 @@ async function goPendingMoment() {
     const t = first && Date.parse(String(first.time || "").replace(" ", "T"));
     return Number.isFinite(t) && t <= want.at;
   };
-  if (!reaches()) {
-    /* One ask, sized to the date rather than doubled towards it: the
-       trader named a day, so the window is the distance to that day. */
-    await loadMoreHistory({ bars: barsBackTo(want.timeframe, want.at) });
+  /* Walk back to the day, one slab at a time.
+   *
+   * Reported: pressing a date in the calendar left the chart on the
+   * newest candles. The old route asked for ONE enormous newest
+   * window sized to the distance - six months of M1 is a quarter of a
+   * million bars - and when the engine answered with the live window
+   * instead, nothing reached the date and the chart simply stayed
+   * where it was. Slabs are bounded, come out of AURION's own
+   * database, and stop the moment the date is covered or the history
+   * genuinely runs out.
+   *
+   * The date itself is Gregorian throughout. The calendar can be
+   * displayed in the Jalali or Hijri systems - that is a rendering of
+   * the same instant - and the key that travels here is built from
+   * getFullYear/getMonth/getDate, so what the chart is asked for is
+   * the civil day the market actually traded.
+   */
+  const MAX_SLABS = 8;
+  for (let i = 0; i < MAX_SLABS && !reaches(); i += 1) {
+    const gained = await loadOlderSlab(
+      S.chartFocus, oldestHeldTime(),
+      Math.max(historyStep(want.timeframe), 2000),
+      want.symbol + "." + want.timeframe,
+    );
+    if (!gained) break;
   }
   // Cleared whether or not the broker could reach back that far: a
   // second attempt would ask for the same bars and be refused the same
@@ -16310,6 +16413,11 @@ async function enterDesk() {
      a reminder. It only ever raises a notification, and the switch on
      that page stops it completely. */
   try { if (typeof Calendar !== "undefined") Calendar.startReminder(); } catch (e) { /* never break the desk over a toast */ }
+  /* The economic week, before anybody opens the calendar.
+     It comes off this machine's disk when it is fresh, so the usual
+     cost is nothing; when it is not, the request is made here rather
+     than in front of a trader staring at an empty grid. */
+  try { if (typeof Calendar !== "undefined" && Calendar.warm) Calendar.warm(); } catch (e) { /* offline is not a failure */ }
 }
 
 function welcomeIsMobile() {

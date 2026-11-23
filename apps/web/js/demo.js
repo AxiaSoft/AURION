@@ -1098,6 +1098,18 @@
       const symbol = u.searchParams.get("symbol") || "EURUSD";
       const tf = u.searchParams.get("timeframe") || "M15";
       const count = Math.min(Number(u.searchParams.get("count")) || 800, 1500);
+      /* `before`: one slab of older bars, the way the real engine
+         answers a drag back through history. Without it the demo
+         replied with the newest window again, the desk saw nothing it
+         did not already hold, and dragging back in the demo stopped
+         dead at the first screen. */
+      const before = u.searchParams.get("before") || "";
+      if (before) {
+        const all = candles(symbol, tf, 100000);
+        const older = all.filter((b) => String(b.time) < before);
+        const slab = older.slice(Math.max(0, older.length - count));
+        return { ok: true, data: slab, count: slab.length, before, synthetic: true };
+      }
       return { ok: true, data: candles(symbol, tf, count), count, synthetic: true };
     }
 

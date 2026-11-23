@@ -204,6 +204,96 @@ const Calendar = {
 
   /* ---------------- data ---------------- */
 
+  /* ---- the week, kept on disk ------------------------------------
+   *
+   * Reported: "every time I leave the calendar and come back it loads
+   * again". It did - mount() awaited load() unconditionally, so two
+   * requests went out and the grid stayed empty until they came back,
+   * on every single visit, for a week of events that changes a few
+   * times a day.
+   *
+   * So the week is written to localStorage, which is this machine's
+   * disk, and that copy is what the page opens with. A refresh still
+   * happens when the copy is older than REFRESH_MS, but it happens
+   * BEHIND the painted grid and only re-renders if something actually
+   * changed. And the first one of all is done at boot, before the
+   * desk is on screen, which is what "load it before the app comes
+   * up" asks for.
+   */
+  CACHE_KEY: "aurion.cal.week",
+  REFRESH_MS: 20 * 60 * 1000,
+
+  _readCache() {
+    try {
+      const raw = localStorage.getItem(this.CACHE_KEY);
+      if (!raw) return null;
+      const box = JSON.parse(raw);
+      if (!box || !Array.isArray(box.events)) return null;
+      return box;
+    } catch (_) { return null; }
+  },
+
+  _writeCache() {
+    try {
+      localStorage.setItem(this.CACHE_KEY, JSON.stringify({
+        at: Date.now(),
+        source: this.source || "",
+        feed: this.feed || null,
+        blackout: this.blackout || null,
+        session: this.session || null,
+        events: this.events || [],
+      }));
+    } catch (_) { /* private mode, or a quota: the desk still works */ }
+  },
+
+  /** Put the stored week in place without a request. True if there was one. */
+  _useCache() {
+    const box = this._readCache();
+    if (!box) return false;
+    this.source = box.source || this.source || "";
+    this.feed = box.feed || this.feed || null;
+    if (box.blackout) this.blackout = box.blackout;
+    if (box.session) this.session = box.session;
+    this.events = box.events || [];
+    this._cachedAt = Number(box.at) || 0;
+    this._index();
+    return true;
+  },
+
+  /** Is the copy on disk old enough to be worth replacing? */
+  _stale() {
+    return !this._cachedAt || (Date.now() - this._cachedAt) > this.REFRESH_MS;
+  },
+
+  /**
+   * Fill the calendar before anything asks to see it.
+   *
+   * Called once from boot. It serves the stored week instantly and
+   * only reaches the network when that week is old - so the ordinary
+   * start-up costs nothing, and the unusual one is paid before the
+   * desk is on screen rather than in front of a trader waiting for a
+   * grid to appear.
+   */
+  async warm() {
+    if (this._warmed) return;
+    this._warmed = true;
+    const had = this._useCache();
+    if (!had || this._stale()) {
+      try { await this.load(); } catch (_) { /* offline: the cache stands */ }
+    }
+  },
+
+  /** Group the events by day. Pure: no request, no paint. */
+  _index() {
+    this.byDay = new Map();
+    for (const ev of this.events) {
+      const list = this.byDay.get(ev.day) || [];
+      list.push(ev);
+      this.byDay.set(ev.day, list);
+    }
+    for (const list of this.byDay.values()) list.sort((a, b) => a.ms - b.ms);
+  },
+
   async load() {
     try {
       const res = await API.get("/api/news");
@@ -226,14 +316,14 @@ const Calendar = {
     } catch (_) {
       this.session = null;
     }
-    this.byDay = new Map();
-    for (const ev of this.events) {
-      const list = this.byDay.get(ev.day) || [];
-      list.push(ev);
-      this.byDay.set(ev.day, list);
-    }
-    for (const list of this.byDay.values()) {
-      list.sort((a, b) => a.ms - b.ms);
+    this._index();
+    /* Only a week that was actually served is written down. An empty
+       list from an offline desk must not replace a good copy on disk
+       with nothing - that would turn one failed request into a
+       calendar that is empty until the next successful one. */
+    if (this.events.length) {
+      this._cachedAt = Date.now();
+      this._writeCache();
     }
   },
 
@@ -859,7 +949,13 @@ const Calendar = {
       if (!prefs.on) return;
       /* Only when the calendar is not on screen - the view keeps its own
          copy fresh, and a refetch underneath it would be wasted. */
-      const stale = !this._remindFetched || Date.now() - this._remindFetched > 10 * 60 * 1000;
+      /* The copy on disk counts. The reminder used to keep its own idea
+         of freshness and refetch the week every ten minutes whether or
+         not one had just been downloaded for the calendar view, which
+         is the same "it keeps loading" with no screen to show for it. */
+      if (!this.events.length) this._useCache();
+      const stale = this._stale()
+        && (!this._remindFetched || Date.now() - this._remindFetched > 10 * 60 * 1000);
       if (stale && !(this.root && document.body.contains(this.root))) {
         this._remindFetched = Date.now();
         try { await this.load(); } catch (_) { /* offline: try again next pass */ }
@@ -883,11 +979,37 @@ const Calendar = {
   async mount(root) {
     if (!root) return;
     this.root = root;
+
+    /* Paint first, fetch second - and only if the week on disk is old.
+     *
+     * This used to await two requests before drawing anything, every
+     * time the page was opened. Opening a page the trader has already
+     * opened should cost nothing at all. */
+    const had = this.events.length ? true : this._useCache();
+    if (had) {
+      root.innerHTML = this.view();
+      this.bind(root);
+      if (!this._stale()) return;
+      const before = this._signature();
+      try { await this.load(); } catch (_) { return; }
+      if (!document.body.contains(root)) return;
+      // Repainted only if the week actually moved: a re-render steals
+      // the selection and closes an open day popover.
+      if (this._signature() !== before) this.rerender();
+      return;
+    }
+
     await this.load();
     // The user may have navigated away while the fetch was in flight.
     if (!document.body.contains(root)) return;
     root.innerHTML = this.view();
     this.bind(root);
+  },
+
+  /** Cheap "has anything changed" stamp for the week on screen. */
+  _signature() {
+    return `${this.events.length}:${this.source || ""}:` +
+      (this.events.length ? `${this.events[0].ms}-${this.events[this.events.length - 1].ms}` : "");
   },
 
   /** Re-render in place (month change, calendar-system change) without a refetch. */
