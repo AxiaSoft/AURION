@@ -648,81 +648,78 @@ if (!jsdom) {
       if (!d.querySelectorAll(".ccx-risk-row").length) throw new Error("the risk figures are not set apart");
     });
 
-    check("the masthead says whether the desk is actually connected", () => {
-      /* The connection state used to live only in the hero, and the
-         hero is hidden the moment an expert attaches - so a working
-         desk showed nothing about engine, terminal or experts, and a
-         frozen snapshot looked exactly like a live one. */
-      const d = frag(T.views.command());
-      const rail = d.querySelector(".ccx-head .ccx-rail");
-      if (!rail) throw new Error("there is no status rail in the masthead");
-      const chips = rail.querySelectorAll(".ccx-chip");
-      if (chips.length < 3) throw new Error("the rail carries " + chips.length + " chips");
-      const txt = rail.textContent;
-      for (const [what, word] of [["the terminal", T.I18N.t("status.mt5_live")],
-        ["the experts", T.I18N.t("status.ea_attached", { n: 2 })]]) {
-        if (!txt.includes(word)) throw new Error(what + " is not reported");
+    check("the band reads in one direction, whichever way the desk runs", () => {
+      /* Reported from a Persian desk: things were aligned for a
+         left-to-right page. Two causes, both of them a physical
+         decision left in a sheet that is otherwise logical. */
+      const flat = appCss.replace(/\/\*[\s\S]*?\*\//g, "").replace(/\s*\n\s*/g, "");
+
+      /* 1. One variable decides which way a horizontal gradient runs.
+            The risk bar had an RTL counterpart; the amber and the red
+            states did not, so the bar pointed the right way until it
+            mattered and then pointed backwards. */
+      const tight = flat.replace(/\s+/g, "");
+      if (!/html\[dir="rtl"\]\.ccx\{--ccx-dir:270deg\}/.test(tight)) {
+        throw new Error("the command centre does not flip its gradient direction");
       }
-      if (!rail.querySelectorAll("i.dot.live").length) throw new Error("nothing shows as live");
-      /* And when the figures were last true. */
-      T.S.snap.ts = "2026-10-28T10:20:30Z";
-      if (!frag(T.views.command()).querySelector(".ccx-rail .mono")) {
-        throw new Error("the snapshot's age is not shown");
+      for (const m of flat.matchAll(/\.ccx[-a-z]*[^{]*\{[^}]*linear-gradient\((\d+)deg/g)) {
+        throw new Error("a fixed " + m[1] + "deg gradient is back inside the command centre");
       }
-      return chips.length + " chips, dots and a timestamp";
+
+      /* 2. The dividers were the leading border of a figure's own
+            cell, which in RTL fell between that number and the label
+            of the zone beside it. */
+      const head = /\.ccx-equity\{([^}]*)\}/.exec(flat);
+      if (head && /border-inline-start:1px/.test(head[1])) {
+        throw new Error("the masthead still divides its zones with a leading rule");
+      }
+
+      /* 3. The broker string is machine text in its own script. */
+      const sub = /\.ccx-id-sub\{([^}]*)\}/.exec(flat);
+      if (!sub || !/unicode-bidi:plaintext/.test(sub[1])) {
+        throw new Error("the broker line is reordered by the page's direction");
+      }
+      return "one direction variable, no leading rules, plaintext for machine text";
     });
 
-    check("the open book is summed above the table of it", () => {
-      /* The page carried the rows and nothing else, so "how exposed am
-         I, and which way" was answered by adding up in your head. */
+    check("the account reference reads as pairs, not as a label and a far-off number", () => {
+      /* The widest card on the page had its labels on one edge and
+         their values on the other - the two things that belong
+         together were furthest apart exactly where there was most
+         room, and on an RTL desk the eye crossed the whole card in
+         the other direction to do the same join. */
+      const flat = appCss.replace(/\/\*[\s\S]*?\*\//g, "").replace(/\s*\n\s*/g, "");
+      const rows = /\.ccx-ref-rows\{([^}]*)\}/.exec(flat);
+      if (!rows || !/display:grid/.test(rows[1])) throw new Error("the reference list is still a stack of lines");
+      if (!/repeat\(auto-fit/.test(rows[1])) throw new Error("it does not use the width it is given");
+      const row = /\.ccx-ref-row\{([^}]*)\}/.exec(flat);
+      if (!row || !/flex-direction:column/.test(row[1])) throw new Error("label and value are still on one line, far apart");
+      if (/justify-content:space-between/.test(row[1])) throw new Error("the value is still pushed to the opposite edge");
+      /* The figures are still the same four, named the same way. */
       const d = frag(T.views.command());
-      const book = d.querySelector(".ccx-pair .ccx-book");
-      if (!book) throw new Error("there is no book panel");
-      const figs = [...book.querySelectorAll(".ccx-book-n")].map((b) => b.textContent.trim());
-      if (figs[0] !== "2") throw new Error("the open count is " + figs[0] + ", not 2");
-      /* 12.4 long and -4.2 short on the fixture. */
-      if (!/8\.2/.test(figs[1])) throw new Error("the floating total is " + figs[1]);
-      const keys = book.querySelector(".ccx-split-keys").textContent;
-      if (!/0\.20/.test(keys) || !/0\.10/.test(keys)) throw new Error("the lots each way are wrong: " + keys);
-      const bar = book.querySelectorAll(".ccx-split > i");
-      if (bar.length !== 2) throw new Error("the long/short split is not drawn");
-      const w = bar[0].getAttribute("style") || "";
-      if (!/--w:66\.6/.test(w)) throw new Error("the long share is " + w);
-      const net = book.querySelector(".ccx-book-net-v").textContent;
-      if (!/\+/.test(net) || !/0\.10/.test(net)) throw new Error("the net exposure is " + net);
-      return "count, floating, split and net, all summed from the rows";
-    });
-
-    check("an empty book measures nothing rather than drawing a flat bar", () => {
-      const keep = T.S.snap.positions;
-      T.S.snap.positions = [];
-      const d = frag(T.views.command());
-      T.S.snap.positions = keep;
-      const book = d.querySelector(".ccx-book");
-      if (book.querySelector(".ccx-split")) throw new Error("a 0/0 split is drawn as a measurement");
-      if (!book.querySelector(".ccx-book-empty")) throw new Error("nothing says the book is empty");
-    });
-
-    check("the rail and the book are repainted by the live patch", () => {
-      /* This view re-renders only when its key changes, which can be
-         minutes; a summary that is only true at mount reads as live
-         and is not. One builder each, called from both places. */
-      const src = appJs;
-      for (const fn of ["cmdRailHtml", "cmdBookHtml"]) {
-        const calls = src.split(fn + "()").length - 1;
-        if (calls < 2) throw new Error(fn + " is used " + calls + " time(s) - view or patch, not both");
+      for (const k of ["command.balance", "command.margin", "command.free_margin", "command.leverage"]) {
+        if (!d.querySelector(`.ccx-ref-row [data-metric="${k}"]`)) throw new Error(k + " was lost in the reshape");
       }
-      const el = win.document.createElement("div");
-      el.innerHTML = T.views.command();
-      win.document.body.appendChild(el);
-      T.S.snap.positions = [...T.S.snap.positions,
-        { ticket: 103, symbol: "XAUUSD", type: "sell", volume: 0.5, profit: -10, strategy: "trend" }];
-      T.patchLive();
-      const n = win.document.querySelector("#cmd-book .ccx-book-n").textContent.trim();
-      T.S.snap.positions = T.S.snap.positions.slice(0, 2);
-      el.remove();
-      if (n !== "3") throw new Error("the book still says " + n + " after a third trade opened");
-      return "one builder, two callers";
+      return "a strip of four stats, label over value";
+    });
+
+    check("the two limits are a pair on a wide desk, and nothing was added", () => {
+      const flat = appCss.replace(/\/\*[\s\S]*?\*\//g, "").replace(/\s*\n\s*/g, "");
+      const tight = flat.replace(/\s+/g, "");
+      if (!/@media\(min-width:761px\)\{\.ccx-risk\.ccx-panel\{grid-template-columns:repeat\(2/.test(tight)) {
+        throw new Error("the daily loss and the drawdown are still stacked at every width");
+      }
+      /* A reshape, not a new feature: the command centre carries the
+         masthead, the two panels, the positions and the strategies,
+         and nothing else. */
+      const d = frag(T.views.command());
+      const pair = d.querySelector(".ccx-pair");
+      if (pair.children.length !== 2) throw new Error("the panel row has " + pair.children.length + " cards");
+      for (const gone of [".ccx-rail", ".ccx-book", ".ccx-split", ".ccx-chip"]) {
+        if (d.querySelector(gone)) throw new Error(gone + " is still on the page");
+      }
+      if (d.querySelectorAll(".ccx-risk-row").length !== 2) throw new Error("the limits panel changed its contents");
+      return "two meters side by side, same page otherwise";
     });
 
     check("equity is the headline, risk is measured, reference is listed", () => {
