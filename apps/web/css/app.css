@@ -890,8 +890,12 @@ html[dir="rtl"] .nav button:hover{transform:translateX(-2px)}
 .about-logo{width:56px;height:56px;object-fit:contain;background:transparent;border:none;border-radius:0;box-shadow:none}
 .nav-copy{font-size:10px;color:var(--muted)}
 
-/* license key gate */
-.gate-card{text-align:center}
+/* license key gate.
+   Scoped to the auth card: the command centre's "who is trading" card
+   carries the same .gate-card class, and this rule was centring every
+   line of it - a heading, a sentence and a list of reasons, all adrift
+   in the middle of the card with nothing to line up against. */
+.auth-card.gate-card{text-align:center}
 .gate-badge{width:56px;height:56px;margin:0 auto 14px;border-radius:16px;display:flex;align-items:center;justify-content:center;background:linear-gradient(135deg,rgb(var(--accent-rgb) / .16),rgb(var(--accent-rgb) / .04));border:1px solid rgb(var(--accent-rgb) / .3);color:var(--cyan)}
 .gate-badge svg{width:28px;height:28px}
 .gate-card input{text-align:center;letter-spacing:1px;font-family:Consolas,monospace}
@@ -1391,17 +1395,6 @@ tr:hover td{background:rgb(var(--wash) / .02)}
 /* The strategy chip carries a list of names and can run long; it keeps
    the fill but is allowed to wrap rather than be cut off. */
 .gate-card .gate-pills .pill{white-space:normal}
-/* The armed/idle badge beside the heading is the same kind of fact and
-   was the same kind of outline. */
-.gate-card .auto-banner .pill{
-  background:rgb(var(--wash) / .07);border-color:rgb(var(--wash) / .14);
-  color:var(--text);font-weight:600;
-}
-.gate-card .auto-banner .pill.on{
-  background:rgb(var(--accent-rgb) / .18);
-  border-color:rgb(var(--accent-rgb) / .45);
-  color:var(--cyan);
-}
 /* MetaTrader's own status chip, and its neighbours, sit in the same
    section of the command centre and were named in the same sentence. */
 .gate-card .ea-chart .pill.ok,.ea-list .pill.ok{
@@ -1417,7 +1410,106 @@ tr:hover td{background:rgb(var(--wash) / .02)}
   background:var(--on-accent);box-shadow:none;animation:none;
 }
 .gate-card .pill.on{color:var(--on-accent);background:var(--cyan);border-color:transparent}
-.gate-why{margin:0;padding-inline-start:18px;color:var(--muted);font-size:13px;line-height:1.7}
+/* ------------------------------------------------ who is trading ----
+   The card was a heading, a run-on sentence, a row of chips and a
+   bulleted list: four shapes for one question. It is one column of
+   four blocks now - who, the two numbers that qualify it, the gates,
+   and the reasons - each of which can be read on its own.
+   -------------------------------------------------------------------- */
+.gate-card .gx{ display:flex; flex-direction:column; gap:14px; text-align:start }
+
+.gx-top{ display:flex; align-items:center; gap:14px; flex-wrap:wrap }
+/* The state in one glance, before a word is read. */
+.gx-face{
+  inline-size:48px; block-size:48px; flex:none;
+  display:grid; place-items:center; border-radius:15px;
+  background:rgb(var(--wash) / .06); border:1px solid var(--line); color:var(--muted);
+}
+.gx-face svg{ inline-size:23px; block-size:23px }
+.gx-face.is-robot{
+  color:var(--cyan); background:rgb(var(--accent-rgb) / .14);
+  border-color:rgb(var(--accent-rgb) / .38);
+}
+.gx-face.is-manual{ color:var(--warning); border-color:rgb(var(--wash) / .18) }
+.gx-face.is-nobody{ color:var(--bad); border-color:rgb(255 107 138 / .3) }
+
+.gx-id{ min-inline-size:0; flex:1 1 170px }
+.gx-k{
+  margin:0; font-size:11px; font-weight:600; letter-spacing:.07em;
+  text-transform:uppercase; color:var(--muted);
+}
+html[dir="rtl"] .gx-k{ letter-spacing:0; text-transform:none }
+/* The answer to the card's own question, at the size of an answer. */
+.gx-who{ margin:3px 0 0; font-size:21px; font-weight:650; line-height:1.2 }
+
+/* margin-inline-start:auto, so the badges sit at the far end of the
+   row in both directions and fall under the name when the row wraps. */
+.gx-tags{ display:flex; align-items:center; flex-wrap:wrap; gap:8px; margin-inline-start:auto }
+.gx-state{
+  display:inline-flex; align-items:center; gap:7px;
+  min-block-size:30px; padding:0 12px; border-radius:999px;
+  border:1px solid var(--line); background:rgb(var(--wash) / .06);
+  font-size:12px; font-weight:650; color:var(--muted); white-space:nowrap;
+}
+.gx-state.is-on{
+  color:var(--cyan); background:rgb(var(--accent-rgb) / .14);
+  border-color:rgb(var(--accent-rgb) / .42);
+}
+
+.gx-meta{ display:flex; flex-wrap:wrap; gap:12px 30px }
+.gx-stat{ display:flex; flex-direction:column; gap:2px; min-inline-size:0 }
+.gx-stat span{ font-size:11px; color:var(--muted) }
+.gx-stat b{ font-size:15px; font-weight:650; font-variant-numeric:tabular-nums }
+
+/* Six answers to one question, so they are one block of equal cells
+   rather than a line of chips of six different widths that re-wrapped
+   into a new shape every time one of them changed. */
+.gate-card .gate-pills.gx-checks{
+  display:grid; gap:8px; margin:0;
+  grid-template-columns:repeat(auto-fit, minmax(156px, 1fr));
+}
+.gx-checks .pill{
+  display:flex; align-items:center; justify-content:flex-start; gap:8px;
+  min-block-size:36px; padding:7px 12px; border-radius:12px;
+  text-align:start; line-height:1.35;
+}
+/* Shape as well as colour: green against red is not a difference
+   everybody can see, and this is the card that says whether the robot
+   is allowed to trade. */
+.gx-checks .pill svg{ inline-size:15px; block-size:15px; flex:none }
+
+/* Reasons, as rows. A bulleted list indented by 18px put the markers
+   outside the card's own rhythm, and on a right-to-left desk the
+   indent and the text pulled against each other. */
+.gate-why{
+  margin:0; padding:0; list-style:none;
+  display:flex; flex-direction:column; gap:8px;
+  color:var(--muted); font-size:13px; line-height:1.6;
+}
+.gate-why li{
+  display:flex; align-items:flex-start; gap:10px;
+  padding:9px 12px; border-radius:12px;
+  background:rgb(var(--wash) / .04); border:1px solid var(--line);
+}
+.gate-why li::before{
+  content:""; flex:none; inline-size:7px; block-size:7px; margin-block-start:.45em;
+  border-radius:50%; background:var(--bad);
+}
+.gate-why li.is-ready{ color:var(--text) }
+.gate-why li.is-ready::before{ background:var(--ok, var(--cyan)) }
+
+@media (max-width:560px){
+  .gx-face{ inline-size:42px; block-size:42px; border-radius:13px }
+  .gx-who{ font-size:19px }
+  /* The badges drop under the name rather than squeezing it to two
+     characters; two per row, which is what fits a phone. */
+  .gx-tags{ margin-inline-start:0; inline-size:100% }
+  .gate-card .gate-pills.gx-checks{ grid-template-columns:repeat(2, minmax(0,1fr)) }
+  .gx-checks .pill{ font-size:11.5px; padding:7px 10px }
+}
+@media (max-width:380px){
+  .gate-card .gate-pills.gx-checks{ grid-template-columns:minmax(0,1fr) }
+}
 .cmd{display:flex;flex-direction:column;gap:14px}
 
 /* The "open positions" cards.

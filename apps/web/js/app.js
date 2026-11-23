@@ -4314,11 +4314,34 @@ function gateSlides() {
   const n = (S.snap?.positions || []).filter((x) => !sym || x.symbol === sym).length;
   return [{ ...live, symbol: sym, timeframe: sym ? (S.timeframe || "") : "", positions: n }];
 }
+/**
+ * "Who is trading", one chart at a time.
+ *
+ * Rebuilt. It used to be a banner heading with a run-on sentence under
+ * it -- "agent: robot - style: normal - open: 2" -- a row of six chips,
+ * and a bulleted list of reasons. Three different shapes for three
+ * facts of the same importance, and the one thing a trader opens this
+ * card to read, the NAME of whoever is allowed to trade, was a bold
+ * word in the middle of a line of grey text.
+ *
+ * Now: who, stated once and large, with a face that carries the state
+ * in colour and an armed/idle badge beside it; the two numbers that
+ * qualify it as a pair of small stats; the six gates as a grid of
+ * filled chips, each with a tick or a cross so the answer survives
+ * being read in a hurry or by somebody who cannot separate the two
+ * colours; and the reasons as rows rather than bullets.
+ *
+ * The chips keep the solid state colour: it was asked for twice, in
+ * those words, and a 16% wash was rejected both times.
+ */
 function gateSlideInnerHtml(slide) {
   const g = slide || {};
   const reasons = g.reasons || [];
   const who = g.who || "nobody";
   const whoLabel = I18N.t("gate.who_" + who);
+  /* The face is the fastest read on the card: a robot that is allowed
+     to act, a hand that is not, or a dead terminal. */
+  const faceIcon = who === "robot" ? "bolt" : who === "manual" ? "user" : "minus";
   const items = [
     ["mt5", g.mt5, "gate.mt5"],
     ["auto", g.auto_trade, "gate.auto"],
@@ -4327,26 +4350,52 @@ function gateSlideInnerHtml(slide) {
     ["prop", !(g.prop && g.prop_locked), g.prop ? "gate.prop_ok" : "gate.prop_off"],
     ["ai", !reasons.includes("ai_low"), g.ai_gate ? "gate.ai_on" : "gate.ai_off"],
   ];
-  const why = reasons.length ? reasons.map((r) => `<li>${I18N.t("gate.r_" + r)}</li>`).join("") : `<li>${I18N.t("gate.ready")}</li>`;
-  const title = g.symbol ? (g.timeframe ? g.symbol + " · " + g.timeframe : g.symbol) : "";
-  return `<div class="auto-banner" style="margin:0 0 10px">
-      <div>
-        <h3 style="margin:0 0 4px">${I18N.t("gate.title")}${title ? `<span class="slide-sym mono">${esc(title)}</span>` : ""}</h3>
-        <p class="sub">${I18N.t("gate.who")}: <b>${whoLabel}</b> · ${I18N.t("style.title")}: <span>${I18N.t("style." + (g.style || "normal"))}</span> · ${I18N.t("gate.open_n", { n: g.positions || 0 })}</p>
+  const why = reasons.length
+    ? reasons.map((r) => `<li>${I18N.t("gate.r_" + r)}</li>`).join("")
+    : `<li class="is-ready">${I18N.t("gate.ready")}</li>`;
+  const title = g.symbol ? (g.timeframe ? g.symbol + " \u00B7 " + g.timeframe : g.symbol) : "";
+  return `<div class="gx">
+      <header class="gx-top">
+        <span class="gx-face is-${esc(who)}" aria-hidden="true">${icon(faceIcon)}</span>
+        <div class="gx-id">
+          <p class="gx-k">${I18N.t("gate.title")}</p>
+          <h3 class="gx-who">${esc(whoLabel)}</h3>
+        </div>
+        <div class="gx-tags">
+          ${title ? `<span class="slide-sym mono">${esc(title)}</span>` : ""}
+          <span class="gx-state${g.ready ? " is-on" : ""}"><i class="dot ${g.ready ? "live" : "down"}"></i>${
+            g.ready ? I18N.t("gate.armed") : I18N.t("gate.idle")}</span>
+        </div>
+      </header>
+      <!-- The two facts that qualify the name above: how it is trading,
+           and how much is already open under it. They were the tail of
+           a sentence; as a pair of stats they can be read without
+           reading the words around them. -->
+      <div class="gx-meta">
+        <div class="gx-stat">
+          <span>${I18N.t("style.title")}</span>
+          <b>${I18N.t("style." + (g.style || "normal"))}</b>
+        </div>
+        <div class="gx-stat">
+          <span>${I18N.t("command.positions")}</span>
+          <b class="mono">${fmt(g.positions || 0, 0)}</b>
+        </div>
       </div>
-      <span class="pill ${g.ready ? "on" : ""}">${g.ready ? I18N.t("gate.armed") : I18N.t("gate.idle")}</span>
-    </div>
-    <div class="gate-pills">${items.map(([id, ok, key]) => {
-      /* The strategies chip names what is deciding. With an empty book
-         and solo trading on, that is the robot itself - and printing
-         the engine's internal name "robot" there would read as a
-         strategy nobody can find in the list. */
-      const names = id === "st" && g.strategies?.length
-        ? (g.solo_robot ? I18N.t("gate.solo_robot") : g.strategies.join(", "))
-        : "";
-      return `<span class="pill ${ok ? "ok" : "no"}">${I18N.t(key)}${names ? " · " + esc(names) : ""}</span>`;
-    }).join("")}</div>
-    <ul class="gate-why">${why}</ul>`;
+      <div class="gate-pills gx-checks">${items.map(([id, ok, key]) => {
+        /* The strategies chip names what is deciding. With an empty book
+           and solo trading on, that is the robot itself - and printing
+           the engine's internal name "robot" there would read as a
+           strategy nobody can find in the list. */
+        const names = id === "st" && g.strategies?.length
+          ? (g.solo_robot ? I18N.t("gate.solo_robot") : g.strategies.join(", "))
+          : "";
+        /* A tick or a cross as well as the colour: the two states have
+           to be told apart by shape, not by green against red alone. */
+        return `<span class="pill ${ok ? "ok" : "no"}">${icon(ok ? "check" : "close")}<span>${
+          I18N.t(key)}${names ? " \u00B7 " + esc(names) : ""}</span></span>`;
+      }).join("")}</div>
+      <ul class="gate-why">${why}</ul>
+    </div>`;
 }
 function gateKey() {
   const slides = gateSlides();
