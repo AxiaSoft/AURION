@@ -648,6 +648,84 @@ if (!jsdom) {
       if (!d.querySelectorAll(".ccx-risk-row").length) throw new Error("the risk figures are not set apart");
     });
 
+    /* ---- 6c. "who is trading" ---------------------------------------- */
+
+    check("the card answers its own question in one word, at the size of an answer", () => {
+      /* It used to be a heading, then a run-on sentence - "agent:
+         robot - style: normal - open: 2" - so the one fact the card
+         exists for was a bold word inside a line of grey text. */
+      const d = frag(T.views.command());
+      const gx = d.querySelector("#trade-gate .gx");
+      if (!gx) throw new Error("the gate card was not rebuilt");
+      const who = gx.querySelector(".gx-who");
+      if (!who || !who.textContent.trim()) throw new Error("nobody is named");
+      if (!gx.querySelector(".gx-k")) throw new Error("the question itself is gone");
+      const face = gx.querySelector(".gx-face");
+      if (!face) throw new Error("there is no state medallion");
+      if (!/is-(robot|manual|nobody)/.test(face.className)) throw new Error("the face does not carry the state");
+      if (!face.querySelector("svg")) throw new Error("the face is empty");
+      const state = gx.querySelector(".gx-state");
+      if (!state || !state.querySelector("i.dot")) throw new Error("armed/idle has no live dot");
+      /* And the two numbers that qualify it are stats, not a tail. */
+      const stats = gx.querySelectorAll(".gx-meta .gx-stat");
+      if (stats.length !== 2) throw new Error("the style and the open count are not a pair of stats");
+      if (gx.textContent.includes(":")) {
+        /* a label:value sentence is exactly what was removed */
+        if (/\w+:\s*\w+\s*·/.test(gx.textContent)) throw new Error("the run-on sentence is back");
+      }
+      return "face, name, badge, two stats";
+    });
+
+    check("the six gates are told apart by shape as well as by colour", () => {
+      const d = frag(T.views.command());
+      const chips = d.querySelectorAll("#trade-gate .gx-checks .pill");
+      if (chips.length !== 6) throw new Error("there are " + chips.length + " gate chips, not 6");
+      for (const c of chips) {
+        if (!c.querySelector("svg")) throw new Error("a chip carries colour and nothing else: " + c.textContent.trim());
+        if (!/\bok\b|\bno\b/.test(c.className)) throw new Error("a chip has no state class");
+      }
+      /* The fill was asked for twice, in those words. It stays. */
+      const flat = appCss.replace(/\s+/g, "");
+      if (!/\.gate-card\.pill\.ok\{background:var\(--cyan\)/.test(flat)) {
+        throw new Error("the solid chip the trader asked for twice has been washed out again");
+      }
+      if (!/\.gate-card\.gate-pills\.gx-checks\{display:grid/.test(flat)) {
+        throw new Error("the chips are still a line that re-wraps into a new shape on every change");
+      }
+      return "6 chips, tick or cross, still solid";
+    });
+
+    check("the reasons are rows, and the card is not centred by the licence screen", () => {
+      const flat = appCss.replace(/\/\*[\s\S]*?\*\//g, "").replace(/\s+/g, "");
+      if (/(^|\})\.gate-card\{text-align:center\}/.test(flat)) {
+        throw new Error("the licence gate still centres every line of the command centre's card");
+      }
+      if (!/\.auth-card\.gate-card\{text-align:center\}/.test(flat)) {
+        throw new Error("the licence gate lost its own centring");
+      }
+      const why = /\.gate-why\{([^}]*)\}/.exec(flat);
+      if (!why || !/list-style:none/.test(why[1])) throw new Error("the reasons are still a bulleted list");
+      if (/padding-inline-start:18px/.test(why[1])) throw new Error("the 18px bullet indent is still there");
+      const d = frag(T.views.command());
+      const items = d.querySelectorAll("#trade-gate .gate-why li");
+      if (!items.length) throw new Error("no reason is given at all");
+      return items.length + " row(s)";
+    });
+
+    check("it folds for a phone instead of being squeezed", () => {
+      const flat = appCss.replace(/\/\*[\s\S]*?\*\//g, "").replace(/\s+/g, "");
+      if (!/@media\(max-width:560px\)\{[^@]*\.gate-card\.gate-pills\.gx-checks\{grid-template-columns:repeat\(2/.test(flat)) {
+        throw new Error("six chips stay in one grid on a phone");
+      }
+      if (!/@media\(max-width:560px\)\{[^@]*\.gx-tags\{margin-inline-start:0/.test(flat)) {
+        throw new Error("the badges still fight the name for the same row on a phone");
+      }
+      if (!/@media\(max-width:380px\)\{[^@]*\.gx-checks\{grid-template-columns:minmax\(0,1fr\)/.test(flat)) {
+        throw new Error("on the smallest screens the chips are two to a row and cut off");
+      }
+      return "two columns at 560, one at 380";
+    });
+
     check("the band reads in one direction, whichever way the desk runs", () => {
       /* Reported from a Persian desk: things were aligned for a
          left-to-right page. Two causes, both of them a physical
