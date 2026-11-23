@@ -13673,6 +13673,9 @@ function drawReplayChart(all, marks) {
      * scale. Both are drawn UNDER the candles, so highlighting a
      * trade never hides the bars it is about. */
   const hover = S._btHover;
+  /* Where that highlight ended up, so the panel describing the trade
+     can be kept off it - see btPlaceTip. */
+  let hoverBox = null;
   if (hover && (hover.inT || hover.outT)) {
     const ai = atAll.has(hover.inT) ? atAll.get(hover.inT) : -1;
     const bi = atAll.has(hover.outT) ? atAll.get(hover.outT) : all.length - 1;
@@ -13688,10 +13691,19 @@ function drawReplayChart(all, marks) {
       g.fillStyle = tint;
       g.fillRect(Math.min(x0, x1), padT, Math.max(2, Math.abs(x1 - x0)), h - padT - padB);
       g.restore();
+      hoverBox = {
+        x0: Math.min(x0, x1), x1: Math.max(x0, x1),
+        // The band alone is the whole height of the chart; a price
+        // rectangle narrows that to the trade's own range below.
+        y0: padT, y1: h - padB, boxed: false,
+      };
       const pin = num(hover.entry), pout = num(hover.exit);
       if (pin && pout) {
         const yTop = Math.min(y(pin), y(pout));
         const yBot = Math.max(y(pin), y(pout));
+        hoverBox.boxed = true;
+        hoverBox.yTop = yTop;
+        hoverBox.yBot = Math.max(yTop + 2, yBot);
         g.save();
         g.globalAlpha = 0.18;
         g.fillStyle = tint;
@@ -13799,6 +13811,7 @@ function drawReplayChart(all, marks) {
     total: all.length, start, count: bars.length,
     padL, padR, padT, padB, w, h, lo, hi, bw,
     marks: placed,
+    box: hoverBox,
   };
   btPaintReplayTip(cv);
 }
@@ -13828,20 +13841,79 @@ function btTip(host) {
   return el;
 }
 
-/** Put it beside the point without letting it fall out of the frame. */
-function btPlaceTip(el, host, px, py) {
+/**
+ * Put it beside the point without letting it fall out of the frame -
+ * and, on the replay chart, without letting it sit on the thing it is
+ * describing.
+ *
+ * Reported: "when I hover the chart, the window with the details lands
+ * inside the square that is the trade's range and I cannot see the
+ * range". It did. The panel was placed from the marker alone, and the
+ * marker is a corner of that rectangle, so the one picture the hover
+ * exists to draw - where the trade ran, and between which two prices -
+ * was underneath the text describing it.
+ *
+ * `avoid` is that highlight in the same coordinates. The panel is put
+ * clear of it: beside the band if either side has room, otherwise
+ * above or below the price rectangle. Only when the highlight leaves
+ * nowhere to stand does it fall back to the old placement, because a
+ * panel pushed off the chart is worse than one overlapping it.
+ */
+function btPlaceTip(el, host, px, py, avoid) {
   if (!el || !host) return;
   const w = host.clientWidth || 0;
   const h = host.clientHeight || 0;
   el.hidden = false;
   const tw = el.offsetWidth || 150;
   const th = el.offsetHeight || 54;
-  let left = px + 14;
-  if (left + tw > w - 6) left = px - tw - 14;
-  if (left < 6) left = 6;
-  let top = py - th - 12;
-  if (top < 6) top = py + 16;
-  if (top + th > h - 6) top = Math.max(6, h - th - 6);
+  const gap = 12;
+  const edge = 6;
+  const fitsH = (l) => l >= edge && l + tw <= w - edge;
+  const fitsV = (t) => t >= edge && t + th <= h - edge;
+  // Near the pointer, but never outside the frame.
+  const nearV = () => Math.max(edge, Math.min(h - edge - th, py - th / 2));
+
+  let left = null;
+  let top = null;
+
+  if (avoid && Number.isFinite(avoid.x0) && Number.isFinite(avoid.x1)) {
+    // Beside the band: the whole highlight stays visible.
+    const right = avoid.x1 + gap;
+    const leftOf = avoid.x0 - tw - gap;
+    /* Whichever side has more room first, so a trade near the left
+       edge is described on its right and vice versa, rather than the
+       panel always trying the same side and giving up. */
+    const sides = (w - avoid.x1) >= avoid.x0 ? [right, leftOf] : [leftOf, right];
+    for (const cand of sides) {
+      if (fitsH(cand)) { left = cand; top = nearV(); break; }
+    }
+    if (left === null) {
+      /* The band is too wide to stand beside. Clear the rectangle
+         instead - that is the part carrying the prices, and the band
+         behind it is only a tint. */
+      const yTop = Number.isFinite(avoid.yTop) ? avoid.yTop : avoid.y0;
+      const yBot = Number.isFinite(avoid.yBot) ? avoid.yBot : avoid.y1;
+      const over = yTop - th - gap;
+      const under = yBot + gap;
+      const room = [over, under].filter(fitsV);
+      if (room.length) {
+        // The side with more clearance, so the panel is not jammed
+        // against the frame when both technically fit.
+        top = room.length === 1 ? room[0]
+          : (yTop - edge >= (h - edge) - yBot ? over : under);
+        left = Math.max(edge, Math.min(w - edge - tw, px - tw / 2));
+      }
+    }
+  }
+
+  if (left === null || top === null) {
+    left = px + 14;
+    if (left + tw > w - edge) left = px - tw - 14;
+    if (left < edge) left = edge;
+    top = py - th - gap;
+    if (top < edge) top = py + 16;
+    if (top + th > h - edge) top = Math.max(edge, h - th - edge);
+  }
   el.style.left = Math.round(left) + "px";
   el.style.top = Math.round(top) + "px";
 }
@@ -13870,7 +13942,7 @@ function btPaintReplayTip(cv) {
   }
   rows.push(`<span>${I18N.t("bt.tip_when")}</span><b class="mono">${esc(btWhen(m.inT))}${open ? "" : " → " + esc(btWhen(m.outT))}</b>`);
   el.innerHTML = `<div class="bt-tip-grid">${rows.join("")}</div>`;
-  btPlaceTip(el, host, m.x, m.y);
+  btPlaceTip(el, host, m.x, m.y, (S._btGeom || {}).box);
 }
 
 /**
@@ -14257,110 +14329,50 @@ function drawEquityCurve(curve) {
   g.stroke();
   g.setLineDash([]);
 
-  /* Profit above the starting line, loss below it - on the same curve.
+  /* One colour for the whole curve, chosen from where the run ended.
    *
-   * Reported as "the equity curve does not show the losses; it counts
-   * the drops as profit". It did. The whole picture took ONE colour,
-   * chosen from where the run happened to end, so a test that finished
-   * ahead drew its drawdowns in the profit colour and filled them in
-   * green: a trader reading the shape was shown a loss painted as a
-   * gain. The run's ending is not a fact about the middle of it.
-   *
-   * So the area is filled in two passes, each clipped to its own side
-   * of the starting line, and the line itself is drawn in pieces that
-   * change colour exactly where it crosses. Nothing about the data
-   * changed - this is the same curve, told truthfully. */
+   * This was briefly drawn in two colours, green above the starting
+   * line and red below it. That was not what was asked for and it is
+   * not what this picture is: the curve answers "how did the run go",
+   * one run, one answer, and a line that changes colour four times on
+   * the way up reads as four verdicts. What had to be right was the
+   * number - a drawdown must be reported as the loss it was - and
+   * that is a question about the data, which is fixed where the data
+   * is thinned (engine/aurion/backtest/engine.py::_thin) and read off
+   * in the panel below. The colour is left alone. */
   const ended = curve[curve.length - 1] >= base;
-  const yBase = y(base);
+  const colour = ended ? up : down;
 
-  /* Which side of the starting line each point is on. A point sitting
-     exactly ON the line belongs to the side its neighbours are on -
-     every run starts on the line, and calling that first point a
-     profit would open a losing run with a green stub. A run that
-     never leaves the line is flat, which is not a loss. */
-  const sides = curve.map((v) => (v > base ? 1 : v < base ? -1 : 0));
-  let carry = 0;
-  for (let i = 0; i < sides.length; i++) { if (sides[i]) carry = sides[i]; else sides[i] = carry; }
-  carry = 0;
-  for (let i = sides.length - 1; i >= 0; i--) { if (sides[i]) carry = sides[i]; else sides[i] = carry; }
-  const above = (i) => sides[i] >= 0;
-  const everAbove = curve.some((v) => v > base);
-  const everBelow = curve.some((v) => v < base);
-
+  const fill = g.createLinearGradient(0, padT, 0, h - padB);
   // A var() can resolve to anything; only a plain hex can take an alpha
   // suffix. Anything else falls back to a flat global alpha below.
-  const softOf = (c) => (/^#[0-9a-f]{6}$/i.test(c) ? c + "3a" : "");
-  const area = () => {
-    g.beginPath();
-    g.moveTo(x(0), yBase);
-    for (let i = 0; i < curve.length; i++) g.lineTo(x(i), y(curve[i]));
-    g.lineTo(x(curve.length - 1), yBase);
-    g.closePath();
-  };
-  /* One half of the area: everything above the starting line, or
-     everything below it. The gradient fades away from that line in
-     both cases, so the two halves read as one picture. */
-  const half = (colour, top, bottom) => {
-    if (bottom - top < 0.5) return;
-    const soft = softOf(colour);
-    const grad = g.createLinearGradient(0, top, 0, bottom);
-    grad.addColorStop(0, top < yBase ? (soft || colour) : "transparent");
-    grad.addColorStop(1, top < yBase ? "transparent" : (soft || colour));
-    g.save();
-    g.beginPath();
-    g.rect(0, top, w, bottom - top);
-    g.clip();
-    area();
-    if (!soft) g.globalAlpha = 0.22;
-    g.fillStyle = grad;
-    g.fill();
-    g.restore();
-  };
-  // Only the halves the run actually reached. Filling a side it never
-  // visited paints a colour over nothing, which is how a losing run
-  // came to carry a green wash along its top edge.
-  if (everAbove) half(up, padT, Math.min(yBase, h - padB));
-  if (everBelow) half(down, Math.max(yBase, padT), h - padB);
+  const soft = /^#[0-9a-f]{6}$/i.test(colour) ? colour + "3a" : "";
+  fill.addColorStop(0, soft || colour);
+  fill.addColorStop(1, "transparent");
+  g.beginPath();
+  g.moveTo(x(0), y(curve[0]));
+  for (let i = 1; i < curve.length; i++) g.lineTo(x(i), y(curve[i]));
+  g.lineTo(x(curve.length - 1), y(base));
+  g.lineTo(x(0), y(base));
+  g.closePath();
+  g.save();
+  if (!soft) g.globalAlpha = 0.22;
+  g.fillStyle = fill;
+  g.fill();
+  g.restore();
 
-  /* The line, in pieces. A segment that crosses the starting line is
-     cut at the crossing, so the colour changes where the run actually
-     went from ahead to behind rather than at the nearest sample. */
+  g.beginPath();
+  g.moveTo(x(0), y(curve[0]));
+  for (let i = 1; i < curve.length; i++) g.lineTo(x(i), y(curve[i]));
+  g.strokeStyle = colour;
   g.lineWidth = 2;
   g.lineJoin = "round";
-  g.lineCap = "round";
-  let from = 0;
-  const stroke = (a, b, ax, ay, bx, by, above) => {
-    g.beginPath();
-    g.moveTo(ax, ay);
-    for (let i = a + 1; i <= b; i++) g.lineTo(x(i), y(curve[i]));
-    if (bx !== null) g.lineTo(bx, by);
-    g.strokeStyle = above ? up : down;
-    g.stroke();
-  };
-  for (let i = 0; i < curve.length - 1; i++) {
-    const here = above(i);
-    const next = above(i + 1);
-    if (here === next) continue;
-    // Where between the two samples the line is worth exactly `base`.
-    const span = curve[i + 1] - curve[i];
-    const f = Math.abs(span) < 1e-12 ? 0 : (base - curve[i]) / span;
-    const cx = x(i) + (x(i + 1) - x(i)) * Math.max(0, Math.min(1, f));
-    stroke(from, i, x(from), y(curve[from]), cx, yBase, here);
-    from = i + 1;
-    // Start the next piece at the crossing, not at the next sample,
-    // or the line would have a gap at every crossing.
-    g.beginPath();
-    g.moveTo(cx, yBase);
-    g.lineTo(x(from), y(curve[from]));
-    g.strokeStyle = next ? up : down;
-    g.stroke();
-  }
-  stroke(from, curve.length - 1, x(from), y(curve[from]), null, null, above(from));
+  g.stroke();
 
   // Where it finished.
   g.beginPath();
   g.arc(x(curve.length - 1), y(curve[curve.length - 1]), 3.5, 0, Math.PI * 2);
-  g.fillStyle = ended ? up : down;
+  g.fillStyle = colour;
   g.fill();
 
   /* The point being asked about: a rule down the chart and a dot on

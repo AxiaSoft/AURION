@@ -26,6 +26,7 @@ from .risk import (
     round_volume,
     volume_for_risk,
 )
+from .sizing import auto_lot
 from .stops import ladder_target, resolve_stop, resolve_stop_r
 from ..ai.engine import AIEngine
 from ..backtest.engine import Backtester
@@ -4059,8 +4060,18 @@ class Trader:
         return out
 
     def _robot_volume(self, payload: dict[str, Any]) -> Any:
-        """Volume for a robot entry: manual mode pins every robot trade to the
-        user's fixed lot (any symbol); auto keeps the strategy's own volume."""
+        """Volume for a robot entry.
+
+        Manual mode pins every robot trade to the user's fixed lot, on
+        any symbol. Auto sizes the entry from how sure the strategy is
+        and how much equity stands behind it - see runtime/sizing.py.
+
+        Auto used to mean "whatever volume the strategy named", and
+        every built-in names 0.10, so auto was a constant: a setup the
+        robot barely liked was staked exactly as heavily as one it was
+        certain of. A signal that reports no confidence at all is not
+        sized on a guess - it keeps the volume it asked for.
+        """
         if str(getattr(self, "volume_mode", "auto")) == "manual":
             try:
                 vol = float(getattr(self, "manual_volume", 0) or 0)
@@ -4068,6 +4079,12 @@ class Trader:
                 vol = 0.0
             if vol > 0:
                 return vol
+        try:
+            conf = float(payload.get("confidence") or 0)
+        except (TypeError, ValueError):
+            conf = 0.0
+        if conf > 0:
+            return auto_lot(conf, self._equity_now())
         return payload.get("volume")
 
     async def _blocked(
