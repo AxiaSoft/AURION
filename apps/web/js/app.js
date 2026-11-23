@@ -3468,8 +3468,9 @@ function bindChrome() {
 
 /**
  * The build stamp, written AURION-YY<M>DD -- "AURION-26N23" for the
- * 23rd of November 2026, where <M> is the initial of the English
- * month name.
+ * 23rd of November 2026, where <M> is the English month: its initial
+ * where that is unique, and the initial plus one lower-case letter
+ * where it is not (Ap, My, Ju, Jy, Au).
  *
  * It was DSK-DDMMYY. Two things changed and both were asked for: the
  * prefix now names the product rather than the desk process, and the
@@ -3564,14 +3565,21 @@ function fromMainHtml(res) {
 }
 
 function buildTag(iso) {
-  /* The initial of each English month, by number. Kept inside the
-     function on purpose: this is lifted out of the file and run on its
-     own by two test harnesses, and a constant declared beside it would
-     not come with it. Ambiguous alone -- January, June and July all
-     begin with J -- which is why the year leads and the day follows: a
-     stamp is matched against a known build, not decoded into a date
-     from nothing. */
-  const MONTHS = "JFMAMJJASOND";
+  /* The month, as one letter where that is unambiguous and two where
+     it is not.
+     Twelve English month names share seven initials: J for January,
+     June and July, M for March and May, A for April and August. A
+     single letter would make three different builds in a year print
+     the same stamp, which is the one thing an identifier may not do.
+     So the five months that own their initial keep it, and the seven
+     that collide carry a second, lower-case letter chosen to tell them
+     apart -- Ju for June against Jy for July, Ap for April against Au
+     for August. Given exactly, not derived, because "the second letter
+     of the name" produces Ju for both June and July.
+     Kept inside the function on purpose: this is lifted out of the
+     file and run on its own by two test harnesses, and a constant
+     declared beside it would not come with it. */
+  const MONTHS = ["J", "F", "M", "Ap", "My", "Ju", "Jy", "Au", "S", "O", "N", "D"];
   const raw = String(iso || "").trim();
   const m = /^(\d{4})-(\d{2})-(\d{2})/.exec(raw);
   if (!m) {

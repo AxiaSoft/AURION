@@ -72,24 +72,48 @@ check("the build stamp is written AURION-YY<M>DD", () => {
   if (/DSK-/.test(got)) throw new Error("the old DSK- prefix is still there");
 });
 
-check("the month is one letter, taken from the English name", () => {
+check("no two months can print the same stamp", () => {
+  /* Twelve month names share seven initials. A single letter would
+     give January, June and July one stamp between them - which is the
+     one thing an identifier may not do. */
   const months = [
-    ["2026-01-05", "AURION-26J05"], ["2026-02-05", "AURION-26F05"],
-    ["2026-03-05", "AURION-26M05"], ["2026-04-05", "AURION-26A05"],
-    ["2026-05-05", "AURION-26M05"], ["2026-06-05", "AURION-26J05"],
-    ["2026-07-05", "AURION-26J05"], ["2026-08-05", "AURION-26A05"],
-    ["2026-09-05", "AURION-26S05"], ["2026-10-05", "AURION-26O05"],
-    ["2026-11-05", "AURION-26N05"], ["2026-12-05", "AURION-26D05"],
+    ["2026-01-23", "AURION-26J23"],  ["2026-02-23", "AURION-26F23"],
+    ["2026-03-23", "AURION-26M23"],  ["2026-04-23", "AURION-26Ap23"],
+    ["2026-05-23", "AURION-26My23"], ["2026-06-23", "AURION-26Ju23"],
+    ["2026-07-23", "AURION-26Jy23"], ["2026-08-23", "AURION-26Au23"],
+    ["2026-09-23", "AURION-26S23"],  ["2026-10-23", "AURION-26O23"],
+    ["2026-11-23", "AURION-26N23"],  ["2026-12-23", "AURION-26D23"],
   ];
+  const seen = new Set();
   for (const [iso, want] of months) {
     const got = buildTag(iso);
     if (got !== want) throw new Error(iso + " became " + got + ", expected " + want);
+    if (seen.has(got)) throw new Error("two months print " + got);
+    seen.add(got);
+    /* The month always opens with a capital; only the letter that
+       separates a collision is lower case. */
+    const mon = got.slice("AURION-26".length, -2);
+    if (mon[0] !== mon[0].toUpperCase()) throw new Error("the month starts lower case: " + got);
+    if (mon.length > 1 && mon[1] !== mon[1].toLowerCase()) {
+      throw new Error("the separating letter is not lower case: " + got);
+    }
+  }
+});
+
+check("a month keeps its second letter only when its initial collides", () => {
+  /* February, September, October, November and December own their
+     initial, so they stay at one character. Spending two on them
+     would be noise. */
+  for (const iso of ["2026-02-23", "2026-09-23", "2026-10-23", "2026-11-23", "2026-12-23"]) {
+    if (buildTag(iso).length !== 12) throw new Error(iso + " became " + buildTag(iso));
+  }
+  for (const iso of ["2026-04-23", "2026-05-23", "2026-06-23", "2026-07-23", "2026-08-23"]) {
+    if (buildTag(iso).length !== 13) throw new Error(iso + " became " + buildTag(iso));
   }
 });
 
 check("a single-digit day keeps its leading zero", () => {
-  /* AURION-26J5 would not line up against its neighbours; the stamp is
-     fixed-width or it is not a format. */
+  /* AURION-26J5 would not line up against its neighbours. */
   const got = buildTag("2026-01-05");
   if (got !== "AURION-26J05") throw new Error("2026-01-05 became " + got);
   if (got.length !== 12) throw new Error("the stamp is " + got.length + " characters, not 12");
@@ -97,7 +121,7 @@ check("a single-digit day keeps its leading zero", () => {
 
 check("the century is dropped, not the decade", () => {
   if (buildTag("2024-12-31") !== "AURION-24D31") throw new Error(buildTag("2024-12-31"));
-  if (buildTag("2030-06-09") !== "AURION-30J09") throw new Error(buildTag("2030-06-09"));
+  if (buildTag("2030-06-09") !== "AURION-30Ju09") throw new Error(buildTag("2030-06-09"));
 });
 
 check("a missing or malformed date is never stamped with today", () => {
