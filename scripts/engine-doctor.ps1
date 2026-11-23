@@ -170,6 +170,14 @@ if ($storeSeen) {
     Say "  powershell -ExecutionPolicy Bypass -File scripts\provision.ps1"
     Say "and afterwards data\runtime.env must read"
     Say "  PYTHON=$Root\runtime\python\python.exe"
+    Say ""
+    Say "Removing the Store Python is optional - AURION refuses it either way -"
+    Say "but it does stop 'py' and a bare 'python' resolving to it for everything"
+    Say "else on this machine:"
+    Say "  Settings > Apps > Installed apps > Python 3.12 (Microsoft Store) > Uninstall"
+    Say "  Settings > Apps > Advanced app settings > App execution aliases:"
+    Say "    turn python.exe and python3.exe OFF"
+    Say "Do it AFTER this installation has its own runtime\python, not before."
 }
 
 if ($envNode -and -not (Test-Path $envNode)) { Bad "data\runtime.env points at a Node that is no longer there: $envNode" }

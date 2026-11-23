@@ -770,6 +770,11 @@ function Explain-NoPython {
     Say "    then run this script again."
     Say ""
     Say "Then check it took:  type data\runtime.env"
+    Say ""
+    Say "Uninstalling the Store Python is optional and changes nothing for"
+    Say "AURION, which refuses it either way. Do it only after this"
+    Say "installation has its own runtime\python, and remember that anything"
+    Say "else on this machine using that interpreter loses it."
 }
 
 <#
