@@ -403,7 +403,7 @@ check("the build tag is a real build tag, not a dash", () => {
   win.__T.S.buildDate = "2026-10-30";
   win.document.getElementById("host").innerHTML = win.__T.views.settings();
   const tag = win.document.getElementById("build-tag").textContent;
-  if (tag !== "AURION-26O30") throw new Error("build tag reads " + tag);
+  if (tag !== "AURION-26O3001") throw new Error("build tag reads " + tag);
   return tag;
 });
 

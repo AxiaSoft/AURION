@@ -4,7 +4,7 @@
  *   1. open positions in the markets view must be closable;
  *   2. the EA chart must show open positions differently;
  *   3. the About page, redesigned again for desktop and mobile;
- *   4. the build stamp written AURION-YY<M>DD;
+ *   4. the build stamp written AURION-YY<M>DD<NN>;
  *   5. the AI page, rebuilt for desktop and mobile;
  *   6. prop risk and the command centre, both rebuilt for both sizes.
  *
@@ -58,18 +58,32 @@ const chartJs = read("js/chart-tools.js");
    ====================================================================== */
 
 const buildTag = (() => {
-  const src = /function buildTag\(iso\) \{[\s\S]*?\n\}/.exec(appJs);
+  const src = /function buildTag\(iso, seq\) \{[\s\S]*?\n\}/.exec(appJs);
   if (!src) return null;
   // eslint-disable-next-line no-eval
   return eval("(" + src[0].replace(/^function buildTag/, "function") + ")");
 })();
 
-check("the build stamp is written AURION-YY<M>DD", () => {
+check("the build stamp is written AURION-YY<M>DD<NN>", () => {
   if (!buildTag) throw new Error("buildTag is missing");
-  const got = buildTag("2026-11-23");
-  if (got !== "AURION-26N23") throw new Error("2026-11-23 became " + got + ", expected AURION-26N23");
+  const got = buildTag("2026-11-23", 1);
+  if (got !== "AURION-26N2301") throw new Error("2026-11-23 became " + got + ", expected AURION-26N2301");
   /* The product, not the desk process, is what a customer reads back. */
   if (/DSK-/.test(got)) throw new Error("the old DSK- prefix is still there");
+});
+
+check("the daily release number is two digits, and never missing", () => {
+  /* Two builds in one afternoon are the case the date cannot answer,
+     which is exactly when a stamp is being read back to support. */
+  if (buildTag("2026-11-23", 2) !== "AURION-26N2302") throw new Error(buildTag("2026-11-23", 2));
+  if (buildTag("2026-11-23", 12) !== "AURION-26N2312") throw new Error(buildTag("2026-11-23", 12));
+  /* Unknown is read as the first build of that day, not as a gap. */
+  for (const bad of [undefined, null, "", 0, NaN, -3, "x"]) {
+    const got = buildTag("2026-11-23", bad);
+    if (got !== "AURION-26N2301") throw new Error(JSON.stringify(bad) + " became " + got);
+  }
+  if (buildTag("2026-11-23", 999) !== "AURION-26N2399") throw new Error("the tail grew past two digits");
+  if (buildTag("2026-11-23", "07") !== "AURION-26N2307") throw new Error("a string number is not read");
 });
 
 check("no two months can print the same stamp", () => {
@@ -77,12 +91,12 @@ check("no two months can print the same stamp", () => {
      give January, June and July one stamp between them - which is the
      one thing an identifier may not do. */
   const months = [
-    ["2026-01-23", "AURION-26J23"],  ["2026-02-23", "AURION-26F23"],
-    ["2026-03-23", "AURION-26M23"],  ["2026-04-23", "AURION-26Ap23"],
-    ["2026-05-23", "AURION-26My23"], ["2026-06-23", "AURION-26Ju23"],
-    ["2026-07-23", "AURION-26Jy23"], ["2026-08-23", "AURION-26Au23"],
-    ["2026-09-23", "AURION-26S23"],  ["2026-10-23", "AURION-26O23"],
-    ["2026-11-23", "AURION-26N23"],  ["2026-12-23", "AURION-26D23"],
+    ["2026-01-23", "AURION-26J2301"],  ["2026-02-23", "AURION-26F2301"],
+    ["2026-03-23", "AURION-26M2301"],  ["2026-04-23", "AURION-26Ap2301"],
+    ["2026-05-23", "AURION-26My2301"], ["2026-06-23", "AURION-26Ju2301"],
+    ["2026-07-23", "AURION-26Jy2301"], ["2026-08-23", "AURION-26Au2301"],
+    ["2026-09-23", "AURION-26S2301"],  ["2026-10-23", "AURION-26O2301"],
+    ["2026-11-23", "AURION-26N2301"],  ["2026-12-23", "AURION-26D2301"],
   ];
   const seen = new Set();
   for (const [iso, want] of months) {
@@ -92,7 +106,7 @@ check("no two months can print the same stamp", () => {
     seen.add(got);
     /* The month always opens with a capital; only the letter that
        separates a collision is lower case. */
-    const mon = got.slice("AURION-26".length, -2);
+    const mon = got.slice("AURION-26".length, -4);
     if (mon[0] !== mon[0].toUpperCase()) throw new Error("the month starts lower case: " + got);
     if (mon.length > 1 && mon[1] !== mon[1].toLowerCase()) {
       throw new Error("the separating letter is not lower case: " + got);
@@ -105,23 +119,23 @@ check("a month keeps its second letter only when its initial collides", () => {
      initial, so they stay at one character. Spending two on them
      would be noise. */
   for (const iso of ["2026-02-23", "2026-09-23", "2026-10-23", "2026-11-23", "2026-12-23"]) {
-    if (buildTag(iso).length !== 12) throw new Error(iso + " became " + buildTag(iso));
+    if (buildTag(iso).length !== 14) throw new Error(iso + " became " + buildTag(iso));
   }
   for (const iso of ["2026-04-23", "2026-05-23", "2026-06-23", "2026-07-23", "2026-08-23"]) {
-    if (buildTag(iso).length !== 13) throw new Error(iso + " became " + buildTag(iso));
+    if (buildTag(iso).length !== 15) throw new Error(iso + " became " + buildTag(iso));
   }
 });
 
 check("a single-digit day keeps its leading zero", () => {
   /* AURION-26J5 would not line up against its neighbours. */
-  const got = buildTag("2026-01-05");
-  if (got !== "AURION-26J05") throw new Error("2026-01-05 became " + got);
-  if (got.length !== 12) throw new Error("the stamp is " + got.length + " characters, not 12");
+  const got = buildTag("2026-01-05", 1);
+  if (got !== "AURION-26J0501") throw new Error("2026-01-05 became " + got);
+  if (got.length !== 14) throw new Error("the stamp is " + got.length + " characters, not 14");
 });
 
 check("the century is dropped, not the decade", () => {
-  if (buildTag("2024-12-31") !== "AURION-24D31") throw new Error(buildTag("2024-12-31"));
-  if (buildTag("2030-06-09") !== "AURION-30Ju09") throw new Error(buildTag("2030-06-09"));
+  if (buildTag("2024-12-31") !== "AURION-24D3101") throw new Error(buildTag("2024-12-31"));
+  if (buildTag("2030-06-09") !== "AURION-30Ju0901") throw new Error(buildTag("2030-06-09"));
 });
 
 check("a missing or malformed date is never stamped with today", () => {
@@ -1511,7 +1525,7 @@ if (!jsdom) {
 
     check("the About page shows the build stamp in the new format", () => {
       const d = frag(T.views.about());
-      if (!/AURION-26O28/.test(d.textContent)) throw new Error("the build stamp is not on the page");
+      if (!/AURION-26O2801/.test(d.textContent)) throw new Error("the build stamp is not on the page");
       if (/2026-10-28/.test(d.textContent)) throw new Error("the raw ISO date is still printed");
     });
 
@@ -1527,7 +1541,7 @@ if (!jsdom) {
          the page at all, so that is what is checked. */
       const about = appJs.slice(appJs.indexOf("  about() {"), appJs.indexOf("\n  profile() {"));
       if (/about-copy-ver/.test(about)) throw new Error("the copy button is back");
-      if ((about.match(/buildTag\(buildDate\)/g) || []).length < 2) {
+      if ((about.match(/buildTag\(buildDate, S\.buildSeq\)/g) || []).length < 2) {
         throw new Error("the build stamp is not printed beside the version");
       }
     });

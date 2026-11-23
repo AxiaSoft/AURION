@@ -37,6 +37,9 @@ data/prop-day.json
 # belongs in the repository, and a committed token is a revoked token.
 data/github-cache.json
 data/update-settings.json
+# Which build of today this installation is on - a local tally of the
+# engine fingerprints seen since midnight, meaningless on another machine.
+data/build-seq.json
 
 # The build script keeps the artwork it repacked, next to the icon it made.
 installer/assets/generated/*.original.png
