@@ -827,48 +827,112 @@ class CandleChart {
     this.draw();
   }
 
-  /** Shade and label the stretch that has not been analysed yet. */
+  /**
+   * Which candles have been analysed, which have not, and which are
+   * being worked on right now.
+   *
+   * Reported: "that analysis square is half the screen with 'still
+   * analysing' written in it, and then the signals are shown OUTSIDE
+   * the square - show exactly which candles it is running on."
+   *
+   * The square was the UNANALYSED stretch and the label said
+   * "analysing", so it read as a claim about itself: this part is
+   * being worked on. It was the opposite - that part had not been
+   * looked at yet, and the marks outside it were the finished work.
+   * One mislabelled rectangle, and the picture said the reverse of
+   * what was true.
+   *
+   * Now there are two regions and they say what they are. The pale
+   * wash is the stretch nobody has analysed yet, labelled as such.
+   * The slab the engine is working through is outlined in its own
+   * colour with its own label, so "which candles is it on" has an
+   * answer that can be pointed at. And the boundary between analysed
+   * and not is drawn whether or not any setups have been found -
+   * before, a chart with no marks yet showed no boundary at all, so
+   * the emptiest chart, which is the one most likely to be misread,
+   * was the one that explained itself least.
+   */
   paintSignalCoverage(L) {
     const cov = this.signalCoverage;
     if (!cov || cov.complete || !this.showSignals) return;
-    if (!this.signals || !this.signals.length) return;
-    const edge = Number(cov.from) - L.start;
-    // Entirely off the left of the view: nothing unanalysed is visible.
-    if (!(edge > 0)) return;
-    const x = Math.min(L.plotR, Math.max(L.plotL, L.xOf(Math.min(edge, L.rows.length - 1))));
-    if (x <= L.plotL + 1) return;
     const ctx = this.ctx;
     const T = chartTheme();
-    ctx.save();
-    /* A wash, not a curtain. The candles underneath are real history
-       and must stay readable - the only thing being said here is that
-       no strategy has been asked about them yet. */
-    ctx.globalAlpha = 0.07;
-    ctx.fillStyle = T.muted;
-    ctx.fillRect(L.plotL, L.plotT, x - L.plotL, L.plotB - L.plotT);
-    ctx.globalAlpha = 1;
-    ctx.setLineDash([4, 4]);
-    ctx.strokeStyle = T.muted;
-    ctx.globalAlpha = 0.45;
-    ctx.lineWidth = 1;
-    ctx.beginPath();
-    ctx.moveTo(x + 0.5, L.plotT);
-    ctx.lineTo(x + 0.5, L.plotB);
-    ctx.stroke();
-    ctx.setLineDash([]);
-    /* Only worth saying if there is room to say it; a clipped word is
-       worse than the shading alone, which already reads as "different
-       from the rest". */
-    const text = this.i18n("chart.signals_analysing", "Still analysing");
-    ctx.font = "11px IBM Plex Mono, Vazirmatn, monospace";
-    const w = ctx.measureText(text).width;
-    if (x - L.plotL > w + 16) {
-      ctx.globalAlpha = 0.75;
-      ctx.fillStyle = T.muted;
-      ctx.textAlign = "right";
+    const lastIdx = Math.max(0, L.rows.length - 1);
+    // An index in the whole history, as an x on this view.
+    const xAt = (i) => {
+      const rel = Math.max(0, Math.min(lastIdx, i - L.start));
+      return Math.min(L.plotR, Math.max(L.plotL, L.xOf(rel)));
+    };
+
+    const label = (text, x, align) => {
+      ctx.font = "11px IBM Plex Mono, Vazirmatn, monospace";
+      const w = ctx.measureText(text).width;
+      if (w + 16 > Math.abs(L.plotR - L.plotL)) return;
+      ctx.globalAlpha = 0.8;
+      ctx.textAlign = align;
       ctx.textBaseline = "top";
-      ctx.fillText(text, x - 8, L.plotT + 6);
+      ctx.fillText(text, x, L.plotT + 6);
+      ctx.globalAlpha = 1;
+    };
+
+    ctx.save();
+
+    /* The stretch nobody has looked at yet. A wash, not a curtain:
+       the candles underneath are real history and must stay
+       readable - the only thing being said is that no strategy has
+       been asked about them. */
+    const edge = Number(cov.from) - L.start;
+    if (edge > 0) {
+      const x = xAt(Number(cov.from));
+      if (x > L.plotL + 1) {
+        ctx.globalAlpha = 0.07;
+        ctx.fillStyle = T.muted;
+        ctx.fillRect(L.plotL, L.plotT, x - L.plotL, L.plotB - L.plotT);
+        ctx.globalAlpha = 0.45;
+        ctx.setLineDash([4, 4]);
+        ctx.strokeStyle = T.muted;
+        ctx.lineWidth = 1;
+        ctx.beginPath();
+        ctx.moveTo(x + 0.5, L.plotT);
+        ctx.lineTo(x + 0.5, L.plotB);
+        ctx.stroke();
+        ctx.setLineDash([]);
+        ctx.fillStyle = T.muted;
+        if (x - L.plotL > 60) {
+          label(this.i18n("chart.signals_unanalysed", "Not analysed yet"), x - 8, "right");
+        }
+      }
     }
+
+    /* The slab being worked through on this pass. Only while the desk
+       says a request is actually in the air - an outline that stays
+       up between passes claims work is happening when nothing is. */
+    const nf = Number(cov.nextFrom);
+    const nt = Number(cov.nextTo);
+    if (cov.busy && Number.isFinite(nf) && Number.isFinite(nt) && nt > nf
+        && nt > L.start && nf < L.start + L.rows.length) {
+      const x0 = xAt(nf);
+      const x1 = xAt(nt);
+      if (x1 - x0 >= 2) {
+        ctx.globalAlpha = 0.13;
+        ctx.fillStyle = T.violet || T.muted;
+        ctx.fillRect(x0, L.plotT, x1 - x0, L.plotB - L.plotT);
+        ctx.globalAlpha = 0.9;
+        ctx.strokeStyle = T.violet || T.muted;
+        ctx.lineWidth = 1.5;
+        ctx.setLineDash([6, 3]);
+        ctx.beginPath();
+        ctx.rect(x0 + 0.5, L.plotT + 0.5, Math.max(2, x1 - x0 - 1), L.plotB - L.plotT - 1);
+        ctx.stroke();
+        ctx.setLineDash([]);
+        ctx.globalAlpha = 1;
+        ctx.fillStyle = T.violet || T.muted;
+        const n = Math.max(0, Math.round(nt - nf));
+        label(this.i18n("chart.signals_doing_now", "Analysing these {n} candles")
+          .replace("{n}", String(n)), (x0 + x1) / 2, "center");
+      }
+    }
+
     ctx.restore();
   }
 

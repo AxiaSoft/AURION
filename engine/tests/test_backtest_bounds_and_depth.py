@@ -201,7 +201,10 @@ def test_an_impossible_period_says_what_history_exists():
     """'No bars in that period' alone cannot be acted on."""
     src = (Path(__file__).resolve().parents[1] / "aurion/runtime/trader.py").read_text("utf-8")
     at = src.index("async def backtest(")
-    body = src[at: at + 6000]
+    # Generous on purpose: the slice is only here to keep the search
+    # inside backtest(), and the refusal branch has drifted further
+    # down the function as the download states were told apart.
+    body = src[at: at + 12000]
     assert "this terminal only has" in body
 
 

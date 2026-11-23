@@ -129,6 +129,10 @@ function grab(src, name) {
       this.setTick = () => {};
     };
     const syncChartPrecision = () => {};
+    /* The grid also raises and clears the "waiting for candles" veil;
+       that is DOM work and has its own suite. */
+    const paintChartVeils = () => {};
+    const clearVeil = () => {};
   `;
   const mk = (sym, tf) => ({
     getAttribute: (k) => (k === "data-mini" ? sym : tf),

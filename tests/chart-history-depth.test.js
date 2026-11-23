@@ -177,6 +177,11 @@ check("reaching the oldest bar fetches one slab BEHIND it, once at a time", () =
       },
     },
     $: () => null,
+    /* The hint line now also drives the veil over a chart that has no
+       candles yet; that lives in the DOM and this sandbox has none. */
+    paintChartVeils: () => {},
+    signalCoverageNote: () => "",
+    signalCoveragePct: () => -1,
     console,
   };
   vm.createContext(box);

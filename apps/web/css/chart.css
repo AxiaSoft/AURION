@@ -563,6 +563,51 @@ html[dir="rtl"] .tv-flyout { transform: translateX(6px) }
   transition: width .35s ease;
 }
 
+/* Two jobs over the same candles: downloading them, and analysing
+   them. They run at once, and one line meant whichever spoke last hid
+   the other, so each gets its own row. */
+.tv-hint-row { display: block }
+.tv-hint-row + .tv-hint-row { margin-block-start: 6px }
+
+/* ----------------------------------------------- waiting for candles -- */
+/* A chart with nothing in it is indistinguishable from a chart that has
+   stopped, and the download it is waiting on can take tens of seconds -
+   six months of M5 is fifty thousand candles, and MetaTrader only starts
+   building a timeframe when something asks for it.
+
+   Deliberately opaque. A translucent veil over an empty canvas shows
+   the grid underneath and reads as a half-drawn chart; over a chart
+   that still holds the previous timeframe's candles it would be worse
+   still, which is why nothing puts this up while there are real bars
+   to look at. */
+.chart-veil {
+  position: absolute; inset: 0; z-index: 3;
+  display: flex; flex-direction: column;
+  align-items: center; justify-content: center; gap: 10px;
+  padding: 16px;
+  background: var(--s1, rgba(12, 14, 20, .92));
+  color: var(--muted);
+  font-size: 12.5px; line-height: 1.5; text-align: center;
+}
+.chart-veil[hidden] { display: none }
+.chart-veil-txt { max-width: 38ch }
+.chart-veil-spin {
+  width: 22px; height: 22px; border-radius: 50%;
+  border: 2px solid color-mix(in srgb, var(--muted) 30%, transparent);
+  border-block-start-color: var(--accent);
+  animation: chartVeilSpin .9s linear infinite;
+}
+@keyframes chartVeilSpin { to { transform: rotate(360deg) } }
+.chart-veil-bar {
+  width: min(220px, 70%); height: 3px; border-radius: 999px;
+  background: color-mix(in srgb, var(--muted) 25%, transparent);
+  overflow: hidden;
+}
+.chart-veil-bar > i {
+  display: block; height: 100%; border-radius: inherit;
+  background: var(--accent);
+  transition: width .35s ease;
+}
 /* ------------------------------------------------- selection style bar -- */
 /* Colour and thickness used to live behind a double-click, in a dock most
    people never opened. Selecting a shape now brings its controls to it. */
@@ -1571,6 +1616,9 @@ html:fullscreen body { background: var(--bg) }
 @media (prefers-reduced-motion: reduce) {
   .tv-menu, .tv-flyout, .tv-body, .tv-nav, .tv-switch i { transition: none !important }
   .tv, .tv-rail, .tv-toolscrim { transition: none !important }
+  /* The waiting veil keeps its text and its progress bar; only the
+     turning stops. A spinner is the one part of it nobody needs. */
+  .chart-veil-spin { animation: none }
 }
 
 /* A drawing that contradicts itself - a long whose stop is above its entry -

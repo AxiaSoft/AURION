@@ -5882,12 +5882,41 @@ class Trader:
             store.pop(next(iter(store)))
 
         complete = covered_lo <= WARMUP_BARS and covered_hi >= total
+
+        # Re-planning against the state just written is the only way
+        # to be sure this says what the next call will really do; a
+        # second copy of the planner's arithmetic here would drift
+        # away from it the first time either changed.
+        next_lo = next_hi = None
+        if not complete:
+            nxt = self._chart_mark_plan(symbol, timeframe, armed, bars)
+            if not nxt.get("complete"):
+                next_lo = max(0, min(total, int(nxt.get("first") or 0)))
+                next_hi = max(next_lo, min(total, int(nxt.get("last") or 0)))
+
         return {
             **result,
             "signals": merged,
             "count": len(merged),
             "covered_from": covered_lo,
             "covered_to": covered_hi,
+            # Which bars those are, by name. The desk cannot turn an
+            # index into a date on its own - it holds a different slice
+            # of the history than the engine analysed - and "analysed
+            # from bar 14 200" is not something a trader can check
+            # against their own chart.
+            "covered_from_time": times[covered_lo] if covered_lo < total else "",
+            "covered_to_time": times[covered_hi - 1] if 0 < covered_hi <= total else "",
+            "total_bars": total,
+            # The slab the NEXT call will work through, so the desk can
+            # point at the candles being analysed instead of shading
+            # everything that is not finished yet and labelling the lot
+            # "analysing". Asked for in those words: show exactly which
+            # candles the analysis is running on.
+            "next_from": next_lo,
+            "next_to": next_hi,
+            "next_from_time": times[next_lo] if next_lo is not None and next_lo < total else "",
+            "next_to_time": times[next_hi - 1] if next_hi and 0 < next_hi <= total else "",
             # The desk draws a boundary at `covered_from` and says marks
             # start there, so an unanalysed stretch is never read as a
             # stretch with no setups. `complete` turns that off.
@@ -6043,13 +6072,57 @@ class Trader:
         oldest_held = str((bars[0] or {}).get("time") or "")[:10] if bars else ""
         too_recent = bool(asked_from and oldest_held and asked_from < oldest_held)
         if len(bars) < want or too_recent:
+            # Three attempts, not one.
+            #
+            # Reported: "I tried to backtest M5 on a symbol, the app
+            # had that symbol on H1, and the M5 run said there is
+            # nothing there." There was nothing there - yet. A
+            # timeframe no chart has been opened on does not exist in
+            # the terminal until something asks for it, the expert's
+            # first CopyRates on it comes back empty while MetaTrader
+            # goes to the broker, and the single ask this made was
+            # over long before the series arrived. The answer then
+            # read as a verdict on the broker's archive instead of a
+            # report on a download that had just started.
             bars = await self.bridge.pull_candles(
-                symbol, timeframe, want, need_from=asked_from,
+                symbol, timeframe, want, need_from=asked_from, tries=3,
             ) or bars
         if not bars:
-            return {"ok": False, "code": "no_history",
-                    "args": {"symbol": symbol, "timeframe": timeframe},
-                    "error": "no real MT5 history available for this symbol/timeframe"}
+            # Still nothing. Say which of the two it is, because they
+            # need opposite things from the trader: waiting, or giving
+            # up on this symbol. An expert is attached (checked above),
+            # so a timeframe the terminal genuinely has no bars for at
+            # all is the rarer case by far.
+            depth = {}
+            try:
+                depth = self.bridge.hist_depth(symbol, timeframe) or {}
+            except Exception:
+                depth = {}
+            # The terminal ANSWERED and said it holds none: that is a
+            # fact about the broker's archive and waiting will not
+            # change it. Anything else - no answer yet, or an answer
+            # saying it holds bars we have not received - is a
+            # download in progress, and telling that trader there is
+            # "no history" sends them to the wrong place entirely.
+            answered = bool(depth.get("at"))
+            try:
+                available = int(depth.get("available") or 0)
+            except (TypeError, ValueError):
+                available = 0
+            if answered and available <= 0:
+                return {"ok": False, "code": "no_history",
+                        "args": {"symbol": symbol, "timeframe": timeframe},
+                        "depth": depth,
+                        "error": "no real MT5 history available for this symbol/timeframe",
+                        "build_id": BUILD_ID}
+            return {"ok": False, "code": "history_downloading",
+                    "args": {"symbol": symbol, "timeframe": timeframe,
+                             "have": 0, "want": int(want)},
+                    "depth": depth,
+                    "downloading": True,
+                    "error": (f"{timeframe} candles for {symbol} are still being "
+                              f"downloaded from MetaTrader — none have arrived yet"),
+                    "build_id": BUILD_ID}
 
         # A run over one month, one week or one day, chosen from the
         # calendar. Without this the only testable period was "all the
@@ -6074,8 +6147,17 @@ class Trader:
                     f"from {oldest} to {newest} for {symbol}"
                 )
                 code = "no_bars_in_period_have"
+            # A series that is still coming down is not a series that
+            # ends where it currently ends. Saying "this terminal only
+            # has March onwards" about a download that is thirty
+            # seconds old sends the trader to change broker settings
+            # over a window that is about to arrive.
+            filling = len(bars) < want
+            if filling:
+                args["filling"] = True
+                code = code + "_filling"
             return {"ok": False, "code": code, "args": args,
-                    "error": detail, "build_id": BUILD_ID}
+                    "filling": filling, "error": detail, "build_id": BUILD_ID}
         bars = window["bars"]
         tested_from = window["from"]
         tested_to = window["to"]

@@ -588,7 +588,13 @@
     "hist_edge_fix": "MetaTrader keeps only a set number of bars — Tools → Options → Charts → Max bars in chart.",
     "hist_loading": "Fetching older candles…",
     "hist_getting": "Downloading candles from MetaTrader — {have} of {want} {tf}",
-    "hist_shown": "Now showing {from} to {to} — {n} {tf} candles"
+    "hist_shown": "Now showing {from} to {to} — {n} {tf} candles",
+    "veil_loading": "Loading {tf} candles…",
+    "veil_getting": "Downloading {tf} candles from MetaTrader — {have} of {want}",
+    "veil_none": "MetaTrader has not sent any {tf} candles for this symbol yet.",
+    "scan_done": "Analysed all {n} candles — {from} to {to}",
+    "scan_progress": "Analysed {done} of {total} candles — back to {from}",
+    "scan_doing": "Analysing {n} candles now — {from} to {to} · {done} of {total} done"
   },
   "terminal": {
     "title": "Terminal",
@@ -1735,7 +1741,9 @@
     "lvl_sl_side": "A stop has to sit on the losing side of the price",
     "lvl_tp_side": "A target has to sit on the winning side of the price",
     "signals_analysing": "Still analysing",
-    "close": "Close"
+    "close": "Close",
+    "signals_unanalysed": "Not analysed yet",
+    "signals_doing_now": "Analysing these {n} candles"
   },
   "signal": {
     "buy": "Buy signal",
@@ -2022,7 +2030,10 @@
     "engine_offline": "The Python engine is offline.",
     "premium_required": "This feature is part of the paid plan.",
     "backtest_idle": "No backtest is running.",
-    "unknown_endpoint": "This desk's server is older than the page it gave you, so it does not know this request yet. Close AURION and start it again — the update is already on disk."
+    "unknown_endpoint": "This desk's server is older than the page it gave you, so it does not know this request yet. Close AURION and start it again — the update is already on disk.",
+    "history_downloading": "The {timeframe} candles for {symbol} are still coming down from MetaTrader — this timeframe had not been opened before, so the terminal is building it now. Give it a moment and run the backtest again.",
+    "no_bars_in_period_filling": "There are no {timeframe} bars in the period you picked yet — this timeframe is still downloading. Try again in a moment.",
+    "no_bars_in_period_have_filling": "This terminal holds {timeframe} bars for {symbol} only from {oldest} to {newest} so far, and is still downloading more. Wait a moment and try again, or pick a period inside that range."
   },
   "blocker": {
     "mt5_down": "MetaTrader is not connected",

@@ -15565,6 +15565,11 @@ function bindChartDesk() {
     if (S.pendingMoment) goPendingMoment();
   }
 
+  /* Nothing held for this series yet - which is every timeframe
+     change, since the desk caches one series at a time. Say so over
+     the canvas rather than leaving an empty rectangle. */
+  paintChartVeils();
+
   (async () => {
     try {
       await pickMarket(S.chartFocus.symbol, S.chartFocus.timeframe);
@@ -15589,6 +15594,9 @@ function bindChartDesk() {
       const t = S.snap?.ticks?.[S.chartFocus.symbol];
       if (S.chart && t) S.chart.setTick(t);
       applyChartLevels();
+      // Bars are in, or the fetch came back empty and the veil now
+      // says which of those it was.
+      paintChartVeils();
       if (S.signalsEnabled && licFeat("chart_signals")) {
         await fetchChartSignals(S.chartFocus.symbol, S.chartFocus.timeframe);
       }
@@ -15937,6 +15945,111 @@ function histDate(iso) {
  */
 const HIST_SHOWN_MS = 9000;   // how long the "now showing" line stays up
 
+/* ── a chart with no candles yet shows that, not an empty box ───────
+ *
+ * Asked for twice in the same message: until the candles for a symbol
+ * have finished downloading, do not show that symbol's chart - put a
+ * loading state in it with the state of the download; and when the
+ * timeframe is changed, show the same thing until the new timeframe
+ * is actually drawn.
+ *
+ * Both are the same gap. The desk holds exactly one series at a time
+ * (see cachedCandlesFor), so switching to M5 on a chart that was on
+ * H1 leaves it with nothing to draw, and what the trader saw was an
+ * empty rectangle - indistinguishable from a chart of a market with
+ * no data, or from a desk that had stopped. The download can take
+ * tens of seconds: six months of M5 is fifty thousand candles and
+ * MetaTrader only starts building a timeframe when something asks
+ * for it.
+ *
+ * The veil is only ever shown over a box that has nothing real in it.
+ * A chart that is holding the trader's own bars is never covered,
+ * even while a refresh is in flight, because hiding real candles
+ * behind a spinner is the bug this is cousin to.
+ */
+function veilOf(box) {
+  if (!box) return null;
+  let el = box.querySelector(":scope > .chart-veil");
+  if (!el) {
+    el = document.createElement("div");
+    el.className = "chart-veil";
+    el.setAttribute("aria-live", "polite");
+    box.appendChild(el);
+  }
+  return el;
+}
+
+/** What to say over a chart of `symbol`/`timeframe` that has no bars. */
+function veilState(symbol, timeframe) {
+  const p = historyProgressOf(symbol, timeframe);
+  const fresh = p && (Date.now() - p.at) < 60000;
+  if (fresh && p.want > 0 && p.have > 0 && !p.done) {
+    return {
+      text: I18N.t("charts.veil_getting", {
+        have: fmt(p.have, 0), want: fmt(p.want, 0), tf: timeframe,
+      }),
+      pct: Math.max(2, Math.min(100, Math.round((p.have / p.want) * 100))),
+    };
+  }
+  /* The download has reported itself finished and there is still
+     nothing to draw. That is not a loading state and must not keep
+     spinning - an endless spinner is how "the chart never loads" gets
+     reported when the truth is "this market has no bars here". */
+  if (fresh && p.done && !p.have) {
+    return { text: I18N.t("charts.veil_none", { tf: timeframe }), pct: -1, done: true };
+  }
+  return { text: I18N.t("charts.veil_loading", { tf: timeframe }), pct: -1 };
+}
+
+function paintVeil(box, symbol, timeframe) {
+  const el = veilOf(box);
+  if (!el) return;
+  const st = veilState(symbol, timeframe);
+  el.innerHTML = `${st.done ? "" : '<span class="chart-veil-spin" aria-hidden="true"></span>'}
+    <span class="chart-veil-txt">${esc(st.text)}</span>
+    ${st.pct >= 0 ? `<span class="chart-veil-bar"><i style="width:${st.pct}%"></i></span>` : ""}`;
+  el.hidden = false;
+  box.classList.add("is-waiting");
+}
+
+function clearVeil(box) {
+  if (!box) return;
+  const el = box.querySelector(":scope > .chart-veil");
+  if (el) el.remove();
+  box.classList.remove("is-waiting");
+}
+
+/** Does the desk hold bars it could draw for this series right now? */
+function haveBarsFor(symbol, timeframe) {
+  return Boolean(cachedCandlesFor(symbol, timeframe));
+}
+
+/**
+ * Put the veil up or take it down, everywhere a chart is mounted.
+ *
+ * Cheap enough to call from anywhere that changes what is held: it
+ * touches at most one chart box and the cards on the experts page.
+ */
+function paintChartVeils() {
+  const f = S.chartFocus;
+  const deskBox = $("tv-chartbox");
+  if (deskBox && f) {
+    if (haveBarsFor(f.symbol, f.timeframe)) clearVeil(deskBox);
+    else paintVeil(deskBox, f.symbol, f.timeframe);
+  } else if (deskBox) {
+    clearVeil(deskBox);
+  }
+  for (const cv of document.querySelectorAll("canvas[data-mini]")) {
+    const box = cv.parentElement;
+    if (!box) continue;
+    const symbol = cv.getAttribute("data-mini") || "";
+    const tf = cv.getAttribute("data-tf") || S.timeframe || "M15";
+    const held = (S._mini || {})[symbol + "|" + tf];
+    if (held && held.length) clearVeil(box);
+    else paintVeil(box, symbol, tf);
+  }
+}
+
 function noteHistoryProgress(d) {
   if (!d || !d.symbol || !d.timeframe) return;
   noteHistoryDepth(d.symbol, d.timeframe, d.depth);
@@ -15972,6 +16085,10 @@ function historyShownNote() {
 }
 
 function paintHistoryEdge() {
+  /* Before the early return below: the cards on the experts page have
+     no hint line of their own, and their veils read the same download
+     numbers this is called for. */
+  paintChartVeils();
   const el = $("tv-hint");
   if (!el) return;
   const f = S.chartFocus;
@@ -16004,11 +16121,18 @@ function paintHistoryEdge() {
   } else if (atEdge) {
     note = historyEdgeNote();
   }
-  el.innerHTML = note
-    ? `<span class="tv-hint-txt">${esc(note)}</span>`
-      + (pct >= 0 ? `<span class="tv-hint-bar"><i style="width:${pct}%"></i></span>` : "")
-    : "";
-  el.hidden = !note;
+  /* The second line: what the strategies have been asked about.
+     History and analysis are two different jobs over the same
+     candles, they run at the same time, and collapsing them into one
+     line meant whichever spoke last hid the other. */
+  const scan = signalCoverageNote();
+  const scanPct = signalCoveragePct();
+  const row = (text, bar) => `<span class="tv-hint-row">`
+    + `<span class="tv-hint-txt">${esc(text)}</span>`
+    + (bar >= 0 ? `<span class="tv-hint-bar"><i style="width:${bar}%"></i></span>` : "")
+    + `</span>`;
+  el.innerHTML = (note ? row(note, pct) : "") + (scan ? row(scan, scanPct) : "");
+  el.hidden = !note && !scan;
 }
 
 /* ── from a day in the calendar to the candle it happened on ───────
@@ -16177,6 +16301,10 @@ async function paintMiniCharts() {
     if (held && held.length) paintMiniChart(cv, symbol, held);
     want.push({ cv, symbol, tf, key });
   }
+  /* Until a card has candles it shows that it is waiting for them,
+     with the download's own numbers - never an empty box, and never
+     the previous symbol's chart. */
+  paintChartVeils();
   await Promise.all(want.map(async ({ cv, symbol, tf, key }) => {
     try {
       const c = await API.get(`/api/candles?symbol=${encodeURIComponent(symbol)}`
@@ -16187,6 +16315,7 @@ async function paintMiniCharts() {
       // The trader may have left the page while this was in the air.
       if (cv.isConnected === false) return;
       paintMiniChart(cv, symbol, bars);
+      clearVeil(cv.parentElement);
     } catch { /* keep whatever is in the box */ }
   }));
 }
@@ -16207,9 +16336,74 @@ function noteSignalCoverage(res) {
   S.signalCoverage = {
     from: Number(res.covered_from || 0),
     to: Number(res.covered_to || 0),
-    bars: Number(res.bars || 0),
+    bars: Number(res.bars || res.total_bars || 0),
     complete: res.complete !== false,
+    /* The candles themselves, by name. An index is not checkable
+       against anything the trader can see; a date is. */
+    fromTime: String(res.covered_from_time || ""),
+    toTime: String(res.covered_to_time || ""),
+    /* The slab the engine will work through next, which is the slab
+       it is working through while the next request is in the air -
+       this is what "show exactly which candles it is analysing"
+       needs, and the desk cannot derive it. */
+    nextFrom: Number.isFinite(Number(res.next_from)) ? Number(res.next_from) : null,
+    nextTo: Number.isFinite(Number(res.next_to)) ? Number(res.next_to) : null,
+    nextFromTime: String(res.next_from_time || ""),
+    nextToTime: String(res.next_to_time || ""),
+    busy: false,
   };
+}
+
+/* Analysed how much, of what, and what is being worked on now.
+ *
+ * The chart draws the regions; this is the sentence under it. Both
+ * were asked for together: "show the state of the chart analysis and
+ * the signalling, and show it precisely".
+ */
+function signalCoverageNote() {
+  const cov = S.signalCoverage;
+  if (!cov || !S.signalsEnabled || !S.showSignals) return "";
+  const total = Math.max(0, Math.round(cov.bars || 0));
+  const done = Math.max(0, Math.round((cov.to || 0) - (cov.from || 0)));
+  if (!total) return "";
+  if (cov.complete) {
+    return I18N.t("charts.scan_done", {
+      n: fmt(total, 0),
+      from: histDate(cov.fromTime), to: histDate(cov.toTime),
+    });
+  }
+  if (cov.busy && Number.isFinite(cov.nextFrom) && Number.isFinite(cov.nextTo)
+      && cov.nextTo > cov.nextFrom) {
+    return I18N.t("charts.scan_doing", {
+      n: fmt(Math.round(cov.nextTo - cov.nextFrom), 0),
+      from: histDate(cov.nextFromTime) || "—",
+      to: histDate(cov.nextToTime) || "—",
+      done: fmt(done, 0), total: fmt(total, 0),
+    });
+  }
+  return I18N.t("charts.scan_progress", {
+    done: fmt(done, 0), total: fmt(total, 0),
+    from: histDate(cov.fromTime), to: histDate(cov.toTime),
+  });
+}
+
+/** How far through the history the analysis has reached, 0-100. */
+function signalCoveragePct() {
+  const cov = S.signalCoverage;
+  if (!cov || cov.complete) return -1;
+  const total = Math.max(0, Math.round(cov.bars || 0));
+  if (!total) return -1;
+  const done = Math.max(0, Math.round((cov.to || 0) - (cov.from || 0)));
+  return Math.max(2, Math.min(100, Math.round((done / total) * 100)));
+}
+
+/** Tell the chart, and the line under it, that a pass is in flight. */
+function markSignalsBusy(busy) {
+  if (S.signalCoverage) S.signalCoverage.busy = Boolean(busy);
+  if (S.chart && typeof S.chart.setSignalCoverage === "function") {
+    S.chart.setSignalCoverage(S.signalCoverage);
+  }
+  paintHistoryEdge();
 }
 
 /**
@@ -16249,6 +16443,9 @@ async function fetchChartSignals(symbol, timeframe) {
     return;
   }
   S.signalsLoading = true;
+  // The chart outlines the slab being worked through only while a
+  // pass is actually running; this is what turns it on.
+  markSignalsBusy(true);
   try {
     /* As many bars as the chart is holding, not a flat 800 and not the
        whole six months either.
@@ -16297,6 +16494,7 @@ async function fetchChartSignals(symbol, timeframe) {
     S.chartSignals = [];
   } finally {
     S.signalsLoading = false;
+    markSignalsBusy(false);
   }
 }
 
@@ -16353,6 +16551,7 @@ async function pickMarket(symbol, timeframe, opts) {
     }
   }
   if (S.view === "charts" && S.chartFocus && S.chartFocus.symbol === symbol) {
+    paintChartVeils();
     if (S.chart && S.signalsEnabled) fetchChartSignals(symbol, timeframe);
     /* The bars have just landed. Arriving here from the calendar, this
        is the first moment the jump can actually be made - the chart was
@@ -16500,7 +16699,13 @@ function onLive(msg) {
         if (d.symbol) S.symbol = d.symbol;
         if (d.timeframe) S.timeframe = d.timeframe;
         S.candles = incoming;
+        /* WHICH series these are. Without this the desk held bars it
+           could not prove belonged to the chart in front of it, so
+           cachedCandlesFor() said no - and the loading veil stayed up
+           over a chart that was already drawing them. */
+        S.candlesKey = String(S.symbol || "") + "|" + String(S.timeframe || "");
         if (S.chart) S.chart.setBars(S.candles);
+        paintChartVeils();
       }
     }
   }

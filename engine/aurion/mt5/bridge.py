@@ -1181,7 +1181,7 @@ class MT5Bridge:
 
     async def pull_candles(
         self, symbol: str, timeframe: str, count: int = 0, exact: bool = False,
-        need_from: str = "",
+        need_from: str = "", tries: int = 1,
     ) -> list[dict[str, Any]]:
         """Bars for this series.
 
@@ -1205,6 +1205,16 @@ class MT5Bridge:
         November came to be answered out of bars that began in March.
         When what we hold does not reach that far back, the expert is
         asked again however many bars are already sitting in it.
+
+        `tries` is how many times to go back to the expert for a series
+        it has not finished building. One is right for anything on a
+        timer - a poll that keeps re-asking is a poll that never stops.
+        It is wrong for something a trader pressed: a timeframe no
+        chart has ever been opened on does not exist in the terminal
+        yet, MetaTrader starts downloading it only when it is asked
+        for, and the first answer to a six-month M5 window is routinely
+        empty. Giving up there is what told a trader there was "no
+        history" for a symbol whose H1 chart was open in front of them.
         """
         symbol = str(symbol or "").strip()
         tf = self._norm_tf(timeframe)
@@ -1257,20 +1267,32 @@ class MT5Bridge:
         # product promises. Nothing ever went back and asked for more.
         # Deep enough, as opposed to merely long enough. See `need_from`.
         want_day = str(need_from or "").strip()[:10]
-        shallow = bool(want_day) and (
-            not rows or str(getattr(rows[0], "time", "") or "")[:10] > want_day
-        )
-        if (self._short_of(rows, count) or shallow) and self.is_ea_symbol(symbol):
-            if self._may_ask_history(symbol, tf, count):
-                fetched = await self._request_ea_history(
-                    symbol, tf, timeout=self._history_timeout(count), count=count
-                )
-                if fetched:
-                    rows = fetched
-                else:
-                    rows = self._candles_for(symbol, tf)
-                self._archive(symbol, tf, rows)
-                self._note_history_answer(symbol, tf, count, len(rows))
+
+        def shallow(held: list[Any]) -> bool:
+            return bool(want_day) and (
+                not held or str(getattr(held[0], "time", "") or "")[:10] > want_day
+            )
+
+        for attempt in range(max(1, int(tries or 1))):
+            if not (self._short_of(rows, count) or shallow(rows)):
+                break
+            if not self.is_ea_symbol(symbol):
+                break
+            # The cooldown stops a poll from asking the same question
+            # every second. A caller that asked for more than one try
+            # is not a poll - it is a trader waiting on an answer - so
+            # only the first attempt is subject to it.
+            if attempt == 0 and not self._may_ask_history(symbol, tf, count):
+                break
+            fetched = await self._request_ea_history(
+                symbol, tf, timeout=self._history_timeout(count), count=count
+            )
+            if fetched:
+                rows = fetched
+            else:
+                rows = self._candles_for(symbol, tf)
+            self._archive(symbol, tf, rows)
+            self._note_history_answer(symbol, tf, count, len(rows))
         await self.emit(
             "candles",
             {
