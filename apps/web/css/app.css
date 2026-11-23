@@ -2000,6 +2000,18 @@ input[type=range]{width:100%;accent-color:var(--cyan);height:28px;cursor:pointer
 .outlook-banner b{font-size:28px}
 /* What the robot-only replay is, shown only while that mode is picked. */
 .bt-robot-hint{margin:8px 0 0;padding:8px 10px;border-radius:10px;background:rgb(var(--accent-rgb) / .08);border:1px solid rgb(var(--accent-rgb) / .22)}
+/* A run the trader stopped. The figures under this line cover a
+   shorter window than the form above asked for, so the line is a
+   warning and not a caption. */
+.bt-cancelled{
+  display:flex;align-items:center;gap:8px;margin:10px 0 0;
+  padding:8px 10px;border-radius:10px;color:var(--warning);
+  border:1px solid var(--amber, #d8a657);background:rgba(216,166,87,.08);
+}
+.bt-cancelled svg{flex:0 0 auto;width:15px;height:15px}
+/* Hidden until there is a run to stop; [hidden] alone loses to the
+   button's own display rule. */
+#bt-stop[hidden]{display:none}
 .bt-load{display:flex;align-items:center;gap:10px;margin-top:12px;color:var(--gold)}
 .bt-load i{
   width:16px;height:16px;border-radius:50%;

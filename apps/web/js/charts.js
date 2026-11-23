@@ -384,6 +384,62 @@ class CandleChart {
     } catch { /* private mode must never break the chart */ }
   }
 
+  /* ── where the chart was left ──────────────────────────────────────
+   *
+   * Reported as: "when I move between pages the charts jump - they
+   * take a long time to load and they should stay where they were".
+   * Half of that is the desk painting from what it already holds
+   * (see bindChartDesk); this is the other half. A remount used to
+   * rebuild the chart at the default zoom parked at the live edge, so
+   * a trader who had scrolled back to last Tuesday and zoomed in came
+   * back to a different picture of the same instrument.
+   *
+   * Kept apart from saveState() because it changes on every pan and
+   * every wheel click, and the workspace blob does not: writing the
+   * indicator list to localStorage on each frame of a drag is how a
+   * chart starts to stutter. Hence a trailing throttle, and its own
+   * key.
+   *
+   * The zoom and the place are remembered on different terms. How far
+   * in you are zoomed is a preference and keeps indefinitely. WHERE
+   * you are is a place in time, and `offset` counts bars back from
+   * the newest bar - so a day later the same number points somewhere
+   * else entirely. A stale position is therefore dropped and the
+   * chart opens at the live edge, which is what someone returning
+   * after a night away expects to see.
+   */
+  saveView() {
+    if (!this.key) return;
+    clearTimeout(this._viewT);
+    this._viewT = setTimeout(() => {
+      try {
+        localStorage.setItem("aurion.chartview." + this.key, JSON.stringify({
+          span: Math.round(this.span),
+          offset: Math.round(this.offset),
+          at: Date.now(),
+        }));
+      } catch { /* private mode must never break the chart */ }
+    }, 400);
+  }
+
+  /** How long a scroll position stays meaningful: six hours. */
+  static get VIEW_TTL() { return 6 * 60 * 60 * 1000; }
+
+  loadView() {
+    if (!this.key) return null;
+    let v = null;
+    try { v = JSON.parse(localStorage.getItem("aurion.chartview." + this.key) || "null"); } catch { v = null; }
+    if (!v || typeof v !== "object") return null;
+    const span = Math.round(Number(v.span) || 0);
+    if (!(span >= 8)) return null;
+    const fresh = Number(v.at) > 0 && (Date.now() - Number(v.at)) < CandleChart.VIEW_TTL;
+    return { span, offset: fresh ? Math.max(0, Math.round(Number(v.offset) || 0)) : 0 };
+  }
+
+  /** Whether the first fill of this chart has a remembered window to
+      open on. The desk asks before imposing a default span. */
+  hasStoredView() { return Boolean(this._wantView); }
+
   /** The workspace: chart type, indicators, scale. Kept apart from drawings
       so clearing the chart does not throw the trader's indicators away. */
   saveState() {
@@ -402,6 +458,9 @@ class CandleChart {
   }
 
   restoreState() {
+    // Applied on the first setBars, because a window is measured in
+    // bars and there are none yet.
+    this._wantView = this.loadView();
     let st = null;
     try { st = JSON.parse(localStorage.getItem("aurion.chart." + this.key) || "null"); } catch { st = null; }
     if (!st || typeof st !== "object") return;
@@ -476,12 +535,16 @@ class CandleChart {
       answer to "is there more history behind this?" costs a request and
       must not be asked on every style tweak. */
   scrolled() {
+    this.saveView();
     if (typeof this.opts.onScroll === "function") {
       try { this.opts.onScroll(this); } catch { /* the chart is still fine */ }
     }
   }
 
   changed() {
+    // Zoom, pan, fit, showSpan and the date jump all end here, which
+    // makes it the one place the window can be remembered from.
+    this.saveView();
     if (typeof this.opts.onChange === "function") {
       try { this.opts.onChange(this); } catch { /* the chart is still fine */ }
     }
@@ -833,7 +896,16 @@ class CandleChart {
     }
     this.bars = [...map.values()].sort((a, b) => String(a.time || a.ts || "").localeCompare(String(b.time || b.ts || "")));
     this._series = null;
-    if (!had) {
+    if (!had && this._wantView) {
+      /* Coming back to a chart that was already open once. The window
+         it was left on is restored rather than reset - see saveView. */
+      const want = this._wantView;
+      this._wantView = null;
+      const total = this.rows().length || this.bars.length || 0;
+      this.span = Math.max(8, Math.min(Math.max(20, total || want.span), want.span));
+      this.offset = want.offset;
+      this.clampOffset();
+    } else if (!had) {
       this.offset = 0;
       this.span = Math.min(this.analyze ? 160 : 120, Math.max(30, this.bars.length || 30));
     } else {

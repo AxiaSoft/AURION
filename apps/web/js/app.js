@@ -3904,12 +3904,14 @@ function pruneDeadSymbols() {
     S.symbol = items[0].symbol;
     S.timeframe = items[0].timeframe || S.timeframe || "M15";
     S.candles = [];
+    S.candlesKey = "";
     changed = true;
   }
   if (!live.size) {
     if (S.symbol || (S.candles && S.candles.length)) changed = true;
     S.symbol = "";
     S.candles = [];
+    S.candlesKey = "";
   }
   if (S.chartFocus && (!live.size || !live.has(S.chartFocus.symbol))) {
     /* The chart being looked at is gone - its expert was detached, or
@@ -9102,6 +9104,10 @@ const views = {
         ${backtestPeriodHtml()}
         <div class="row" style="margin-top:10px">
           <button class="btn" id="h-bt" type="button"${running || !items.length ? " disabled" : ""}>${running ? I18N.t("history.backtest_running") : I18N.t("history.backtest_run")}</button>
+          <!-- A long replay asks the AI for a read on every bar, so it can
+               run for minutes. Before this button the only way out was to
+               close the desk. It exists only while a run is going. -->
+          <button class="btn ghost" id="bt-stop" type="button"${running ? "" : " hidden"}>${icon("close")} ${I18N.t("bt.cancel")}</button>
         </div>
         <div id="bt-load" class="bt-load${running ? "" : " hidden"}"><i></i><span>${I18N.t("history.backtest_wait")}</span></div>
       </div>
@@ -11399,7 +11405,11 @@ function bindView(view) {
     const cv = $("cv");
     if (cv) {
       S.chart = new CandleChart(cv, { onPrice: onChartPrice, onPending: onChartPending, onLevelEdit: onChartLevelEdit });
-      if (S.candles.length && eaLive()) S.chart.setBars(S.candles);
+      // Straight from what the desk already holds, so coming back to
+      // this page shows the chart at once instead of an empty box
+      // while the bars are fetched again.
+      const heldM = cachedCandlesFor(S.symbol, S.timeframe);
+      if (heldM && eaLive()) S.chart.setBars(heldM);
       const t = S.snap?.ticks?.[S.symbol]; if (t) S.chart.setTick(t);
       applyChartLevels(true);
       bindChartTicket();
@@ -11653,11 +11663,21 @@ function bindView(view) {
   }
   if (view === "backtest") {
     bindSymbolField("bt-sym");
-    // The card is rendered as HTML; the curve needs a canvas that exists.
+    /* Put the whole result back, not just the summary.
+     *
+     * The page's own template renders the numbers and the curve's
+     * canvas, but the chart of the tested window is painted by
+     * paintBacktestLive - so leaving the page and coming back left
+     * the result with its candles missing, and nothing on the page
+     * ever redrew them. Reported together with the EA charts: "a
+     * chart must stay where it is until I come back to that page".
+     *
+     * This costs nothing and fetches nothing: the run, its frozen
+     * replay frame and its curve are all already in S. No reveal -
+     * the trader navigated here deliberately, so scrolling the page
+     * for them would be the desk moving under their hands. */
     const btNow = S.backtest || S.snap?.backtest || {};
-    if (btNow.ok && Array.isArray(btNow.equity_curve) && btNow.equity_curve.length > 1) {
-      requestAnimationFrame(() => drawEquityCurve(btNow.equity_curve.map(Number).filter((x) => Number.isFinite(x))));
-    }
+    paintBacktestResults(btNow);
     bindBacktestPeriod();
     // Remember the robot-only choice and say what it means while it is
     // selected. The form re-renders on every snapshot, so the selection
@@ -11668,6 +11688,8 @@ function bindView(view) {
       const hint = $("bt-robot-hint");
       if (hint) hint.classList.toggle("hidden", !S._btRobot);
     };
+    const stopBt = $("bt-stop");
+    if (stopBt) stopBt.onclick = () => cancelBacktest();
     const goBt = $("h-bt");
     if (goBt) goBt.onclick = () => {
       const stSel = $("bt-st");
@@ -12948,14 +12970,22 @@ function btRange(span) {
   switch (span) {
     case "today":
       return { from: today, to: today };
-    case "week": {
-      // Monday to Sunday. getDay() calls Sunday 0, so Sunday is pulled
-      // back six days rather than zero - the off-by-one that otherwise
-      // makes every Sunday test the week after itself.
-      const dow = now.getDay();
-      const back = dow === 0 ? 6 : dow - 1;
-      return { from: at(y, m, d - back), to: clamp(at(y, m, d - back + 6)) };
-    }
+    case "week":
+      /* The last seven days, ending today.
+       *
+       * This used to run from the Monday of the calendar week, which
+       * is a different thing and on a Monday is not a week at all:
+       * reported as "this week behaves exactly like today", because
+       * on the day this was read it WAS today - one day, from Monday
+       * to Monday. A calendar week is also a strange window to
+       * backtest, since for most of the week it tests less than a
+       * week and says nothing about how much. Seven days is seven
+       * days whichever day you ask on.
+       *
+       * The calendar page still tests a named week, Monday to Sunday,
+       * because there the trader picked that week off a grid of them.
+       * Here there is nothing to point at but "this week". */
+      return { from: at(y, m, d - 6), to: clamp(at(y, m, d)) };
     case "month":
       return { from: at(y, m, 1), to: clamp(at(y, m + 1, 0)) };
     case "prev_month":
@@ -13941,7 +13971,13 @@ function renderBacktestCard(bt) {
   if (!bt || (!bt.ok && !bt.error && bt.mode !== "backtest")) return "";
   if (!bt.ok) return `<p class="err">${esc(errText(bt))}</p>`;
   const m = bt.metrics || {};
-  return `<div class="tape-banner is-backtest" style="margin:12px 0 10px">${I18N.t("tape.showing_backtest")} · ${esc(bt.symbol || "")} ${esc(bt.timeframe || "")} · ${esc(strategyLabel(bt.strategy))}</div>
+  // A run that was stopped covers less of the window than the form
+  // above it says. Saying so here is the difference between a short
+  // result and a wrong one.
+  const stopped = bt.cancelled
+    ? `<p class="sub bt-cancelled">${icon("close")} ${esc(I18N.t("bt.cancelled_note"))}</p>`
+    : "";
+  return stopped + `<div class="tape-banner is-backtest" style="margin:12px 0 10px">${I18N.t("tape.showing_backtest")} · ${esc(bt.symbol || "")} ${esc(bt.timeframe || "")} · ${esc(strategyLabel(bt.strategy))}</div>
     <div class="kv">
       <span>${I18N.t("history.winrate")}</span><b>${fmt(m.win_rate)}%</b>
       <span>${I18N.t("history.pf")}</span><b>${fmt(m.profit_factor,2)}</b>
@@ -14118,7 +14154,7 @@ function btWhy(reason) {
   /* A fixed list, not a lookup-and-hope: I18N.t() humanises an unknown
      key rather than failing, so asking it for "bt.why_<sentence>"
      would turn a strategy's own words into a mangled title. */
-  const known = { tp: 1, sl: 1, eod: 1, strategy: 1, signal: 1 };
+  const known = { tp: 1, sl: 1, eod: 1, strategy: 1, signal: 1, cancelled: 1 };
   return known[key] ? I18N.t("bt.why_" + key) : raw;
 }
 
@@ -14431,6 +14467,7 @@ async function startBacktest(opts) {
     return false;
   }
   S._btBusy = true;
+  S._btCancelling = false;
   setBacktestBusy(true, 0);
   // A run launched from the calendar lands on the backtest page a
   // moment later. Carrying its dates into the period picker means the
@@ -14496,23 +14533,73 @@ async function startBacktest(opts) {
 // accident of the script type.
 if (typeof window !== "undefined") window.startBacktest = startBacktest;
 
-function setBacktestBusy(on, progress) {
+function setBacktestBusy(on, progress, cancelling) {
   const btn = $("h-bt");
   const load = $("bt-load");
   if (btn) {
     btn.disabled = Boolean(on) || !liveSymbols().length;
     btn.textContent = I18N.t(on ? "history.backtest_running" : "history.backtest_run");
   }
+  // The stop button only exists while there is something to stop, and
+  // once pressed it says so rather than looking unpressed: the replay
+  // finishes the bar it is on before it notices, and a button that
+  // appears to have done nothing gets pressed again.
+  const stop = $("bt-stop");
+  if (stop) {
+    const asked = Boolean(cancelling) || Boolean(S._btCancelling);
+    stop.hidden = !on;
+    stop.disabled = Boolean(on) && asked;
+    stop.textContent = asked ? I18N.t("bt.cancelling") : I18N.t("bt.cancel");
+    if (!on) S._btCancelling = false;
+  }
   if (load) load.classList.toggle("hidden", !on);
   const say = load ? load.querySelector("span") : null;
   if (say) {
     const pct = Number(progress);
+    const waiting = (Boolean(cancelling) || Boolean(S._btCancelling)) && on
+      ? I18N.t("bt.cancel_wait")
+      : I18N.t("history.backtest_wait");
     // A number that moves is the difference between "working" and "hung".
     say.textContent = on && pct > 0
-      ? `${I18N.t("history.backtest_wait")} · ${Math.min(99, Math.round(pct))}%`
-      : I18N.t("history.backtest_wait");
+      ? `${waiting} · ${Math.min(99, Math.round(pct))}%`
+      : waiting;
   }
 }
+
+/**
+ * Call the running replay off.
+ *
+ * The engine raises a flag the bar loop reads, so the run stops at the
+ * next bar and comes back through its ordinary finish path: a real
+ * result over a shorter window, labelled as cancelled. Nothing here
+ * tears the panel down - the run reports its own ending, exactly as a
+ * completed one does.
+ */
+async function cancelBacktest() {
+  const bt = S.backtest || S.snap?.backtest || {};
+  if (!S._btBusy && !bt.running) return false;
+  if (S._btCancelling) return false;
+  S._btCancelling = true;
+  setBacktestBusy(true, bt.progress, true);
+  try {
+    const r = await API.post("/api/backtest/cancel", {});
+    if (!r || r.ok === false) {
+      S._btCancelling = false;
+      setBacktestBusy(Boolean(bt.running || S._btBusy), bt.progress);
+      toast(errText(r));
+      return false;
+    }
+    toast(I18N.t("bt.cancel_sent"));
+    return true;
+  } catch {
+    S._btCancelling = false;
+    setBacktestBusy(true, bt.progress);
+    toast(I18N.t("errors.generic"));
+    return false;
+  }
+}
+
+if (typeof window !== "undefined") window.cancelBacktest = cancelBacktest;
 
 /**
  * Follow a running backtest even if the socket drops.
@@ -14547,7 +14634,7 @@ function watchBacktest() {
     S.backtest = d;
     if (S.snap) S.snap.backtest = d;
     if (d.running) {
-      setBacktestBusy(true, d.progress);
+      setBacktestBusy(true, d.progress, Boolean(d.cancelling));
       // Keep the live panel moving on the fallback path too, so a dropped
       // socket costs refresh rate and not the live view itself.
       if (S.view === "backtest") paintBacktestResults(d);
@@ -14555,9 +14642,10 @@ function watchBacktest() {
     }
     clearInterval(S._btPoll); S._btPoll = null;
     S._btBusy = false;
+    S._btCancelling = false;
     setBacktestBusy(false);
     paintBacktestResults(d, { reveal: true });
-    if (d.ok) toast(I18N.t("history.backtest_done"));
+    if (d.ok) toast(I18N.t(d.cancelled ? "bt.cancelled_toast" : "history.backtest_done"));
     headerState();
   }, 5000);
 }
@@ -14706,6 +14794,22 @@ function bindPnl() {
 async function loadHistory() {
   const box = $("h-body");
   if (!box) return;
+  /* The ledger we already have goes up first.
+   *
+   * The curve and the table were drawn only after /api/history came
+   * back, so every visit to this page started with an empty card for
+   * as long as the request took - and on a desk with four hundred
+   * deals that is long enough to look broken. The series is held in
+   * S._pnl and the rows in S._histRows, both from the last visit, so
+   * the page can show the right picture immediately and let the
+   * request replace it. */
+  if (S._histRows && S._histRows.length) {
+    box.innerHTML = S._histRows;
+  }
+  if (S._pnl && typeof PNL !== "undefined") {
+    paintPnl();
+    bindPnl();
+  }
   const r = await API.get("/api/history?limit=400");
   const raw = historyRows(r.data || []);
   /* The charts read the ledger the engine sent, not the view model: the
@@ -14717,10 +14821,15 @@ async function loadHistory() {
     bindPnl();
   }
   const rows = raw.map(historyRowView);
-  if (!rows.length) { box.innerHTML = emptyMini(I18N.t("status.no_history")); return; }
-  box.innerHTML = table(rows, ["ts_open","ts","ticket","symbol","side","volume",
-                               "price_open","price_close","sl","tp",
-                               "commission","swap","profit","net","source","strategy","comment"]);
+  if (!rows.length) {
+    S._histRows = "";
+    box.innerHTML = emptyMini(I18N.t("status.no_history"));
+    return;
+  }
+  S._histRows = table(rows, ["ts_open","ts","ticket","symbol","side","volume",
+                             "price_open","price_close","sl","tp",
+                             "commission","swap","profit","net","source","strategy","comment"]);
+  box.innerHTML = S._histRows;
 }
 
 async function hardRefresh() {
@@ -15236,6 +15345,19 @@ async function onChartLevelMove(d) {
   await refresh(false);
 }
 
+/**
+ * Bars we already hold for exactly this series, or none.
+ *
+ * `S.candles` is one series at a time and pickMarket records which,
+ * so this is a check and not a hope: handing a chart of EURUSD M15
+ * the bars of XAUUSD H1 would be worse than showing nothing.
+ */
+function cachedCandlesFor(symbol, timeframe) {
+  const want = String(symbol || "") + "|" + String(timeframe || "");
+  if (!want.trim() || S.candlesKey !== want) return null;
+  return Array.isArray(S.candles) && S.candles.length ? S.candles : null;
+}
+
 function bindChartDesk() {
   const cv = $("cv-desk");
   if (!cv || !S.chartFocus) return;
@@ -15331,6 +15453,35 @@ function bindChartDesk() {
     }
   }
 
+  /* Paint what we already hold, before asking for anything.
+   *
+   * Reported as "the charts jump when I move between pages - they
+   * take ages to load and should stay where they were". They were
+   * not slow to draw; they were empty until a POST /api/market and a
+   * GET /api/candles for thirty days of bars had both come back,
+   * every single time the page was opened - even when the desk was
+   * holding those exact bars from a minute ago. So the workspace
+   * appeared, then a blank rectangle, then the chart.
+   *
+   * The cached series goes in synchronously and the refresh below
+   * runs anyway: the trader sees the chart they left, and it quietly
+   * catches up. Nothing is shown that is not real - these are the
+   * same bars the engine sent, only earlier. */
+  const held = cachedCandlesFor(S.chartFocus.symbol, S.chartFocus.timeframe);
+  if (held) {
+    S.chart.setBars(held);
+    // A remembered window wins over the default span: see saveView()
+    // in charts.js. Without this test the restore would be undone
+    // one line later, every time.
+    if (typeof S.chart.showSpan === "function" && !S.pendingMoment && !S.chart.hasStoredView()) {
+      S.chart.showSpan(barsForDays(S.chartFocus.timeframe, chartDays()));
+    }
+    // A date asked for from the calendar can be honoured now rather
+    // than after the refetch: these are bars, and that is all the
+    // jump was ever waiting for.
+    if (S.pendingMoment) goPendingMoment();
+  }
+
   (async () => {
     try {
       await pickMarket(S.chartFocus.symbol, S.chartFocus.timeframe);
@@ -15341,8 +15492,12 @@ function bindChartDesk() {
            half of it is the bug this pairs with.
            Skipped when a date was asked for from the calendar, because
            showSpan parks the window back at the live edge and that is
-           the opposite of what was just requested. */
-        if (typeof S.chart.showSpan === "function" && !S.pendingMoment) {
+           the opposite of what was just requested.
+           Skipped too when the chart was painted from the cache above:
+           the window is already the one the trader left, and moving it
+           back to the live edge here is the jump this is meant to
+           stop. */
+        if (typeof S.chart.showSpan === "function" && !S.pendingMoment && !held) {
           S.chart.showSpan(barsForDays(S.chartFocus.timeframe, chartDays()));
         }
         // Now that there are bars to land on - see goPendingMoment.
@@ -16023,6 +16178,7 @@ async function pickMarket(symbol, timeframe, opts) {
   const prime = Boolean(opts && opts.prime);
   if (!liveSymbols().some((x) => x.symbol === symbol)) {
     S.candles = [];
+    S.candlesKey = "";
     return;
   }
   S.symbol = symbol; S.timeframe = timeframe;
@@ -16046,10 +16202,18 @@ async function pickMarket(symbol, timeframe, opts) {
       + `&timeframe=${encodeURIComponent(timeframe)}&count=${count}`);
     noteHistoryDepth(symbol, timeframe, c && c.depth);
     S.candles = c.data || [];
+    /* WHICH series these bars are. Without it the desk could only
+       guess that what it holds belongs to the chart being opened,
+       and a guess is not good enough to paint from - see
+       cachedCandlesFor(). */
+    S.candlesKey = symbol + "|" + timeframe;
     /* A different series: whatever we learned about the end of the last
        one does not apply. */
     S._histDone = null;
-  } else if (Array.isArray(r?.data)) S.candles = r.data;
+  } else if (Array.isArray(r?.data)) {
+    S.candles = r.data;
+    S.candlesKey = symbol + "|" + timeframe;
+  }
   if (S.view === "markets") {
     const lbl = $("tick-lbl");
     if (lbl) lbl.textContent = tickLabel();
@@ -16354,7 +16518,7 @@ function onLive(msg) {
     // used to live, so the finished result never reached the screen it was
     // run from - the page just sat on its spinner.
     if (S.view === "backtest" || S.view === "history") {
-      setBacktestBusy(Boolean(d.running), d.progress);
+      setBacktestBusy(Boolean(d.running), d.progress, Boolean(d.cancelling));
       // This is the fast path, and it used to refresh only #bt-result:
       // the curve and trade table below it kept the previous run's
       // numbers, and nothing scrolled, so a result the trader had
@@ -16363,7 +16527,8 @@ function onLive(msg) {
       paintBacktestResults(d, { reveal: !d.running });
       if (!d.running) {
         S._btBusy = false;
-        toast(I18N.t(d.ok ? "history.backtest_done" : "errors.generic"));
+        S._btCancelling = false;
+        toast(I18N.t(d.cancelled ? "bt.cancelled_toast" : (d.ok ? "history.backtest_done" : "errors.generic")));
       }
     }
     headerState();
