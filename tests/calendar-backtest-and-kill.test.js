@@ -142,11 +142,33 @@ check("no span can ask for bars that do not exist yet", () => {
   return uses + " clamped bounds";
 });
 
-check("the week runs Monday to Sunday, with Sunday pulled back six days", () => {
+/* "This week" is the last seven days, not the calendar week.
+   Reported as "the week option behaves exactly like today" - which on
+   a Monday it did, because a calendar week that has just started is
+   one day long. The calendar page still tests a named Monday-to-Sunday
+   week; there the trader points at one. */
+check("the week span is seven days ending today, on any day of the week", () => {
   const fn = body(appJs, "btRange");
-  if (!/dow === 0 \? 6 : dow - 1/.test(fn)) {
-    throw new Error("the Sunday off-by-one is back: every Sunday would test the week after itself");
+  if (/getDay\(\)/.test(fn)) {
+    throw new Error("the span is back to the calendar week, so early in the week it tests less than a week");
   }
+  if (!/d - 6/.test(fn)) throw new Error("the window does not start six days before today");
+  /* Run it, on a Monday and on a Friday, and count the days. `Date` is
+     passed in so it can be pinned to a weekday without touching the
+     global one. */
+  const dayKey = new Function("d", body(appJs, "btDayKey"));
+  const run = new Function("S", "btDayKey", "Date", "span", fn);
+  for (const day of ["2026-10-05T10:00:00", "2026-10-09T10:00:00"]) {
+    const Fixed = class extends Date {
+      constructor(...a) { super(...(a.length ? a : [day])); }
+      static now() { return new Date(day).getTime(); }
+    };
+    const r = run({}, dayKey, Fixed, "week");
+    const span = Math.round((new Date(r.to) - new Date(r.from)) / 86400000) + 1;
+    if (span !== 7) throw new Error(`${day.slice(0, 10)} gives a ${span}-day window, not seven`);
+    if (r.to !== dayKey(new Date(day))) throw new Error("the window does not end today");
+  }
+  return "seven days on a Monday and on a Friday";
 });
 
 check("dates are built in local time, not from toISOString", () => {

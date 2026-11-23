@@ -1445,7 +1445,7 @@
     "period": "Period",
     "span_all": "All history",
     "span_today": "Today",
-    "span_week": "This week",
+    "span_week": "Last 7 days",
     "span_month": "This month",
     "span_prev_month": "Last month",
     "span_q": "Last 3 months",
