@@ -17,7 +17,7 @@ from .native import AVAILABLE as NATIVE_AVAILABLE
 from .native import NativeMT5
 from .protocol import decode_buffer, encode, parse_ea_json
 from .types import Account, Candle, ChartAgent, Deal, PendingOrder, Position, Tick, classify_account, timeframe_from_minutes
-from ..util.history import at_least_window, cache_size, requested_window
+from ..util.history import at_least_window, bars_for_days, cache_size, requested_window
 
 log = get("mt5")
 
@@ -109,6 +109,12 @@ class MT5Bridge:
         #: quarter of a million candles and the trader is entitled to
         #: know it is moving.
         self._hist_want: dict[tuple[str, str], int] = {}
+        #: (symbol, tf) -> (when, newest bar time) of the last PARTIAL
+        #: set of bars handed to the desk mid-download. See
+        #: _maybe_partial_candles: it is what lets a chart appear after
+        #: the first readable month instead of after the last bar of
+        #: six months.
+        self._hist_shown: dict[tuple[str, str], tuple[float, str]] = {}
         self._agent_owner: dict[int, asyncio.StreamWriter | None] = {}
         self._purge_gen: dict[int, int] = {}
         self._http_seen: dict[int, float] = {}
@@ -725,6 +731,30 @@ class MT5Bridge:
         if not candle.symbol or not candle.close:
             return
         bucket = self._tape_store(tape or None)["candles"][(candle.symbol, candle.timeframe)]
+        # The two cases that are almost all of the traffic, taken
+        # first and in constant time.
+        #
+        # This used to scan the whole buffer for a bar of the same
+        # time before every single append. A history download hands
+        # over the series in time order - fifty thousand bars of a
+        # six-month M5 window, each one newer than the last - so the
+        # scan found nothing fifty thousand times and cost about a
+        # billion comparisons for one download, on the event loop,
+        # while ticks waited behind it. It is the measured reason a
+        # health check went from 7ms to 200ms during an ingest.
+        #
+        # A bar is either newer than everything held (append), the
+        # same bar as the newest one arriving again as it forms
+        # (replace in place), or - rarely - a gap being backfilled,
+        # which still pays for the scan.
+        if bucket:
+            newest = bucket[-1]
+            if candle.time == newest.time:
+                bucket[-1] = candle
+                return
+            if candle.time > newest.time:
+                bucket.append(candle)
+                return
         for i, old in enumerate(bucket):
             if old.time == candle.time:
                 bucket[i] = candle
@@ -866,6 +896,71 @@ class MT5Bridge:
                 "want": max(0, want),
                 "done": bool(done),
                 "depth": self.hist_depth(symbol, tf),
+            },
+        )
+
+    #: Don't hand the desk a half-download more often than this.
+    #: Each one is the whole series, so it is not free; on the other
+    #: hand a trader staring at a loading panel for two minutes is not
+    #: free either.
+    _PARTIAL_EVERY_S = 3.0
+
+    async def _maybe_partial_candles(self, symbol: str, timeframe: str) -> None:
+        """Let the desk draw what has arrived, while the rest arrives.
+
+        Asked for in these words: "once the candles reach at least a
+        month back it is fine for the loading to go away, but let the
+        download carry on - like the download status in the corner of
+        the chart."
+
+        Until now the bars travelled only on `final`, so a six-month
+        download meant a blank, loading chart for as long as the
+        broker took, even though a readable month had been in memory
+        the whole time.
+
+        Two guards, because a partial must never make the chart worse:
+
+        * It must be worth drawing - a month of this timeframe, or
+          everything the terminal says it holds.
+        * It must not go BACKWARDS at the right-hand edge. The expert
+          streams oldest bar first, so the early chunks of a re-stream
+          are old history with no recent end; sending those would
+          replace a current chart with a stale one. Nothing is sent
+          until the newest bar is at least as new as the newest bar
+          the desk was last given.
+        """
+        tf = self._norm_tf(timeframe)
+        key = (symbol, tf)
+        rows = self._candles_for(symbol, tf)
+        if not rows:
+            return
+        month = bars_for_days(tf, 30)
+        depth = self._hist_depth.get(key) or {}
+        try:
+            available = int(depth.get("available") or 0)
+        except (TypeError, ValueError):
+            available = 0
+        enough = len(rows) >= month or (available > 0 and len(rows) >= available)
+        if not enough:
+            return
+        newest = str(getattr(rows[-1], "time", "") or "")
+        when, shown = self._hist_shown.get(key, (0.0, ""))
+        now = time.time()
+        if now - when < self._PARTIAL_EVERY_S:
+            return
+        if shown and newest < shown:
+            return
+        self._hist_shown[key] = (now, newest)
+        await self.emit(
+            "candles",
+            {
+                "symbol": symbol,
+                "timeframe": tf,
+                "bars": [c.to_dict() for c in rows],
+                "depth": self.hist_depth(symbol, tf),
+                # The desk keeps the download status up while this is
+                # true, instead of treating the bars as the last word.
+                "partial": True,
             },
         )
 
@@ -1231,6 +1326,9 @@ class MT5Bridge:
         if self._short_of(cached, count):
             cached = self._warm_from_disk(symbol, tf, count) or cached
         rows: list[Candle] = []
+        # Did anything actually change? See the emit at the end: a
+        # cached answer has nothing to tell the other desks.
+        changed = False
         if self.native.connected and self.is_ea_symbol(symbol):
             rows = await asyncio.to_thread(self.native.candles, symbol, tf, count)
             # The terminal's own answer does not automatically win.
@@ -1250,6 +1348,7 @@ class MT5Bridge:
                 bucket.clear()
                 bucket.extend(rows)
                 self._archive(symbol, tf, rows)
+                changed = True
         if not rows:
             rows = cached
         # Ask the expert when what we hold falls SHORT OF WHAT WAS ASKED
@@ -1293,16 +1392,32 @@ class MT5Bridge:
                 rows = self._candles_for(symbol, tf)
             self._archive(symbol, tf, rows)
             self._note_history_answer(symbol, tf, count, len(rows))
-        await self.emit(
-            "candles",
-            {
-                "symbol": symbol,
-                "timeframe": tf,
-                "bars": [c.to_dict() for c in rows],
-                "depth": self.hist_depth(symbol, tf),
-            },
-        )
-        return [c.to_dict() for c in rows]
+            changed = True
+        # Built once. This used to be two separate list comprehensions
+        # over the same bars - the broadcast's copy and the caller's -
+        # and on a six-month M5 window that is 52 000 dictionaries
+        # built twice for one request.
+        out = [c.to_dict() for c in rows]
+        # Broadcast only what is NEWS.
+        #
+        # Every call used to push the whole series to every connected
+        # desk, including the common case: a cache hit, answering a
+        # question the asker already has the answer to, re-sending
+        # bars nobody's chart has changed. On a deep window that is
+        # megabytes of JSON encoded once per listener, on the event
+        # loop, for nothing. A cached read is now silent; the moment
+        # the bars genuinely move, the frame goes out as before.
+        if changed:
+            await self.emit(
+                "candles",
+                {
+                    "symbol": symbol,
+                    "timeframe": tf,
+                    "bars": out,
+                    "depth": self.hist_depth(symbol, tf),
+                },
+            )
+        return out
 
     async def _prime_agent(self, agent: ChartAgent) -> None:
         symbol = str(agent.symbol or "")
@@ -1572,11 +1687,20 @@ class MT5Bridge:
                 # on screen: a Strategy Tester chart streaming its own
                 # history is not what the trader is waiting for.
                 await self._say_history_progress(symbol, tf, len(bucket), False)
+                # ...and the bars themselves, once there are enough of
+                # them to be worth looking at. A download that has
+                # already delivered a readable month should be behind a
+                # chart, not behind a loading panel.
+                ordered = sorted(bucket, key=lambda c: (str(c.time), int(c.time_msc or 0)))
+                bucket.clear()
+                bucket.extend(ordered)
+                await self._maybe_partial_candles(symbol, tf)
             if final:
                 ordered = sorted(bucket, key=lambda c: (str(c.time), int(c.time_msc or 0)))
                 bucket.clear()
                 bucket.extend(ordered)
                 self._note_hist_depth(symbol, tf, message)
+                self._hist_shown.pop((symbol, tf), None)
                 if tape == self.active_tape():
                     await self.emit(
                         "candles",

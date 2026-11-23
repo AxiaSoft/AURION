@@ -248,12 +248,20 @@ def test_running_out_of_time_says_where_it_stopped() -> None:
     A truncated pass that does not report where it got to is
     indistinguishable from a stretch with no setups - the same
     confusion as the original bug, one level down.
+
+    Which END gets sacrificed is the point. The pass runs newest-first,
+    so the budget costs the OLDEST bars of the slab: the newest bar is
+    always covered, and `covered_from` - not `covered_to` - is the
+    boundary that moves. Reported as "the signals are never drawn on
+    the newest candles"; with the old forward walk the right-hand edge
+    was the part that was always dropped.
     """
     bars = _bars(4000)
     res = ss.replay(bars, [("smart_money", SmartMoney())], "EURUSD", "M15",
                     budget_seconds=0.5)
     assert res["truncated"] is True
-    assert ss.WARMUP_BARS <= res["covered_to"] < len(bars)
+    assert res["covered_to"] == len(bars), "the newest bar must always be analysed"
+    assert ss.WARMUP_BARS < res["covered_from"] < len(bars)
 
 
 def test_coverage_walks_backwards_over_successive_calls() -> None:

@@ -176,14 +176,32 @@ def replay(
     truncated = False
     out: list[dict[str, Any]] = []
 
-    reached = stop_at
-    for i in range(start_at, stop_at):
+    # NEWEST BAR FIRST.
+    #
+    # Reported: "the signals are not drawn on the newer candles - I
+    # have never once seen a mark on the last candles." This loop is
+    # why. It used to run start_at -> stop_at, oldest to newest, and
+    # it is on a time budget: smart_money costs roughly 11ms a bar, a
+    # slab is 1200 bars, and the budget is seconds - so the deadline
+    # was reached part-way through and the pass stopped BEFORE the
+    # newest bars every single time. The slab nearest the right-hand
+    # edge was the one reliably sacrificed, which is the opposite of
+    # what a trader needs: the mark on the last candle is the only one
+    # they can still act on.
+    #
+    # Walking backwards means the deadline now costs the OLDEST bars
+    # of the slab, which the next refresh picks up anyway (the
+    # caller's planner extends coverage backwards call by call). The
+    # bars analysed are still a contiguous run, so coverage is still
+    # one range - it is now [reached, stop_at) instead of
+    # [start_at, reached).
+    reached = start_at
+    for i in range(stop_at - 1, start_at - 1, -1):
         if time.monotonic() > deadline:
-            # Where to resume. Without this the caller cannot tell a
-            # stretch that produced no setups from a stretch that was
-            # never looked at - which is the whole bug being fixed.
+            # Where to resume: everything from here back is untouched,
+            # and the caller must not read it as "no setups here".
             truncated = True
-            reached = i
+            reached = i + 1
             break
         history = bars[max(0, i + 1 - per_bar): i + 1]
         bar = bars[i]
@@ -214,6 +232,8 @@ def replay(
                 continue
             out.append(_to_mark(signal, name, i, bar, cap))
 
+    # Found newest-first; a chart reads oldest-first.
+    out.sort(key=lambda m: int(m.get("index", 0)))
     out = thin_marks(_dedupe(out))
     return {
         "ok": True,
@@ -222,14 +242,16 @@ def replay(
         "bars": total,
         "source": "strategy",
         "strategies": [name for name, _ in items],
-        "window": reached - start_at,
+        "window": stop_at - reached,
         "truncated": truncated,
         # What the trader is actually looking at. `covered_from` is the
         # first bar that was analysed, so the desk can say "marks begin
         # here" instead of leaving the trader to read an unanalysed
-        # stretch as a stretch with no setups.
-        "covered_from": start_at,
-        "covered_to": reached,
+        # stretch as a stretch with no setups. The pass runs backwards
+        # from the newest bar, so a budget that runs out moves this
+        # boundary UP - the right-hand edge is always covered.
+        "covered_from": reached,
+        "covered_to": stop_at,
         "slice": per_bar,
     }
 

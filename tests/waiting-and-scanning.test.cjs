@@ -120,12 +120,20 @@ function veilKit(opts) {
     const document = { createElement: __mk, querySelectorAll: () => __minis };
     const $ = (id) => __byId[id] || null;
     const cachedCandlesFor = __cached;
+    const TF_MINUTES = { M1: 1, M5: 5, M15: 15, M30: 30, H1: 60, H4: 240, D1: 1440 };
   `;
+  /* VEIL_ENOUGH_DAYS is taken from app.js rather than restated, or
+     this harness could keep passing after the real number moved. */
+  const enoughDays = /const VEIL_ENOUGH_DAYS = (\d+);/.exec(APP);
+  if (!enoughDays) throw new Error("app.js no longer states VEIL_ENOUGH_DAYS");
   return new Function("__S", "__mk", "__minis", "__byId", "__cached",
     stub
+    + "const VEIL_ENOUGH_DAYS = " + enoughDays[1] + ";\n"
     + grab(APP, "veilOf") + "\n" + grab(APP, "historyProgressOf") + "\n"
+    + grab(APP, "historyDepthOf") + "\n"
     + grab(APP, "veilState") + "\n" + grab(APP, "paintVeil") + "\n"
     + grab(APP, "clearVeil") + "\n" + grab(APP, "haveBarsFor") + "\n"
+    + grab(APP, "enoughBarsFor") + "\n"
     + grab(APP, "paintChartVeils")
     + "\nreturn { paintChartVeils, clearVeil, veilState, S };")(
     S, (t) => mk(t), opts.minis || [], opts.byId || {},
@@ -162,11 +170,46 @@ const inner = (box) => { const el = veilOn(box); return el ? String(el.innerHTML
     "with the two numbers the trader is waiting on");
   ok(/width:24%/.test(inner(box)), "and a bar at the right place");
 
-  // The candles arrive.
-  const kit2 = veilKit({ S, byId: { "tv-chartbox": box }, cached: () => [{ time: "t", close: 1 }] });
+  /* The first bars arrive - but only a few hundred of them, and the
+     download says it is still running. Asked for in the next round:
+     "once the candles reach about a month back the loading can go
+     away, and the download carries on in the corner." A few hundred
+     M5 bars is a day and a half, so the veil stays. */
+  const few = Array.from({ length: 300 }, (_, i) => ({ time: "t" + i, close: 1 }));
+  const kitFew = veilKit({ S, byId: { "tv-chartbox": box }, cached: () => few });
+  kitFew.paintChartVeils();
+  ok(Boolean(veilOn(box)), "a day and a half of a running download is not yet a chart");
+
+  // A month of M5 is 8 640 bars. That is a chart, and the rest can
+  // arrive behind it.
+  const month = Array.from({ length: 9000 }, (_, i) => ({ time: "t" + i, close: 1 }));
+  const kit2 = veilKit({ S, byId: { "tv-chartbox": box }, cached: () => month });
   kit2.paintChartVeils();
-  ok(!veilOn(box), "the veil comes off the moment there are bars to draw");
+  ok(!veilOn(box), "a month of candles lifts the veil while the download carries on");
   ok(!box.classList.contains("is-waiting"), "and the box stops saying it is waiting");
+
+  /* ...and a series that can never reach a month must not sit behind
+     a veil for ever. Three ways out, all tested on the same bars. */
+  const S4 = { chartFocus: { symbol: "XAUUSD", timeframe: "M5" }, histProgress: {
+    "XAUUSD.M5": { have: 300, want: 51840, done: true, at: Date.now() },
+  } };
+  const box4 = mk("div");
+  veilKit({ S: S4, byId: { "tv-chartbox": box4 }, cached: () => few }).paintChartVeils();
+  ok(!veilOn(box4), "a finished download is all the bars there will be");
+
+  const S5 = { chartFocus: { symbol: "XAUUSD", timeframe: "M5" }, histProgress: {} };
+  const box5 = mk("div");
+  veilKit({ S: S5, byId: { "tv-chartbox": box5 }, cached: () => few }).paintChartVeils();
+  ok(!veilOn(box5), "nothing is downloading, so nothing more is coming");
+
+  const S6 = {
+    chartFocus: { symbol: "XAUUSD", timeframe: "M5" },
+    histProgress: { "XAUUSD.M5": { have: 300, want: 51840, done: false, at: Date.now() } },
+    histDepth: { "XAUUSD.M5": { available: 300 } },
+  };
+  const box6 = mk("div");
+  veilKit({ S: S6, byId: { "tv-chartbox": box6 }, cached: () => few }).paintChartVeils();
+  ok(!veilOn(box6), "we hold everything the terminal says it has");
 
   /* The one thing worse than no spinner: one that cannot stop. A
      download that has finished and still produced nothing is not a

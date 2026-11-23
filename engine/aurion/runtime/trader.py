@@ -5019,10 +5019,16 @@ class Trader:
     # (no pandas, no strategy call) but there is no point redrawing a
     # panel faster than a person can read it.
     # The desk repaints the Intelligence card from this, so the number is
-    # the worst-case age of what a trader is looking at. One analysis
-    # costs ~0.4ms of pure in-memory state, so 5/second is 0.2% of a
-    # core - the cadence is limited by what is useful, not by cost.
-    ANALYSIS_PUSH_SECONDS = 0.2
+    # the worst-case age of what a trader is looking at.
+    #
+    # It was 0.2s, and the cost estimate behind that number counted one
+    # symbol. The payload grew to carry an analysis PER WATCHED CHART -
+    # up to twelve - and the change test json-dumps the lot, so five
+    # times a second became the most expensive thing on the tick path
+    # on a desk with several experts attached. Twice a second is faster
+    # than a person reads a changing number, and the saving goes to the
+    # price updates the trader is actually watching.
+    ANALYSIS_PUSH_SECONDS = 0.5
     # How often the engine asks itself whether the reading changed. This
     # exists because ticks are NOT a reliable heartbeat: they only arrive
     # while an MT5 EA is attached and the market is open. Driving the
@@ -5069,6 +5075,13 @@ class Trader:
         """
         now = time.time()
         if not force and now - getattr(self, "_analysis_sent_at", 0.0) < self.ANALYSIS_PUSH_SECONDS:
+            return
+        # Nobody is listening. Recomputing an analysis for a dozen
+        # charts, json-dumping it and comparing it, so that the result
+        # can be published to no one, is pure cost on the tick path -
+        # and the tick path is what the live price rides on.
+        if not force and not self.bus.client_count():
+            self._analysis_sent_at = now
             return
         self._analysis_sent_at = now
         try:
@@ -5843,8 +5856,17 @@ class Trader:
                     continue
                 kept.append({**mark, "index": idx})
 
-        lo = plan["first"]
+        # What the pass ACTUALLY covered, not what it was asked to.
+        # The replay runs newest-first and stops on a time budget, so
+        # a truncated slab covers [covered_from, covered_to) with
+        # covered_from above the bar the plan named. Trusting the plan
+        # here marked the unanalysed remainder as analysed, and that
+        # stretch then never got a second look - the oldest bars of
+        # every slab silently kept their "no setups here" verdict
+        # without anything having looked at them.
+        lo = int(result.get("covered_from", plan["first"]) or 0)
         hi = int(result.get("covered_to") or plan["last"])
+        lo = max(0, min(lo, total))
         fresh_marks = list(result.get("signals") or [])
         # Anything previously known inside the slab just re-analysed is
         # replaced by what the slab found, so a strategy whose settings

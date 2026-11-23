@@ -3154,8 +3154,17 @@ function mt5Live() {
   /* Everything the desk knows about the terminal arrived through the
      engine. With the engine gone, "MT5: live" is a claim about a
      snapshot, not about a broker - and two green lights over a dead
-     desk is worse than one red one. */
-  if (S._engineUp === false) return false;
+     desk is worse than one red one.
+
+     But only once the engine is really gone. Reported alongside the
+     flickering light: "it counts MetaTrader as down with it, and the
+     EA is attached". A momentary gap in the engine's answers says
+     nothing whatsoever about the terminal - the expert is still on
+     the chart, still sending - so pulling the MT5 light down with it
+     turned one wrong red light into two. The engine has to have been
+     down for ENGINE_DOWN_GRACE_MS before this follows it. */
+  if (S._engineUp === false
+      && Date.now() - (S._engineSince || 0) >= ENGINE_DOWN_GRACE_MS) return false;
   const mt = S.snap && S.snap.mt5;
   if (mt && mt.connected) return true;
   if (eaLive()) return true;
@@ -4891,12 +4900,11 @@ function patchLive() {
     if (curLbl && S.symbol && curLbl.textContent !== S.symbol) curLbl.textContent = S.symbol;
     const lbl = $("tick-lbl");
     if (lbl) lbl.textContent = tickLabel();
-    const ticks = S.snap?.ticks || {};
-    const symbols = liveSymbols().map((x) => x.symbol).filter((s) => ticks[s]);
-    const box = $("live-ticks");
     /* One template for the first paint and the refresh. They used to be
-       two copies of the same markup and had already begun to disagree. */
-    if (box) box.innerHTML = symbols.length ? watchlistHtml() : emptyMini(I18N.t("status.waiting_ticks"));
+       two copies of the same markup and had already begun to disagree.
+       The list is only rebuilt when the symbols in it change; the
+       prices inside it are patched - see paintWatchlist. */
+    paintWatchlist();
     const empty = document.querySelector(".chart-box .empty");
     if (empty && eaLive() && S.candles.length) empty.remove();
     /* Same patcher the Command Centre uses, so the table updates in place
@@ -5273,17 +5281,68 @@ function leaveChartFullscreen() {
 const ENGINE_PROBE_MS = 2000;
 const ENGINE_SILENCE_MS = 8000;
 
+/* How many times in a row the engine has to fail to answer before the
+ * light goes red.
+ *
+ * Reported: "the engine keeps going off and on in the desk". It did,
+ * and this was the desk's half of it. The light flipped on a SINGLE
+ * missed answer - one slow /api/health, one proxy socket that
+ * reconnected - while the thing whose job it is to act on a dead
+ * engine, the supervisor, requires three misses before it will even
+ * consider restarting it. The light was stricter than the watchdog,
+ * so it reported deaths the watchdog did not believe in.
+ *
+ * Going UP is still instant: one message from the engine, or one good
+ * health answer, and the light is green in that moment. Only the bad
+ * news waits for a second opinion, which is the asymmetry a trader
+ * actually wants - and two probes is under half a second, so a real
+ * death is still reported at once.
+ */
+const ENGINE_DOWN_MISSES = 2;
+
+/* How long an engine has to be gone before the MT5 light follows it
+ * down. See mt5Live(). */
+const ENGINE_DOWN_GRACE_MS = 6000;
+
 function engineUp() { return S._engineUp === true; }
 
 /** One place where the light changes, so every source agrees. */
 function noteEngine(up, why) {
   const now = Date.now();
   const next = Boolean(up);
-  if (next) S._engineSeenAt = now;
+  if (next) {
+    S._engineSeenAt = now;
+    S._engineMiss = 0;
+  } else {
+    S._engineMiss = (S._engineMiss || 0) + 1;
+    /* Not yet. One miss is a slow answer; the next probe decides.
+       A probe is scheduled immediately rather than waiting out the
+       two second cadence, so the confirmation costs a moment. */
+    if (S._engineMiss < ENGINE_DOWN_MISSES && S._engineUp !== false) {
+      if (!S._engineRecheck) {
+        S._engineRecheck = setTimeout(() => {
+          S._engineRecheck = null;
+          probeEngine();
+        }, 400);
+      }
+      return;
+    }
+  }
   if (S._engineUp === next) return;
   S._engineUp = next;
   S._engineSince = now;
   S._engineWhy = why || "";
+  /* The MT5 light follows this one only after a grace period, so the
+     moment the grace runs out has to repaint by itself - otherwise it
+     changes on whatever event happens to arrive next, which on a dead
+     engine is nothing at all. */
+  if (S._engineGrace) { clearTimeout(S._engineGrace); S._engineGrace = null; }
+  if (!next) {
+    S._engineGrace = setTimeout(() => {
+      S._engineGrace = null;
+      try { headerState(); } catch (e) { /* non-fatal */ }
+    }, ENGINE_DOWN_GRACE_MS + 100);
+  }
   try { headerState(); } catch (e) { /* a light must not break the desk */ }
 }
 
@@ -10263,6 +10322,103 @@ function paintPositions(boxId, rows, closable) {
   box.innerHTML = `<div class="pos-pane">${positionsListHtml(rows, [])}</div>`;
   if (closable) bindCloseButtons(box);
 }
+/* ------------------------------------------------- prices, as they move
+ *
+ * Reported: "the live price of each symbol has to be correct and in
+ * the moment, the same as MetaTrader - it is shown much slower."
+ *
+ * The ticks were already arriving on the socket. What they did not do
+ * was reach the screen: the watchlist was only ever redrawn by the
+ * refresh pass, which runs when an `account` or `positions` message
+ * happens to come in or when the twelve second poll lands. A price
+ * that arrived five times a second was therefore shown once a second
+ * at best, in steps, and behind the terminal.
+ *
+ * Two things change here. A tick repaints its own row the moment it
+ * lands, and the repaint is a text update on the row that is already
+ * there rather than a rebuild of the whole list - which is also why
+ * it can be done on every tick without the list flickering, losing
+ * the hover, or costing a layout of everything on the page.
+ */
+function watchRowEl(symbol) {
+  if (!symbol) return null;
+  try {
+    return document.querySelector(`.wl-row[data-wl="${CSS.escape(String(symbol))}"]`);
+  } catch (e) {
+    return null;
+  }
+}
+
+/** One symbol's prices, written into the row it already has. */
+function patchWatchRow(symbol) {
+  const row = watchRowEl(symbol);
+  if (!row) return false;
+  const t = (S.snap && S.snap.ticks && S.snap.ticks[symbol]) || null;
+  if (!t) return false;
+  const bid = Number(t.bid);
+  const ask = Number(t.ask);
+  const bidEl = row.querySelector(".wl-bid");
+  const askEl = row.querySelector(".wl-ask");
+  const spEl = row.querySelector(".wl-sp");
+  if (bidEl) {
+    const prev = tickMemo.get(symbol);
+    bidEl.classList.remove("up", "down");
+    if (Number.isFinite(bid) && Number.isFinite(prev) && bid !== prev) {
+      bidEl.classList.add(bid > prev ? "up" : "down");
+    }
+    const text = price(bid, symbol);
+    if (bidEl.textContent !== text) bidEl.textContent = text;
+  }
+  if (Number.isFinite(bid)) tickMemo.set(symbol, bid);
+  if (askEl) {
+    const text = price(ask, symbol);
+    if (askEl.textContent !== text) askEl.textContent = text;
+  }
+  if (spEl) {
+    const spread = (Number.isFinite(bid) && Number.isFinite(ask)) ? ask - bid : null;
+    /* .wl-sp keeps the broker's precision: it is a distance, not a
+       level, and rounded to the desk's two decimals it reads 0.00 on
+       every FX pair. Same rule as the template it patches. */
+    const text = spread === null ? "\u2014" : fmt(spread, 5); // wl-sp
+    if (spEl.textContent !== text) spEl.textContent = text;
+  }
+  return true;
+}
+
+/**
+ * The watchlist: rebuilt only when the SYMBOLS change.
+ *
+ * It used to be `box.innerHTML = watchlistHtml()` on every refresh,
+ * which on a desk with an expert attached is once a second: the whole
+ * list thrown away and parsed again to change two numbers in it.
+ */
+function paintWatchlist() {
+  const box = $("live-ticks");
+  if (!box) return;
+  const ticks = (S.snap && S.snap.ticks) || {};
+  const symbols = liveSymbols().map((x) => x.symbol).filter((sym) => ticks[sym]);
+  const key = symbols.join(",") + "|" + I18N.lang;
+  if (key !== S._wlKey || !box.querySelector(".wl-list")) {
+    S._wlKey = key;
+    box.innerHTML = symbols.length ? watchlistHtml() : emptyMini(I18N.t("status.waiting_ticks"));
+    return;
+  }
+  for (const sym of symbols) patchWatchRow(sym);
+}
+
+/** Everything on screen that shows this symbol's price, now. */
+function paintLivePrice(symbol) {
+  if (!symbol) return;
+  patchWatchRow(symbol);
+  if (symbol === S.symbol) {
+    const lbl = $("tick-lbl");
+    if (lbl) {
+      const text = tickLabel();
+      if (lbl.textContent !== text) lbl.textContent = text;
+    }
+  }
+}
+
 function tickLabel() {
   const t = S.snap?.ticks?.[S.symbol];
   if (!t) return "";
@@ -16019,9 +16175,52 @@ function clearVeil(box) {
   box.classList.remove("is-waiting");
 }
 
+/* Enough chart to be worth looking at, in days.
+ *
+ * Asked for in these words: "once the candles go back at least a
+ * month it is fine for that loading to go away - but let the
+ * download carry on, the way the download status in the corner of
+ * the chart does."
+ *
+ * So the veil is not a gate on the whole six-month window any more.
+ * It comes down at the first month, and the download line above the
+ * chart keeps counting while the rest arrives behind the candles the
+ * trader is already reading. */
+const VEIL_ENOUGH_DAYS = 30;
+
 /** Does the desk hold bars it could draw for this series right now? */
 function haveBarsFor(symbol, timeframe) {
   return Boolean(cachedCandlesFor(symbol, timeframe));
+}
+
+/**
+ * Enough of this series to drop the loading state.
+ *
+ * Four ways to be enough, and the last three matter as much as the
+ * first - a chart that can never reach a month must not sit behind a
+ * veil for ever:
+ *
+ *   * a month of candles is held;
+ *   * the download says it has finished;
+ *   * we hold everything the terminal says it has;
+ *   * nothing is downloading, so no more are coming anyway.
+ */
+function enoughBarsFor(symbol, timeframe, bars) {
+  const held = Array.isArray(bars) ? bars.length : 0;
+  if (!held) return false;
+  /* Not barsForDays(): that has a 400-bar floor for the analysis, and
+     a month of D1 is thirty candles. The question here is only
+     "does this reach back a month", so it is asked plainly. */
+  const mins = TF_MINUTES[String(timeframe || "M15").toUpperCase()] || 15;
+  const month = Math.ceil((VEIL_ENOUGH_DAYS * 24 * 60) / mins);
+  if (held >= month) return true;
+  const p = historyProgressOf(symbol, timeframe);
+  const fresh = p && (Date.now() - p.at) < 60000;
+  /* Nothing is arriving, so these are all the bars there will be. */
+  if (!fresh || p.done) return true;
+  const available = Number((historyDepthOf(symbol, timeframe) || {}).available || 0);
+  if (available > 0 && held >= available) return true;
+  return false;
 }
 
 /**
@@ -16034,8 +16233,11 @@ function paintChartVeils() {
   const f = S.chartFocus;
   const deskBox = $("tv-chartbox");
   if (deskBox && f) {
-    if (haveBarsFor(f.symbol, f.timeframe)) clearVeil(deskBox);
-    else paintVeil(deskBox, f.symbol, f.timeframe);
+    if (enoughBarsFor(f.symbol, f.timeframe, cachedCandlesFor(f.symbol, f.timeframe))) {
+      clearVeil(deskBox);
+    } else {
+      paintVeil(deskBox, f.symbol, f.timeframe);
+    }
   } else if (deskBox) {
     clearVeil(deskBox);
   }
@@ -16044,6 +16246,9 @@ function paintChartVeils() {
     if (!box) continue;
     const symbol = cv.getAttribute("data-mini") || "";
     const tf = cv.getAttribute("data-tf") || S.timeframe || "M15";
+    /* A card is a thumbnail of the last few hours - MINI_BARS of
+       them - so "enough" there is simply "any", and asking it for a
+       month would leave every card behind a spinner for ever. */
     const held = (S._mini || {})[symbol + "|" + tf];
     if (held && held.length) clearVeil(box);
     else paintVeil(box, symbol, tf);
@@ -16656,8 +16861,12 @@ function onLive(msg) {
       S.snap.ticks[t.symbol] = t;
       if (S.chart && (t.symbol === S.symbol || (S.chartFocus && t.symbol === S.chartFocus.symbol))) {
         S.chart.setTick(t);
-        const lbl = $("tick-lbl"); if (lbl) lbl.textContent = tickLabel();
       }
+      /* Straight to the screen. This used to wait for the next full
+         refresh pass, so a price that arrived several times a second
+         was displayed about once a second and lagged the terminal
+         visibly. It is a text write on a row that already exists. */
+      paintLivePrice(t.symbol);
     }
   }
   if (msg.type === "candle") {
@@ -16706,6 +16915,15 @@ function onLive(msg) {
         S.candlesKey = String(S.symbol || "") + "|" + String(S.timeframe || "");
         if (S.chart) S.chart.setBars(S.candles);
         paintChartVeils();
+        /* A half-finished download now sends its bars too, so the
+           chart can be read while the rest arrives (d.partial). Two
+           consequences: the download line must stay up - it is fed
+           by hist_progress and paintHistoryEdge, not by this - and
+           the marks have to be asked for again against the longer
+           series, or the trader reads a month of candles with the
+           signals of the first few hundred bars on it. */
+        paintHistoryEdge();
+        if (same) scheduleSignalFill(S.symbol, S.timeframe);
       }
     }
   }

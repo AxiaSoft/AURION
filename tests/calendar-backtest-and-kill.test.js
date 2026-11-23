@@ -499,14 +499,26 @@ check("the EA version moves for behaviour, and only for behaviour", () => {
      MetaTrader could scroll back months while the desk drew weeks.
      1.22 sends BOTH: the series first, so a timeframe the MetaTrader
      chart is not on still draws at once, and the range behind it, so
-     the months still arrive. Each of those is a change the engine can
-     see, so the number moves; the pin is kept, just moved, so the
-     NEXT comment cannot drift it. */
-  if (!/#define AURION_EA_VERSION "1\.22"/.test(ea)) {
+     the months still arrive. 1.23 sends the PRICE from OnTick rather
+     than only on the one-second heartbeat - reported as "the live
+     price is much slower than MetaTrader", and the engine sees it as
+     quotes arriving several times a second instead of once. Each of
+     those is a change the engine can see, so the number moves; the
+     pin is kept, just moved, so the NEXT comment cannot drift it. */
+  if (!/#define AURION_EA_VERSION "1\.23"/.test(ea)) {
     throw new Error("the version moved again; bump it only for a change the engine can see");
   }
   if (!/PumpHistory/.test(ea) || !/AURION_HIST_TRIES/.test(ea)) {
     throw new Error("1.22 claims a retry the expert does not have");
+  }
+  /* 1.23, asserted rather than described: a tick rate of its own, and
+     OnTick actually sending on it. */
+  if (!/input int\s+InpTickMs/.test(ea)) {
+    throw new Error("1.23 claims a tick rate the expert does not have");
+  }
+  const onTick = ea.slice(ea.indexOf("void OnTick()"), ea.indexOf("void OnTick()") + 700);
+  if (!/InpTickMs/.test(onTick) || !/SendTick\(\)/.test(onTick)) {
+    throw new Error("OnTick still leaves the price to the heartbeat");
   }
   /* Both halves of 1.22, asserted rather than described. */
   if (!/CopyRates\(_Symbol, g_hist_tf, 0, depth, g_hist_rates\)/.test(ea)) {

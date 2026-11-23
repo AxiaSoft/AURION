@@ -16,15 +16,18 @@ from ..util.errors import readable_error
 from ..util.history import HISTORY_DAYS, at_least_window
 from ..config import heal_packaged_files, load, merge, save
 from ..mt5.protocol import parse_ea_json
+from ..runtime.bus import QUEUE_MAX as BUS_QUEUE_MAX
 from ..runtime.trader import Trader
 from ..strategy.loader import BUILTIN_NAMES
-from ..util.log import RING
+from ..util.log import RING, get as get_log
 from ..util.clock import utc_iso
 #: When this process started, so the desk can say how old the engine it
 #: is talking to actually is. A build id answers "which code"; this
 #: answers "and since when", which is what makes a surviving process
 #: from before the update recognisable as one.
 _STARTED_AT = utc_iso()
+
+log = get_log("api")
 
 trader = Trader()
 app = FastAPI(title="AURION Engine", version="1.0.0")
@@ -987,14 +990,41 @@ async def i18n(lang: str) -> dict[str, Any]:
 
 @app.websocket("/v1/stream")
 async def stream(ws: WebSocket) -> None:
+    """The desk's live feed.
+
+    This connection is also the desk's engine light: the backend
+    proxies it and tells the browser "offline" the moment it closes.
+    That makes every avoidable disconnection here a red light in front
+    of a trader on a perfectly healthy engine - which is exactly what
+    was reported ("the engine keeps going on and off in the desk").
+
+    Two of them were avoidable and are handled below rather than being
+    allowed to end the connection:
+
+      * one frame that is not JSON used to kill the reader, and the
+        reader and the writer are gathered, so it killed the socket;
+      * one payload that json cannot encode used to kill the writer,
+        for every client at once, every time that event was published.
+
+    Neither is a reason to disconnect a desk. They are logged and
+    skipped.
+    """
     await ws.accept()
-    queue: asyncio.Queue = asyncio.Queue(maxsize=500)
+    queue: asyncio.Queue = asyncio.Queue(maxsize=BUS_QUEUE_MAX)
     trader.bus.add_client(queue)
     await ws.send_json({"type": "hello", "data": trader.snapshot()})
     try:
         async def reader() -> None:
             while True:
-                message = await ws.receive_json()
+                try:
+                    message = await ws.receive_json()
+                except (WebSocketDisconnect, asyncio.CancelledError):
+                    raise
+                except Exception:
+                    # Not JSON, or not an object. Ignore the frame.
+                    continue
+                if not isinstance(message, dict):
+                    continue
                 kind = message.get("type")
                 if kind == "ping":
                     await ws.send_json({"type": "pong", "ts": message.get("ts")})
@@ -1004,7 +1034,17 @@ async def stream(ws: WebSocket) -> None:
         async def writer() -> None:
             while True:
                 payload = await queue.get()
-                await ws.send_json(payload)
+                try:
+                    await ws.send_json(payload)
+                except (WebSocketDisconnect, asyncio.CancelledError):
+                    raise
+                except TypeError:
+                    # Something in this payload is not JSON. One bad
+                    # event must not take the trader's feed down with
+                    # it; it is dropped and named in the log.
+                    log.warning("stream: dropped an unencodable %s event",
+                                (payload or {}).get("type", "?"))
+                    continue
 
         await asyncio.gather(reader(), writer())
     except WebSocketDisconnect:

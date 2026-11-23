@@ -2,6 +2,15 @@
 //| AurionBridge.mq5                                                 |
 //| Live chart agent for the AURION engine.                          |
 //|                                                                  |
+//| v1.23 — the price goes out as the market makes it. Until now a  |
+//|   quote travelled only on the 1s heartbeat, bundled with the     |
+//|   account, the forming candle and every open position, so the    |
+//|   desk learned the price once a second however fast the market   |
+//|   moved and visibly lagged the terminal beside it. OnTick now    |
+//|   sends the four numbers of a tick on their own, at most every   |
+//|   InpTickMs (200ms by default, 0 to disable). The heartbeat is   |
+//|   unchanged and still carries everything else.                   |
+//|                                                                  |
 //| v1.22 — the bars this terminal already holds are sent FIRST, and |
 //|   the deeper period is fetched behind them. 1.21 asked only for  |
 //|   a date range, and a range the terminal has no series for is    |
@@ -71,14 +80,29 @@
 // nobody could tell. AURION_EA_VERSION is the value sent to the engine;
 // engine/tests/test_ea_version.py fails the build if the #property below
 // drifts from it, because #property will not take a macro.
-#define AURION_EA_VERSION "1.22"
-#property version   "1.22"
+#define AURION_EA_VERSION "1.23"
+#property version   "1.23"
 #property strict
-#property description "AURION live bridge 1.22 — the bars on hand are sent at once, the deeper period follows when the terminal has downloaded it"
+#property description "AURION live bridge 1.23 — price goes out as the market makes it, not on the heartbeat"
 
 input string InpEngineHost   = "127.0.0.1";
 input int    InpEnginePort   = 18766;
 input int    InpHeartbeatMs  = 1000;
+/* How often the PRICE may go out, apart from the heartbeat.
+ *
+ * Reported: "the live price of each symbol has to be in the moment,
+ * the same as MetaTrader - it is shown much slower". It was. The
+ * quote travelled only on the heartbeat, bundled with the account,
+ * the forming candle and the whole position list, so the desk learnt
+ * the price once a second however fast the market moved - and on a
+ * fast instrument a second is a long way behind the terminal.
+ *
+ * A tick is four numbers. Sending one does not need the rest of the
+ * heartbeat's payload, and OnTick is where the terminal already tells
+ * us the price changed. 200ms is five updates a second: visibly live,
+ * and far below the rate at which a localhost POST costs anything.
+ * Set to 0 to go back to heartbeat-only quotes. */
+input int    InpTickMs       = 200;
 // Fallback depth, used only when the engine does not name one. The
 // engine asks for its own window of the timeframe in question; this is
 // what an unprompted history push sends.
@@ -122,6 +146,7 @@ ENUM_TIMEFRAMES g_feed_tf = PERIOD_CURRENT;
 datetime g_feed_bar = 0;
 datetime g_deals_from = 0;
 uint     g_last_beat = 0;
+uint     g_last_quote = 0;
 uint     g_last_spec      = 0;
 uint     g_up_since = 0;
 uint     g_next_try = 0;
@@ -197,6 +222,7 @@ int OnInit()
    g_phase = 0;
    g_up_since = 0;
    g_last_beat = 0;
+   g_last_quote = 0;
    g_next_try = 0;
    g_hist_pos = -1;
    g_hist_count = 0;
@@ -260,7 +286,22 @@ void OnTick()
   {
    MaybeClosedBar();
    if(!g_hello_ok && GetTickCount() >= g_next_try)
+     {
       BurstConnect();
+      return;
+     }
+   // The price, as the market makes it. See InpTickMs.
+   if(g_hello_ok && InpTickMs > 0)
+     {
+      uint now = GetTickCount();
+      if(now - g_last_quote >= (uint)InpTickMs && now >= g_next_try)
+        {
+         g_last_quote = now;
+         SendTick();
+         if(!FlushOut())
+            g_next_try = now + 600;
+        }
+     }
   }
 
 void OnTimer()
@@ -292,6 +333,7 @@ void OnTimer()
    if(now - g_last_beat >= (uint)InpHeartbeatMs)
      {
       g_last_beat = now;
+      g_last_quote = now;
       SendTick();
       SendCandle(0);
       SendAccount();
