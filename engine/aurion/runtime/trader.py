@@ -170,6 +170,15 @@ class Trader:
         self.bus = Bus()
         self.store = Store()
         self.bridge = MT5Bridge()
+        # Downloaded bars belong to this installation, not to the life of
+        # this process. The bridge keeps them in memory; this is where it
+        # puts them on disk and where it reads them back from, so the
+        # first chart after a restart is drawn out of AURION's own files
+        # instead of being downloaded from the broker all over again.
+        self.bridge.use_candle_archive(
+            save=lambda sym, tf, rows: self.store.save_candles(sym, tf, rows),
+            load=lambda sym, tf, count: self.store.candles(sym, tf, count),
+        )
         self.ai = AIEngine()
         self.prop = PropEngine()
         self.loader = StrategyLoader()
@@ -525,8 +534,15 @@ class Trader:
                 await self._on_closed_candle(payload)
             return
         if kind == "candles":
-            for row in payload.get("bars") or []:
-                self.store.upsert_candle(row)
+            # One transaction for the block, not one per bar. The expert
+            # hands its history over in thousands, and upsert_candle()
+            # commits every row: three thousand bars were three thousand
+            # flushes to disk, which is the stall a trader reads as
+            # "still downloading candles" long after the download ended.
+            self.store.save_candles(
+                payload.get("symbol") or "", payload.get("timeframe") or "",
+                payload.get("bars") or [],
+            )
             await self.bus.publish("candles", payload)
             return
         if kind == "account":
