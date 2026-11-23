@@ -1121,6 +1121,33 @@ app.get("/api/exports/:name", auth.middleware, (req, res) => {
 
 app.use("/api", guarded);
 
+/* An /api path nobody claimed, answered in JSON.
+ *
+ * Express ends an unmatched request with its own HTML page, and the
+ * desk's fetch wrapper can only report that as "bad_response" - which
+ * is what a trader saw when they pressed Stop on a backtest: a server
+ * process started before the update, serving the NEW page out of the
+ * folder on disk while routing with the OLD table in memory. The page
+ * had the button; the server had never heard of the endpoint.
+ *
+ * The honest answer to that is not a generic error. It is: this
+ * server is older than the page it just served you, and restarting
+ * AURION fixes it. So the body carries a code the desk translates,
+ * the path that was asked for, and the build on disk - and anything
+ * genuinely unknown lands here too, in JSON, rather than as an HTML
+ * page a fetch cannot read. */
+app.use("/api", (req, res) => {
+  let build = "";
+  try { build = buildId.diskBuildId(); } catch { /* not fatal */ }
+  res.status(404).json({
+    ok: false,
+    code: "unknown_endpoint",
+    error: `unknown endpoint ${req.method} /api${req.path}`,
+    endpoint: `${req.method} /api${req.path}`,
+    build,
+  });
+});
+
 app.use("/lang", express.static(LANG, { fallthrough: false }));
 app.use(express.static(WEB, {
   extensions: ["html"],

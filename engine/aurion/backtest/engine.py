@@ -186,20 +186,51 @@ def _slim(bar: Any) -> dict[str, Any]:
 
 
 def _thin(values: list[float], most: int) -> list[float]:
-    """Evenly sample a long series down to something a sparkline can draw.
+    """Shorten a long series without losing what happened in it.
 
     The live curve is republished twice a second while a replay runs, so
     sending every point would grow without bound over a long test. The
     first and last points are always kept: the ends are the two the eye
     actually reads.
+
+    This used to take every Nth point, and on a long run N is large -
+    twenty thousand points down to five hundred is one sample in forty.
+    A drawdown that opened and closed inside forty points was therefore
+    not drawn small, it was not drawn at all: the curve the desk
+    received had never been below the line the equity really went
+    below. "The backtest curve does not show the losses" was reported
+    exactly that way, and it was true - the losses were dropped here,
+    in a function whose job was supposed to be making the same shape
+    smaller.
+
+    So each bucket now contributes its lowest and its highest value, in
+    the order they happened. The extremes of every stretch survive at
+    any length, which is what makes the thinned curve a picture of the
+    run rather than a picture of forty of its points. The output is the
+    same length as before, because it is the transport budget that
+    decided that number.
     """
     n = len(values)
     if n <= most:
         return [round(float(v), 2) for v in values]
-    stepf = (n - 1) / float(most - 1)
-    out = [values[int(round(k * stepf))] for k in range(most)]
+    buckets = max(1, most // 2)
+    out: list[float] = []
+    for k in range(buckets):
+        a = (k * n) // buckets
+        b = max(a + 1, ((k + 1) * n) // buckets)
+        chunk = values[a:b]
+        lo = min(chunk)
+        hi = max(chunk)
+        # In the order they occurred, or the line would zigzag against
+        # time and the shape would be a lie of a different kind.
+        out.extend([lo, hi] if chunk.index(lo) <= chunk.index(hi) else [hi, lo])
+    # The ends are facts, not samples: where the run started and where
+    # it finished.
+    out[0] = values[0]
     out[-1] = values[-1]
-    return [round(float(v), 2) for v in out]
+    while len(out) < most:
+        out.append(values[-1])
+    return [round(float(v), 2) for v in out[:most]]
 
 
 class Backtester:

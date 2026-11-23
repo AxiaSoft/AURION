@@ -14257,39 +14257,110 @@ function drawEquityCurve(curve) {
   g.stroke();
   g.setLineDash([]);
 
+  /* Profit above the starting line, loss below it - on the same curve.
+   *
+   * Reported as "the equity curve does not show the losses; it counts
+   * the drops as profit". It did. The whole picture took ONE colour,
+   * chosen from where the run happened to end, so a test that finished
+   * ahead drew its drawdowns in the profit colour and filled them in
+   * green: a trader reading the shape was shown a loss painted as a
+   * gain. The run's ending is not a fact about the middle of it.
+   *
+   * So the area is filled in two passes, each clipped to its own side
+   * of the starting line, and the line itself is drawn in pieces that
+   * change colour exactly where it crosses. Nothing about the data
+   * changed - this is the same curve, told truthfully. */
   const ended = curve[curve.length - 1] >= base;
-  const colour = ended ? up : down;
+  const yBase = y(base);
 
-  const fill = g.createLinearGradient(0, padT, 0, h - padB);
+  /* Which side of the starting line each point is on. A point sitting
+     exactly ON the line belongs to the side its neighbours are on -
+     every run starts on the line, and calling that first point a
+     profit would open a losing run with a green stub. A run that
+     never leaves the line is flat, which is not a loss. */
+  const sides = curve.map((v) => (v > base ? 1 : v < base ? -1 : 0));
+  let carry = 0;
+  for (let i = 0; i < sides.length; i++) { if (sides[i]) carry = sides[i]; else sides[i] = carry; }
+  carry = 0;
+  for (let i = sides.length - 1; i >= 0; i--) { if (sides[i]) carry = sides[i]; else sides[i] = carry; }
+  const above = (i) => sides[i] >= 0;
+  const everAbove = curve.some((v) => v > base);
+  const everBelow = curve.some((v) => v < base);
+
   // A var() can resolve to anything; only a plain hex can take an alpha
   // suffix. Anything else falls back to a flat global alpha below.
-  const soft = /^#[0-9a-f]{6}$/i.test(colour) ? colour + "3a" : "";
-  fill.addColorStop(0, soft || colour);
-  fill.addColorStop(1, "transparent");
-  g.beginPath();
-  g.moveTo(x(0), y(curve[0]));
-  for (let i = 1; i < curve.length; i++) g.lineTo(x(i), y(curve[i]));
-  g.lineTo(x(curve.length - 1), y(base));
-  g.lineTo(x(0), y(base));
-  g.closePath();
-  g.save();
-  if (!soft) g.globalAlpha = 0.22;
-  g.fillStyle = fill;
-  g.fill();
-  g.restore();
+  const softOf = (c) => (/^#[0-9a-f]{6}$/i.test(c) ? c + "3a" : "");
+  const area = () => {
+    g.beginPath();
+    g.moveTo(x(0), yBase);
+    for (let i = 0; i < curve.length; i++) g.lineTo(x(i), y(curve[i]));
+    g.lineTo(x(curve.length - 1), yBase);
+    g.closePath();
+  };
+  /* One half of the area: everything above the starting line, or
+     everything below it. The gradient fades away from that line in
+     both cases, so the two halves read as one picture. */
+  const half = (colour, top, bottom) => {
+    if (bottom - top < 0.5) return;
+    const soft = softOf(colour);
+    const grad = g.createLinearGradient(0, top, 0, bottom);
+    grad.addColorStop(0, top < yBase ? (soft || colour) : "transparent");
+    grad.addColorStop(1, top < yBase ? "transparent" : (soft || colour));
+    g.save();
+    g.beginPath();
+    g.rect(0, top, w, bottom - top);
+    g.clip();
+    area();
+    if (!soft) g.globalAlpha = 0.22;
+    g.fillStyle = grad;
+    g.fill();
+    g.restore();
+  };
+  // Only the halves the run actually reached. Filling a side it never
+  // visited paints a colour over nothing, which is how a losing run
+  // came to carry a green wash along its top edge.
+  if (everAbove) half(up, padT, Math.min(yBase, h - padB));
+  if (everBelow) half(down, Math.max(yBase, padT), h - padB);
 
-  g.beginPath();
-  g.moveTo(x(0), y(curve[0]));
-  for (let i = 1; i < curve.length; i++) g.lineTo(x(i), y(curve[i]));
-  g.strokeStyle = colour;
+  /* The line, in pieces. A segment that crosses the starting line is
+     cut at the crossing, so the colour changes where the run actually
+     went from ahead to behind rather than at the nearest sample. */
   g.lineWidth = 2;
   g.lineJoin = "round";
-  g.stroke();
+  g.lineCap = "round";
+  let from = 0;
+  const stroke = (a, b, ax, ay, bx, by, above) => {
+    g.beginPath();
+    g.moveTo(ax, ay);
+    for (let i = a + 1; i <= b; i++) g.lineTo(x(i), y(curve[i]));
+    if (bx !== null) g.lineTo(bx, by);
+    g.strokeStyle = above ? up : down;
+    g.stroke();
+  };
+  for (let i = 0; i < curve.length - 1; i++) {
+    const here = above(i);
+    const next = above(i + 1);
+    if (here === next) continue;
+    // Where between the two samples the line is worth exactly `base`.
+    const span = curve[i + 1] - curve[i];
+    const f = Math.abs(span) < 1e-12 ? 0 : (base - curve[i]) / span;
+    const cx = x(i) + (x(i + 1) - x(i)) * Math.max(0, Math.min(1, f));
+    stroke(from, i, x(from), y(curve[from]), cx, yBase, here);
+    from = i + 1;
+    // Start the next piece at the crossing, not at the next sample,
+    // or the line would have a gap at every crossing.
+    g.beginPath();
+    g.moveTo(cx, yBase);
+    g.lineTo(x(from), y(curve[from]));
+    g.strokeStyle = next ? up : down;
+    g.stroke();
+  }
+  stroke(from, curve.length - 1, x(from), y(curve[from]), null, null, above(from));
 
   // Where it finished.
   g.beginPath();
   g.arc(x(curve.length - 1), y(curve[curve.length - 1]), 3.5, 0, Math.PI * 2);
-  g.fillStyle = colour;
+  g.fillStyle = ended ? up : down;
   g.fill();
 
   /* The point being asked about: a rule down the chart and a dot on
@@ -16045,23 +16116,67 @@ function maybeLoadMoreHistory() {
 }
 const CHART_HISTORY_LEAD = 30;
 
+/* The bars behind the small chart on each EA card, per symbol and
+   timeframe. Held on the desk so the grid can be drawn the instant it
+   is opened; see paintMiniCharts. */
+const MINI_BARS = 240;
+
+/** Put bars into one card's canvas, reusing its chart if it has one. */
+function paintMiniChart(cv, symbol, bars) {
+  if (!cv || !Array.isArray(bars) || !bars.length) return;
+  let chart = cv._miniChart;
+  if (!chart) {
+    chart = new CandleChart(cv);
+    cv._miniChart = chart;
+  }
+  syncChartPrecision(chart, symbol);
+  chart.setBars(bars);
+  const t = S.snap?.ticks?.[symbol];
+  if (t) chart.setTick(t);
+}
+
+/**
+ * The small charts on the EA cards.
+ *
+ * Reported as "the charts vanish when I move away from the list and
+ * come back". They did, and then they came back one at a time: this
+ * fetched 240 bars per card with `await` INSIDE the loop, so ten
+ * attached experts meant ten round trips end to end, every single
+ * time the page was mounted, with every canvas blank until its own
+ * turn came. Nothing was cached, so a page the trader had just been
+ * looking at was rebuilt from nothing.
+ *
+ * Now: whatever the desk already holds goes in synchronously, and the
+ * refresh runs for all the cards at once rather than one after
+ * another. The bars are real bars from the engine either way - the
+ * cache only decides how recently they arrived.
+ */
 async function paintMiniCharts() {
-  const nodes = document.querySelectorAll("canvas[data-mini]");
+  const nodes = [...document.querySelectorAll("canvas[data-mini]")];
+  if (!nodes.length) return;
+  S._mini = S._mini || {};
+  const want = [];
   for (const cv of nodes) {
     const symbol = cv.getAttribute("data-mini");
     const tf = cv.getAttribute("data-tf") || S.timeframe || "M15";
     if (!symbol) continue;
-    try {
-      const c = await API.get(`/api/candles?symbol=${encodeURIComponent(symbol)}&timeframe=${encodeURIComponent(tf)}&count=240`);
-      const bars = c.data || [];
-      if (!bars.length) continue;
-      const chart = new CandleChart(cv);
-      syncChartPrecision(chart, symbol);
-      chart.setBars(bars);
-      const t = S.snap?.ticks?.[symbol];
-      if (t) chart.setTick(t);
-    } catch { /* keep empty box */ }
+    const key = symbol + "|" + tf;
+    const held = S._mini[key];
+    if (held && held.length) paintMiniChart(cv, symbol, held);
+    want.push({ cv, symbol, tf, key });
   }
+  await Promise.all(want.map(async ({ cv, symbol, tf, key }) => {
+    try {
+      const c = await API.get(`/api/candles?symbol=${encodeURIComponent(symbol)}`
+        + `&timeframe=${encodeURIComponent(tf)}&count=${MINI_BARS}`);
+      const bars = (c && c.data) || [];
+      if (!bars.length) return;
+      S._mini[key] = bars;
+      // The trader may have left the page while this was in the air.
+      if (cv.isConnected === false) return;
+      paintMiniChart(cv, symbol, bars);
+    } catch { /* keep whatever is in the box */ }
+  }));
 }
 
 /**
