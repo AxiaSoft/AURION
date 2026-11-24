@@ -492,7 +492,14 @@ check("the helper is no longer named after a window it does not enforce", () => 
 
 check("the EA imposes no window of its own", () => {
   if (/thirty days/i.test(ea)) throw new Error("the expert still describes a thirty-day window");
-  if (!/#define AURION_HIST_MAX 300000/.test(ea)) throw new Error("the ceiling changed");
+  /* 259 200 = 180 x 1440, exactly six months of M1.
+     It was 300 000 - about seven months - picked to clear the promise
+     with room above it. Asked for the limit to be six months and no
+     more, and room above a ceiling is just a higher ceiling. The
+     point of this check is unchanged: the expert must not impose a
+     window SHORTER than the promise, and must still honour the depth
+     the engine names. */
+  if (!/#define AURION_HIST_MAX 259200/.test(ea)) throw new Error("the ceiling changed");
   if (!/g_hist_want > 0 \? g_hist_want : InpCandleDepth/.test(ea)) {
     throw new Error("the expert no longer honours the depth the engine asks for");
   }
@@ -527,8 +534,11 @@ check("the EA version moves for behaviour, and only for behaviour", () => {
      "status 1003 / recovered / switched to port ...", and every switch
      read to the desk as the expert arriving on a new transport, which
      is why an expert plainly attached in MetaTrader kept being drawn
-     as detached. The engine can see all of that, so the number moves. */
-  if (!/#define AURION_EA_VERSION "1\.25"/.test(ea)) {
+     as detached. The engine can see all of that, so the number moves.
+     1.26 lowers AURION_HIST_MAX from 300 000 to exactly six months of
+     M1. That is a change to how much history the expert will hand
+     over, which the engine can certainly see, so the number moves. */
+  if (!/#define AURION_EA_VERSION "1\.26"/.test(ea)) {
     throw new Error("the version moved again; bump it only for a change the engine can see");
   }
   if (!/PumpHistory/.test(ea) || !/AURION_HIST_TRIES/.test(ea)) {

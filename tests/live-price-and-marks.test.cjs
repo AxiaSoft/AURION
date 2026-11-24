@@ -158,7 +158,14 @@ function priceKit(opts) {
   ok(/SendTick\(\)/.test(onTick) && /InpTickMs/.test(onTick),
     "OnTick sends the price rather than leaving it to the heartbeat");
   ok(/g_last_quote/.test(onTick), "and it is rate-limited, so a fast market cannot flood the engine");
-  ok(/#define AURION_EA_VERSION "1\.25"/.test(EA), "the expert says which version this is");
+  /* A floor, not a pin. This check is about the expert ANNOUNCING a
+     version at all, so that a copy nobody recompiled is visible to
+     the desk - it is not about which version. Pinning the exact
+     number means every EA change fails an unrelated test about the
+     live price; the version is pinned deliberately, in one place, in
+     calendar-backtest-and-kill.test.js. */
+  const eaVer = parseFloat((/#define AURION_EA_VERSION "([0-9.]+)"/.exec(EA) || [])[1]);
+  ok(eaVer >= 1.25, "the expert says which version this is: v" + eaVer);
 }
 
 /* ======================================================= 4. the marks ==== */

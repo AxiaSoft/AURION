@@ -16983,8 +16983,13 @@ function signalCoverageNote() {
   const done = Math.max(0, Math.round((cov.to || 0) - (cov.from || 0)));
   if (!total) return "";
   if (cov.complete) {
+    /* `done`, not `total`. The marked region is the last day of the
+       chart, not the whole series, so reporting the series length
+       next to the window's own dates was a sentence that contradicted
+       itself - "all 17 280 candles" beside a range covering 96 of
+       them. */
     return I18N.t("charts.scan_done", {
-      n: fmt(total, 0),
+      n: fmt(done, 0),
       from: histDate(cov.fromTime), to: histDate(cov.toTime),
     });
   }

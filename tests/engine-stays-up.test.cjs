@@ -82,8 +82,16 @@ const CHARTCSS = read("apps", "web", "css", "chart.css");
   ok(/g_http_q\[i\]\s*=\s*g_http_q\[i\s*\+\s*drop\]/.test(queue),
     "a full queue sheds its OLDEST entries, so the newest price survives");
 
-  ok(/#define AURION_EA_VERSION "1\.25"/.test(EA), "the expert is 1.25");
-  ok(/#property version\s+"1\.25"/.test(EA), "and says so to MetaTrader too");
+  /* The two declarations must AGREE - #property is what MetaTrader
+     shows in the terminal, AURION_EA_VERSION is what travels to the
+     engine, and a copy where they disagree is a copy whose reported
+     version cannot be trusted. Compared to each other rather than
+     both pinned to a literal, which is how they came to disagree:
+     one got bumped and the other did not. */
+  const wire = (/#define AURION_EA_VERSION "([0-9.]+)"/.exec(EA) || [])[1];
+  const prop = (/#property version\s+"([0-9.]+)"/.exec(EA) || [])[1];
+  ok(parseFloat(wire) >= 1.26, "the expert is at least 1.26, and is v" + wire);
+  ok(wire === prop, `and says so to MetaTrader too (${wire} vs ${prop})`);
 }
 
 /* ======================= 2. silence is not absence =================== */

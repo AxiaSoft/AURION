@@ -592,7 +592,7 @@
     "veil_loading": "Loading {tf} candles…",
     "veil_getting": "Downloading {tf} candles from MetaTrader — {have} of {want}",
     "veil_none": "MetaTrader has not sent any {tf} candles for this symbol yet.",
-    "scan_done": "Analysed all {n} candles — {from} to {to}",
+    "scan_done": "Signals analysed on the last {n} candles — {from} to {to}",
     "scan_progress": "Analysed {done} of {total} candles — back to {from}",
     "scan_doing": "Analysing {n} candles now — {from} to {to} · {done} of {total} done"
   },

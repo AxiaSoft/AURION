@@ -2,6 +2,13 @@
 //| AurionBridge.mq5                                                 |
 //| Live chart agent for the AURION engine.                          |
 //|                                                                  |
+//| v1.26 — six months is the limit, not a target to clear. The one  |
+//|   history ceiling here was 300 000 bars, about seven months of   |
+//|   M1, sized to leave room above the promise. Room above a        |
+//|   ceiling is simply a higher ceiling, and the trader asked for   |
+//|   six months and no more, so it is now exactly six months of M1. |
+//|   The engine caps its own request as well; this is the backstop. |
+//|                                                                  |
 //| v1.25 — one engine, one port. Ingest used to fail over between   |
 //|   18765 and 8080 on every refused post, which is not redundancy: |
 //|   8080 is the DESK, and all it does with /v1/ea/ingest is pass   |
@@ -111,8 +118,8 @@
 // nobody could tell. AURION_EA_VERSION is the value sent to the engine;
 // engine/tests/test_ea_version.py fails the build if the #property below
 // drifts from it, because #property will not take a macro.
-#define AURION_EA_VERSION "1.25"
-#property version   "1.25"
+#define AURION_EA_VERSION "1.26"
+#property version   "1.26"
 #property strict
 #property description "AURION live bridge 1.25 — one engine, one port; the file inbox is the only fallback"
 
@@ -139,9 +146,16 @@ input int    InpTickMs       = 200;
 // what an unprompted history push sends.
 input int    InpCandleDepth  = 3000;
 // Ceiling for a single history push, so a bad request cannot ask the
-// terminal for a decade. 300 000 M1 bars is about seven months, which
-// clears the six-month window the desk asks for.
-#define AURION_HIST_MAX 300000
+// terminal for a decade.
+//
+// Exactly six months of M1 (180 x 1440), because six months is the
+// window the product promises and the limit the trader asked for -
+// "load back to six months and no further". It was 300 000, which is
+// about seven, chosen only to clear the promise with room to spare.
+// Room to spare above a ceiling is not a safety margin, it is a
+// higher ceiling: the engine caps its own request now, and this is
+// the backstop for the case something asks for more anyway.
+#define AURION_HIST_MAX 259200
 // How many times to re-ask CopyRates while MetaTrader downloads the
 // series in the background. At a widening 250ms..3s delay this is
 // roughly a minute and a half of patience, which covers a cold M1

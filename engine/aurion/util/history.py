@@ -125,7 +125,19 @@ def requested_window(timeframe: str, asked: int | None = None) -> int:
         return bars_for_days(timeframe)
     #: A floor remains, because an indicator needs some bars to exist
     #: at all and a caller asking for five is a bug, not a preference.
-    return min(MAX_BARS, max(60, want))
+    #:
+    #: And a CEILING of the promise itself, not of MAX_BARS.
+    #:
+    #: MAX_BARS is a memory guard - a flat 300 000 bars, which is eight
+    #: and a half YEARS of M15 and about seven months of M1. Capping a
+    #: chart request there meant the bound varied wildly by timeframe
+    #: and, on everything slower than M1, was no bound at all: a desk
+    #: asking for a big round number got whatever the broker would
+    #: part with, and the expert then streamed all of it, 250 bars at
+    #: a time, into an engine that had to write and broadcast every
+    #: chunk. Six months is what the product promises and what the
+    #: trader asked to be the limit, so six months is the ceiling.
+    return min(bars_for_days(timeframe), max(60, want))
 
 
 def bars_to_cover(timeframe: str, start: Any, now: Any = None) -> int:

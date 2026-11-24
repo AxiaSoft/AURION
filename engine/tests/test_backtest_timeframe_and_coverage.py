@@ -226,7 +226,18 @@ def test_a_period_outside_a_filling_series_says_it_is_filling() -> None:
 
 # ─────────────────── which candles, precisely, and which next ─────────
 
-def _merged(total: int, held_from: int | None = None, held_to: int | None = None):
+def _merged(total: int, held_from: int | None = None, held_to: int | None = None,
+            short_by: int = 0):
+    """Run one plan-and-merge cycle.
+
+    `short_by` simulates a pass that ran out of its time budget: the
+    replay works newest-first, so a truncated slab reports a
+    `covered_from` ABOVE the bar the plan asked for, and the remainder
+    is what the next pass has to pick up. That is the only way a chart
+    is left incomplete now that the marked window is a single day's
+    worth of bars - it used to be the normal state of every chart,
+    because coverage crawled backwards through the whole history.
+    """
     t = Trader()
     bars = _bars(total, minutes=15)
     armed: list[Any] = []
@@ -238,7 +249,8 @@ def _merged(total: int, held_from: int | None = None, held_to: int | None = None
             "signals": [],
         }
     plan = t._chart_mark_plan("EURUSD", "M15", armed, bars)
-    result = {"signals": [], "covered_from": plan["first"], "covered_to": plan["last"]}
+    result = {"signals": [], "covered_from": plan["first"] + short_by,
+              "covered_to": plan["last"]}
     out = t._chart_marks_merge("EURUSD", "M15", armed, bars, plan, result)
     return out, bars
 
@@ -254,7 +266,18 @@ def test_the_analysed_span_is_reported_by_time_as_well_as_index() -> None:
 
 
 def test_the_next_slab_is_named_so_the_box_can_point_at_it() -> None:
-    out, bars = _merged(5000)
+    """A pass cut short by its budget must say what is left.
+
+    This used to be driven by an ordinary first pass, because an
+    ordinary first pass could not finish: coverage crawled backwards
+    through the whole series a slab at a time. The marked window is
+    now one day, so a normal pass completes and advertises nothing -
+    which is the point of the change, and is asserted directly in
+    test_chart_load_is_bounded.py. The machinery for naming the next
+    slab still matters for the case it was really written for, a
+    replay that hit its time budget, so that is what is driven here.
+    """
+    out, bars = _merged(5000, short_by=40)
     assert out["complete"] is False
     assert isinstance(out["next_from"], int) and isinstance(out["next_to"], int)
     assert out["next_from"] < out["next_to"] <= 5000

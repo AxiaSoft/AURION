@@ -107,21 +107,29 @@ SOLO_ROBOT_NAME = "robot"
 #: Wall-clock ceiling for one chart-mark pass.
 #:
 #: The marks are an armed strategy's own output replayed bar by bar,
-#: and smart_money costs about 11 ms a bar, so six months of M15 is
-#: three minutes of work. It is done in slabs across refreshes instead,
-#: and this is one slab's share. Long enough to make visible progress,
-#: short enough that a chart refresh is never felt as a hang.
+#: and smart_money costs about 11 ms a bar. Now that the marked region
+#: is one day rather than the whole series, a pass is small - this is
+#: a ceiling against a pathological strategy, not a work allowance to
+#: be spent.
 CHART_MARK_BUDGET_SECONDS = 8.0
 
-#: Bars analysed on the very first pass for a chart.
+#: How much of the chart carries signal marks: the last day of it.
 #:
-#: Deliberately modest: the first paint has to arrive quickly, and the
-#: bars nearest the right-hand edge are the ones being looked at. The
-#: rest is filled in behind it by later refreshes.
-CHART_MARK_FIRST_PASS = 1200
-
-#: How much further back each subsequent pass reaches.
-CHART_MARK_STEP_BACK = 1500
+#: It used to be the whole series, reached a slab at a time: 1200 bars
+#: on the first pass and 1500 more on every refresh, for ever, until
+#: six months were covered. That was asked for - "the signals are only
+#: drawn at the right edge" - and it is what made the engine
+#: unusable once the expert was attached to real charts. The work
+#: never finished. Every refresh of every chart had more history to
+#: chew through, four charts did it at once, and the machine never got
+#: back to idle.
+#:
+#: It was also not worth it. A mark on a bar from three months ago is
+#: not a trading decision; the trader is reading the right-hand edge.
+#: So the marked region is now a fixed, finite, recent window - the
+#: last day on every timeframe - which is 1440 bars of M1 and 6 bars
+#: of H4, and once it is covered the work STOPS.
+MARK_DAYS = 1
 
 #: How many charts' worth of analysis to remember at once.
 CHART_MARK_CACHES = 8
@@ -5982,24 +5990,51 @@ class Trader:
         names = ",".join(sorted(str(n) for n, _ in armed))
         return f"{symbol}|{timeframe}|{names}"
 
+    def _mark_floor(self, timeframe: str, total: int) -> int:
+        """The oldest bar index that carries signal marks.
+
+        One day back from the right-hand edge, whatever the timeframe:
+        1440 bars of M1, 96 of M15, 6 of H4. See MARK_DAYS.
+        """
+        from ..mt5.types import timeframe_minutes
+        from ..signals.strategy_signals import WARMUP_BARS
+
+        # Deliberately NOT bars_for_days(): that has a 400-bar floor,
+        # meant for "enough bars for an indicator to have an opinion",
+        # which is a different question. Applied here it would turn
+        # one day of H4 into sixty-six days.
+        minutes = max(1, int(timeframe_minutes(timeframe)))
+        span = max(1, (MARK_DAYS * 24 * 60) // minutes)
+        # Clamped to `total`: on a long timeframe the warm-up can be
+        # longer than the whole series (220 bars of warm-up against
+        # 180 bars of D1), and an unclamped floor would hand back a
+        # backwards range - first past last - which reads as "analyse
+        # nothing" in one place and "analyse everything" in another.
+        return min(total, max(WARMUP_BARS, total - span))
+
     def _chart_mark_plan(self, symbol: str, timeframe: str, armed: list, bars: list) -> dict[str, Any]:
         """Which bars to analyse on this call.
 
-        New bars at the right-hand edge come first - they are what the
-        trader is looking at - and only then does coverage walk
-        backwards. The alternative, extending backwards first, means a
-        chart whose newest bar is unmarked, which is the one mark
-        nobody will forgive being missing.
+        The marked region is the last MARK_DAYS of the chart and
+        nothing older, so this is only ever asked to do one of two
+        small things: cover that window the first time, or catch up
+        with the handful of bars that have closed since the last call.
+
+        It used to walk backwards through the entire series, 1500 bars
+        per refresh, and never finish. With the expert attached to
+        several real charts that was an engine that never returned to
+        idle - which is what "the engine goes haywire and the desk
+        dies when the EA is on" was. Work that has no end cannot be
+        budgeted; work with a fixed, recent horizon can.
 
         Positions are held as bar TIMES, not indices: the history
         scrolls, so index 4000 is a different bar tomorrow, and a cache
         keyed on indices would quietly slide its marks into the wrong
         place.
         """
-        from ..signals.strategy_signals import WARMUP_BARS
-
         key = self._chart_mark_key(symbol, timeframe, armed)
         total = len(bars)
+        floor = self._mark_floor(timeframe, total)
         held = self._marks_store().get(key)
         times = [str(b.get("time") or "") for b in bars]
         index_of = {t: i for i, t in enumerate(times) if t}
@@ -6007,7 +6042,7 @@ class Trader:
         # `to_time` is the LAST bar analysed, so the exclusive bound is
         # one past it. Reading it back as the bound itself leaves the
         # newest covered bar looking uncovered, and every refresh
-        # re-analyses that one bar for ever and never reaches backwards.
+        # re-analyses that one bar for ever.
         lo = hi = None
         if held:
             lo = index_of.get(held.get("from_time") or "")
@@ -6016,22 +6051,25 @@ class Trader:
         if lo is None or hi is None or lo > hi:
             # Nothing usable: either the first call, or the history
             # moved far enough that the remembered bars have scrolled
-            # off. Start at the right-hand edge.
-            return {"key": key, "first": max(WARMUP_BARS, total - CHART_MARK_FIRST_PASS),
-                    "last": total, "fresh": True}
+            # off. Cover the window in one pass - it is one day.
+            return {"key": key, "first": floor, "last": total, "fresh": True}
 
         if hi < total:
-            # New bars have arrived since last time. Those first, and
-            # one bar of overlap so a mark on the boundary bar is not
-            # lost between the two passes.
-            return {"key": key, "first": max(WARMUP_BARS, hi - 1), "last": total, "fresh": False}
+            # New bars have arrived since last time. One bar of overlap
+            # so a mark on the boundary bar is not lost between passes.
+            # `floor` is applied too: as the chart scrolls, the window
+            # slides forward and the bars that fall out of it stop
+            # being re-analysed.
+            return {"key": key, "first": max(floor, hi - 1), "last": total, "fresh": False}
 
-        # Fully caught up at the right. Spend the call reaching further
-        # back, a slab at a time.
-        if lo <= WARMUP_BARS:
-            return {"key": key, "first": lo, "last": lo, "fresh": False, "complete": True}
-        return {"key": key, "first": max(WARMUP_BARS, lo - CHART_MARK_STEP_BACK),
-                "last": lo + 1, "fresh": False}
+        if lo > floor:
+            # The window grew backwards - a timeframe switch, or the
+            # first bars of a new session. Finite, and it ends here.
+            return {"key": key, "first": floor, "last": lo + 1, "fresh": False}
+
+        # Covered, and there is nothing older to do. This is the state
+        # the old planner could never reach.
+        return {"key": key, "first": lo, "last": lo, "fresh": False, "complete": True}
 
     def _chart_marks_merge(
         self, symbol: str, timeframe: str, armed: list, bars: list,
@@ -6043,8 +6081,6 @@ class Trader:
         analysed on this call - otherwise each refresh would wipe the
         chart and redraw a different fragment of it.
         """
-        from ..signals.strategy_signals import WARMUP_BARS
-
         key = plan["key"]
         total = len(bars)
         times = [str(b.get("time") or "") for b in bars]
@@ -6109,7 +6145,13 @@ class Trader:
         while len(store) > CHART_MARK_CACHES:
             store.pop(next(iter(store)))
 
-        complete = covered_lo <= WARMUP_BARS and covered_hi >= total
+        # "Complete" means the MARKED WINDOW is covered, not the whole
+        # series. It used to mean reaching WARMUP_BARS - the very first
+        # bar of six months of history - which the marked region no
+        # longer extends to by design. Left as it was, the desk would
+        # hold its "still analysing" wash over the chart for ever and
+        # keep polling for work that was already finished.
+        complete = covered_lo <= self._mark_floor(timeframe, total) and covered_hi >= total
 
         # Re-planning against the state just written is the only way
         # to be sure this says what the next call will really do; a
