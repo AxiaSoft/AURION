@@ -90,8 +90,19 @@ console.log("\n=== stop-engine.ps1 proves the ports are free ===");
     "it reports success and failure through the exit code");
   ok(/ConvertFrom-Json/.test(STOP_PS) && /config\\aurion\.json/.test(STOP_PS),
     "the ports come from the configuration, so a customised port is still freed");
-  ok(/8080, 18765, 18766/.test(STOP_PS),
-    "with the shipped ports as a fallback, never as the only answer");
+  ok(/foreach \(\$p in 18765, 18766\)/.test(STOP_PS),
+    "with the shipped engine ports as a fallback, never as the only answer");
+  /* The desk's port is now scoped. Freeing it is right when the whole
+     product is being stopped and catastrophic when only the engine is
+     being replaced: it killed the desk that had asked for the restart,
+     and the failure path then started nothing, so the trader was left
+     with no desk, no engine and no way to be told why. */
+  ok(/\[ValidateSet\("all", "engine"\)\]/.test(STOP_PS),
+    "the caller can ask for the engine alone");
+  ok(/if \(\$Which -eq "all"\) \{ \$found\.Add\(8080\)/.test(STOP_PS),
+    "...and the desk's port is only in the list when the whole product is stopping");
+  ok(/if \(\$Which -eq "all"\) \{ \$wanted \+= \$json\.backend\.port \}/.test(STOP_PS),
+    "...including a desk on a non-default port");
   ok(/\^python\[0-9\.\]\*\$/.test(STOP_PS),
     "any CPython name matches, not just the four that were typed in");
   ok(/StartsWith\(\$RootFull\.ToLower\(\)\)/.test(STOP_PS),
@@ -102,29 +113,84 @@ console.log("\n=== stop-engine.ps1 proves the ports are free ===");
     "and when it truly cannot win, it names the cure that does work");
 }
 
-/* ------------------------------- 3. a failed stop starts nothing */
-console.log("\n=== a launcher that cannot free the port starts nothing ===");
+/* ----------- 3. a failed stop is survivable, and never silent ------
+ *
+ * This section used to require the opposite: a launcher that could not
+ * free the port had to start NOTHING. The reasoning was sound - an
+ * engine that loses the bind exits, the survivor answers /health, and
+ * the launcher reports success having changed nothing - but the remedy
+ * was worse than the disease. A trader who hit it was left with no
+ * desk, no engine and no window: nothing to read an explanation on and
+ * nothing to press. That is the reported "I restart it and the app
+ * never comes back, and then nothing works at all".
+ *
+ * What makes starting safe now is that the engine refuses to be a
+ * duplicate itself (section 3a), so the launcher no longer has to
+ * enforce it by refusing to launch.
+ */
+console.log("\n=== a launcher that cannot free the port still brings the desk back ===");
 {
-  /* The precise bug: the engine was started regardless, lost the bind,
-     exited, and the survivor answered health - so success was reported
-     by a launcher that had changed nothing. */
   const startIdx = START.indexOf("stop-engine.ps1");
   /* The real launch line, not the comment at the top of the file that
      also contains engine\main.py - an indexOf that finds the comment
      would pass no matter where the stop was moved to. */
   const launchIdx = START.indexOf("hidden.vbs\" \"%CD%\" \"%CD%\\data\\logs\\engine.log\"");
   ok(startIdx > 0 && launchIdx > startIdx,
-    "start-aurion.cmd frees the ports before it launches the engine");
+    "start-aurion.cmd still frees the ports before it launches the engine");
   const between = START.slice(startIdx, launchIdx);
-  ok(/if errorlevel 1 goto :PORTHELD/.test(between),
-    "and refuses to launch when they could not be freed");
-  ok(/:PORTHELD/.test(START) && /exit \/b 1/.test(START.slice(START.indexOf(":PORTHELD"))),
-    "the refusal path exists and exits non-zero");
+  ok(/if errorlevel 1 call :PORTHELD/.test(between),
+    "a port it could not free is reported...");
+  /* lastIndexOf: the first ":PORTHELD" in the file is the `call` that
+     jumps here, not the block itself. */
+  const held = START.slice(START.lastIndexOf(":PORTHELD"));
+  /* REM lines stripped first: the block explains what it used to do,
+     and that explanation contains the very line we are asserting is
+     gone. A source assertion that reads comments passes or fails on
+     prose. */
+  const heldCode = held.slice(0, held.indexOf("goto :eof"))
+    .split(/\r?\n/).filter((l) => !/^\s*REM\b/i.test(l)).join("\n");
+  ok(/goto :eof/.test(held) && !/exit \/b 1/.test(heldCode),
+    "...and then the launch continues rather than abandoning the machine");
 
   const rIdx = RESTART.indexOf("stop-engine.ps1");
-  const rStart = RESTART.indexOf("start-aurion.cmd");
-  ok(rIdx > 0 && rStart > rIdx && /if errorlevel 1 goto :HELD/.test(RESTART.slice(rIdx, rStart)),
-    "restart-aurion.cmd will not restart on top of a surviving engine");
+  ok(rIdx > 0 && /-Scope engine/.test(RESTART),
+    "a restart frees the engine only - the desk is not collateral");
+  const rHeld = RESTART.slice(RESTART.lastIndexOf(":HELD"));
+  ok(/call "%~dp0\.\.\\start-aurion\.cmd"/.test(rHeld),
+    "and a restart that cannot replace the engine still brings the desk back");
+  ok(/exit \/b 0/.test(rHeld),
+    "...reporting success, because the product IS running");
+}
+
+/* ------------- 3a. the engine refuses to be the second engine ----- */
+console.log("\n=== a second engine declines instead of booting ===");
+{
+  const MAIN = read("engine/main.py");
+  /* uvicorn.run() runs application startup BEFORE it binds the socket,
+     and our startup attaches MetaTrader and starts every trading loop.
+     So a doomed duplicate used to boot the entire product - seconds of
+     numpy, pandas and scikit-learn on a machine that was already too
+     busy to answer a health check - and only then discover the port was
+     taken. That is what turned one slow moment into the engine going
+     offline and online and offline again. */
+  ok(/def _claim_port\(/.test(MAIN),
+    "the engine claims its port itself");
+  const claimIdx = MAIN.indexOf("sock = _claim_port(");
+  const numpyIdx = MAIN.indexOf("import numpy", claimIdx > 0 ? 0 : 0);
+  const uviIdx = MAIN.indexOf("import uvicorn");
+  ok(claimIdx > 0, "...before it serves");
+  ok(claimIdx < uviIdx,
+    "the port is claimed before uvicorn is even imported");
+  ok(MAIN.indexOf("import numpy", claimIdx) > claimIdx,
+    "a duplicate does not pay for numpy before finding out it is not needed");
+  ok(/Server\(config\)\.run\(sockets=\[sock\]\)/.test(MAIN),
+    "and the socket it claimed is the one uvicorn serves, so there is no race in between");
+  ok(/_EXIT_PORT_BUSY = 3/.test(MAIN),
+    "'already running' has its own exit code, so the desk can tell it from a failure");
+  /* Asserted on code, not prose: the comment above _claim_port names
+     SO_REUSEADDR precisely to explain why it is not set. */
+  ok(!/setsockopt/.test(MAIN),
+    "and nothing lets a second process steal a live port");
 }
 
 /* --------------------------- 4. the engine names its own folder */

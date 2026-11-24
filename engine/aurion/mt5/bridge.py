@@ -1870,7 +1870,26 @@ class MT5Bridge:
             final = True if "final" not in message else bool(message.get("final"))
             if replace:
                 bucket.clear()
-            for row in message.get("bars") or []:
+            # Let the loop breathe during a long history.
+            #
+            # A six-month M5 reply is several thousand bars in a single
+            # message, and this used to build and file every one of them
+            # without once yielding. Nothing else could run in the
+            # meantime: not the health check the desk uses to decide
+            # whether the engine is alive, not the EA's ingest posts,
+            # not the tick stream. Measured at ~190 ms for 8640 bars on
+            # a developer machine, and four charts ask at once on a
+            # trader's.
+            #
+            # That is not fatal on its own, but it is one of the things
+            # that pushes a health answer past the desk's timeout, and
+            # that used to be enough to have a perfectly healthy engine
+            # declared dead and "restarted". Yielding every 500 bars
+            # costs nothing measurable and takes the whole class of
+            # problem away.
+            for index, row in enumerate(message.get("bars") or []):
+                if index and index % 500 == 0:
+                    await asyncio.sleep(0)
                 self._put_candle(
                     Candle(
                         symbol=symbol,

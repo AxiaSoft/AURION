@@ -33,16 +33,30 @@
  *   * The counter resets the moment the engine answers, so a machine
  *     that has been healthy for a day is allowed a fresh set of attempts
  *     the next time something goes wrong.
- *   * The port is the lock. The engine binds it; a second one would
- *     fail and exit. Health is checked immediately before spawning, so
- *     the window in which two could be started is a few milliseconds
- *     wide, and losing that race costs one line in a log.
+ *   * The port is the lock, and it is now ASKED rather than assumed.
+ *     The old note here said a second engine "would fail and exit", so
+ *     losing the race cost "one line in a log". That was wrong, and it
+ *     is the bug behind the engine going offline and online and
+ *     offline again. uvicorn binds its socket AFTER running
+ *     application startup, so a doomed second engine first imported
+ *     numpy, pandas and scikit-learn and attached to MetaTrader -
+ *     seconds of work on a machine that was, by definition, already
+ *     too busy to answer a health check in time. That guaranteed the
+ *     next checks were missed too, which spawned another one. The
+ *     engine was never dying; the cure was causing the disease.
+ *
+ *     So: if something is listening on the engine's port, there IS an
+ *     engine and this supervisor does nothing at all. Not a failed
+ *     attempt, not a step towards giving up - nothing. A busy engine
+ *     is not a dead engine, and now there is a way to tell them apart
+ *     that does not depend on the engine being free to answer.
  *
  * AURION_NO_ENGINE_SUPERVISOR=1 switches it off, for a developer running
  * the engine by hand in a terminal.
  */
 
 const fs = require("fs");
+const net = require("net");
 const path = require("path");
 const { spawn } = require("child_process");
 
@@ -89,6 +103,9 @@ let starting = false;
 let everSeenHealthy = false;
 /* When the attempt ceiling was reached, or 0 when it has not been. */
 let gaveUpAt = 0;
+/* True while we have already said "busy, not gone" for this stretch,
+   so the explanation appears once rather than every five seconds. */
+let busyNoted = false;
 
 function logLine(text) {
   const file = path.join(DATA, "logs", "desk.log");
@@ -194,6 +211,37 @@ let starter = null;
 function setStarter(fn) { starter = typeof fn === "function" ? fn : null; }
 
 /** Start one engine, detached, logging where the launcher logs. */
+/**
+ * Is anything listening on the engine's port?
+ *
+ * Asked by connecting, not by reading a pid file or trusting a handle
+ * we spawned: the engine can be started by the launcher, by a repair
+ * install, by a previous desk, or by the trader from a console, and
+ * only the socket knows the truth about all of them.
+ *
+ * A refusal (ECONNREFUSED) is the one answer that means "free". Every
+ * other outcome - connected, timed out, refused permission - is
+ * treated as held, because the question this guards is "may I start a
+ * second engine", and the safe answer to any doubt is no.
+ */
+function portHeld(timeoutMs = 1500) {
+  const port = enginePort();
+  return new Promise((resolve) => {
+    let done = false;
+    const finish = (held) => {
+      if (done) return;
+      done = true;
+      try { sock.destroy(); } catch { /* */ }
+      resolve(held);
+    };
+    const sock = net.connect({ port, host: "127.0.0.1" });
+    sock.setTimeout(timeoutMs);
+    sock.once("connect", () => finish(true));
+    sock.once("timeout", () => finish(true));
+    sock.once("error", (err) => finish(!(err && err.code === "ECONNREFUSED")));
+  });
+}
+
 function startEngine() {
   if (starter) return starter();
   const log = path.join(DATA, "logs", "engine.log");
@@ -406,6 +454,7 @@ async function tick() {
     misses = 0;
     attempts = 0;
     gaveUpAt = 0;
+    busyNoted = false;
     everSeenHealthy = true;
     return;
   }
@@ -441,6 +490,30 @@ async function tick() {
     let nowAlive = false;
     try { nowAlive = await engine.healthy(); } catch { nowAlive = false; }
     if (nowAlive) { misses = 0; attempts = 0; gaveUpAt = 0; return; }
+
+    /* Silent, but listening.
+     *
+     * The engine is there - it holds the port - it is just too busy to
+     * have answered inside the health timeout. Starting another one
+     * cannot help and actively hurts: the spare boots, competes for
+     * the same CPU, is refused the port and dies, and the engine it
+     * was supposed to rescue misses the next check because of it.
+     *
+     * So nothing happens here. In particular `attempts` is NOT
+     * incremented: an engine that is up must never be able to walk
+     * this supervisor towards giving up. Said once per stretch, so a
+     * long busy spell leaves one line rather than one every five
+     * seconds. */
+    let held = false;
+    try { held = await portHeld(); } catch { held = false; }
+    if (held) {
+      if (!busyNoted) {
+        busyNoted = true;
+        logLine(`the engine is not answering but still holds port ${enginePort()} - it is busy, not gone; not starting a second one`);
+      }
+      return;
+    }
+    busyNoted = false;
 
     attempts += 1;
     lastAttemptAt = Date.now();

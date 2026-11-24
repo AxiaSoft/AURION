@@ -54,6 +54,18 @@ param(
   [int[]] $Ports = @(),
   [string] $Root = "",
   [int] $TimeoutSec = 20,
+  # Which half of the product to free.
+  #
+  #   all     - desk and engine. For a cold start or a full stop.
+  #   engine  - the engine and its EA socket ONLY.
+  #
+  # "engine" exists because a restart used to free the desk's port too,
+  # which killed the desk, and then - if the engine would not let go -
+  # refused to start anything at all. The trader was left with no desk,
+  # no engine and no window: "I restart it and nothing comes back".
+  # Replacing the engine is not a reason to take the desk down with it.
+  [ValidateSet("all", "engine")]
+  [string] $Scope = "all",
   # Print what would be done without killing anything. Used by support
   # to find out who owns a port before touching it.
   [switch] $WhatIfOnly
@@ -69,16 +81,21 @@ $RootFull = (Resolve-Path $Root).Path.TrimEnd("\")
 # ---------------------------------------------------------------- ports
 
 function Get-AurionPorts {
-  param([string] $InstallRoot)
+  param([string] $InstallRoot, [string] $Which = "all")
   # The defaults are the last resort, not the source of truth. A desk on
   # 8081 with an engine on 19000 must still be stoppable.
   $found = New-Object System.Collections.Generic.List[int]
-  foreach ($p in 8080, 18765, 18766) { $found.Add($p) | Out-Null }
+  foreach ($p in 18765, 18766) { $found.Add($p) | Out-Null }
+  if ($Which -eq "all") { $found.Add(8080) | Out-Null }
   $cfg = Join-Path $InstallRoot "config\aurion.json"
   if (Test-Path $cfg) {
     try {
       $json = Get-Content -Raw -Path $cfg | ConvertFrom-Json
-      foreach ($candidate in @($json.backend.port, $json.engine.port, $json.engine.ea_port, $json.mt5.port)) {
+      $wanted = @($json.engine.port, $json.engine.ea_port, $json.mt5.port)
+      # The desk's own port is in this list only when the whole product
+      # is being stopped. See the -Scope note above.
+      if ($Which -eq "all") { $wanted += $json.backend.port }
+      foreach ($candidate in $wanted) {
         if ($candidate -and ([int]$candidate) -gt 0 -and -not $found.Contains([int]$candidate)) {
           $found.Add([int]$candidate) | Out-Null
         }
@@ -91,7 +108,7 @@ function Get-AurionPorts {
 }
 
 if (-not $Ports -or $Ports.Count -eq 0) {
-  $Ports = Get-AurionPorts -InstallRoot $RootFull
+  $Ports = Get-AurionPorts -InstallRoot $RootFull -Which $Scope
 }
 
 # ------------------------------------------------------------- owners

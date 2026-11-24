@@ -147,7 +147,33 @@ class Candle:
         self.time = bar_time(self.time)
 
     def to_dict(self) -> dict[str, Any]:
-        return asdict(self)
+        # Written out rather than asdict(self).
+        #
+        # dataclasses.asdict() recurses and deep-copies every field. For
+        # a flat row of eleven scalars that is entirely wasted work, and
+        # this is the most-called method in the engine: a history reply
+        # is thousands of bars and each one is converted twice - once to
+        # answer the waiter, once to broadcast. Profiled at 190,000
+        # deepcopy calls and 0.85 of the 0.97 seconds spent handling one
+        # 8640-bar reply, all of it on the event loop, while the health
+        # check the desk uses to decide whether the engine is alive sat
+        # in the queue behind it.
+        #
+        # Same keys, same order, same values - asdict's output for a
+        # dataclass of scalars is exactly this dict.
+        return {
+            "symbol": self.symbol,
+            "timeframe": self.timeframe,
+            "time": self.time,
+            "time_msc": self.time_msc,
+            "open": self.open,
+            "high": self.high,
+            "low": self.low,
+            "close": self.close,
+            "volume": self.volume,
+            "spread": self.spread,
+            "real_volume": self.real_volume,
+        }
 
 
 @dataclass
