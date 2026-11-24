@@ -177,6 +177,25 @@ app.use((req, res, next) => {
   next();
 });
 
+/* Is the DESK up? Nothing else.
+ *
+ * /api/health answers a different question - it asks the engine for
+ * its build fingerprint, and waits up to five seconds for it. The
+ * window used that as its "is the desk running" probe with a two
+ * second client timeout, so any moment the engine was slow (a
+ * backtest, candles being saved, a MetaTrader call waiting on a
+ * terminal that is going away) the window concluded the desk was not
+ * there and started a SECOND one. That one could not bind port 8080,
+ * the launcher exited 1, and the trader was shown "port 8080 is held
+ * by another program" - the other program being AURION.
+ *
+ * So: one line, no awaits, no dependencies. If this answers, the
+ * desk's event loop is turning and the desk is up.
+ */
+app.get("/api/alive", (_req, res) => {
+  res.json({ ok: true, product: "AURION", role: "desk", pid: process.pid });
+});
+
 app.get("/api/health", async (_req, res) => {
   /* Also: is the engine running the code that is on this disk? An update
      copies files under a live process, and Python keeps the modules it
@@ -190,7 +209,14 @@ app.get("/api/health", async (_req, res) => {
     ok: true,
     product: "AURION",
     backend: "online",
-    engine: build.online ? "online" : "offline",
+    /* online / busy / offline.
+       "busy" is an engine that answered seconds ago and is quiet
+       right now - a backtest, a few thousand candles being saved, a
+       MetaTrader call that is taking its time. Reported as offline,
+       it made the desk's engine light flash on and off against a
+       process that never went anywhere; that was the complaint. See
+       engine.liveness(). */
+    engine: build.liveness || (build.online ? "online" : "offline"),
     build,
     /* What the desk is doing about an engine that is not answering.
        Without this the screen can only say "offline", which reads as
@@ -1396,6 +1422,57 @@ try {
  * update restart risks - left a healthy desk talking to nothing, with
  * no way to fix it from inside the product. */
 try { supervisor.start(); } catch { /* never let it stop the desk starting */ }
+
+/* Somebody already has the port.
+ *
+ * Until now this was an unhandled error: node printed a stack, the
+ * process died, the launcher exited 1, and the window showed a box
+ * saying port 8080 was held by another program. Nine times in ten
+ * the other program is AURION - a desk from a previous start that is
+ * still perfectly alive - and the right thing to do about a desk
+ * that is already running is nothing at all.
+ *
+ * So ask who it is. If it answers as an AURION desk, this process is
+ * not needed: say so plainly and exit 0, and the window attaches to
+ * the one that is already there. If it is something else, name the
+ * port and exit non-zero, because that is a real conflict a person
+ * has to resolve.
+ */
+function whoHasPort(cb) {
+  const req = require("http").get(
+    { host: "127.0.0.1", port, path: "/api/alive", timeout: 2000 },
+    (res) => {
+      let body = "";
+      res.on("data", (c) => { body += c; });
+      res.on("end", () => {
+        try {
+          const j = JSON.parse(body);
+          cb(j && j.product === "AURION" && j.role === "desk" ? j : null);
+        } catch { cb(null); }
+      });
+    },
+  );
+  req.on("timeout", () => { req.destroy(); });
+  req.on("error", () => cb(null));
+}
+
+server.on("error", (err) => {
+  if (!err || err.code !== "EADDRINUSE") throw err;
+  whoHasPort((mine) => {
+    const ts = new Date().toISOString();
+    if (mine) {
+      console.log(JSON.stringify({ ts, msg:
+        `an AURION desk is already running on ${host}:${port} (pid ${mine.pid || "?"}) - `
+        + "this one is not needed, leaving it to serve" }));
+      process.exit(0);
+    }
+    console.error(JSON.stringify({ ts, msg:
+      `port ${port} is held by something that is not an AURION desk. `
+      + "AURION cannot start while another program has it - close that program, "
+      + "or set AURION_PORT to a free port." }));
+    process.exit(1);
+  });
+});
 
 server.listen(port, host, () => {
   console.log(JSON.stringify({ ts: new Date().toISOString(), msg: `AURION desk on ${host}:${port}` }));

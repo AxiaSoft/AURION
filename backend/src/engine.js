@@ -84,12 +84,59 @@ async function proxy(method, path, body) {
  */
 const HEALTH_TIMEOUT_MS = 5000;
 
+/* How long an engine that HAS been answering is allowed to miss
+ * before the desk calls it offline.
+ *
+ * Still reported after the timeout above was raised: the engine goes
+ * off and on whenever MetaTrader disconnects or the expert is
+ * attached and detached. One slow answer is still a dead engine to
+ * everything downstream, because "did it answer THIS time" is the
+ * only question that was ever asked.
+ *
+ * It is the wrong question. A process is not alive or dead per poll:
+ * a dead engine refuses the connection instantly and keeps refusing
+ * it, while a busy one answers late and then answers. So the answer
+ * is remembered, and an engine that answered a moment ago and is
+ * quiet right now is reported as BUSY, which is what it is. Only
+ * silence that outlasts this is offline.
+ *
+ * Matched to the supervisor deliberately: it restarts the engine
+ * after three missed checks five seconds apart, so anything shorter
+ * would have the light declaring a death the watchdog does not act
+ * on - which is exactly the inconsistency that made the chip flicker.
+ */
+const ENGINE_BUSY_GRACE_MS = 15000;
+
+let lastHealthyAt = 0;
+
+/** Remember that the engine answered, and when. */
+function noteHealthy(ok) {
+  if (ok) lastHealthyAt = Date.now();
+  return ok;
+}
+
+/**
+ * online / busy / offline, from this answer and the last good one.
+ *
+ * `busy` is not a softer `offline`: it is the honest description of a
+ * process that was answering seconds ago. The desk keeps its light
+ * green through it, because the engine has not gone anywhere.
+ */
+function liveness(okNow) {
+  if (okNow) return "online";
+  if (lastHealthyAt && Date.now() - lastHealthyAt < ENGINE_BUSY_GRACE_MS) return "busy";
+  return "offline";
+}
+
+/** For the tests: forget what has been seen. */
+function forgetHealth() { lastHealthyAt = 0; }
+
 async function healthy() {
   try {
     const result = await request("GET", "/health", undefined, HEALTH_TIMEOUT_MS);
-    return Boolean(result.data && result.data.ok);
+    return noteHealthy(Boolean(result.data && result.data.ok));
   } catch {
-    return false;
+    return noteHealthy(false);
   }
 }
 
@@ -120,6 +167,7 @@ async function buildState() {
     pid = Number(data.pid || 0) || 0;
     startedAt = String(data.started_at || "");
   } catch { online = false; }
+  noteHealthy(online);
   const cmp = buildId.compare(running);
 
   /* Is the engine even looking at the same tree we are?
@@ -140,6 +188,11 @@ async function buildState() {
 
   return {
     online,
+    /* online / busy / offline - see liveness(). `online` stays a
+       plain boolean for every existing caller; this is the finer
+       answer the status light needs so a busy second does not read
+       as a death. */
+    liveness: liveness(online),
     running: cmp.running,
     disk: cmp.disk,
     /* Where each fingerprint came from. Reported always, not only on a
@@ -163,4 +216,8 @@ async function buildState() {
   };
 }
 
-module.exports = { proxy, request, healthy, base, buildState, HEALTH_TIMEOUT_MS };
+module.exports = {
+  proxy, request, healthy, base, buildState,
+  liveness, noteHealthy, forgetHealth,
+  HEALTH_TIMEOUT_MS, ENGINE_BUSY_GRACE_MS,
+};

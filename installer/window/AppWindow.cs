@@ -19,6 +19,22 @@ internal sealed class AppWindow : Form
     private const string DeskUrl = "http://127.0.0.1:8080";
     private const string HealthUrl = DeskUrl + "/api/health";
 
+    /// <summary>
+    /// "Is the desk up?" and nothing else.
+    ///
+    /// /api/health asks the ENGINE for its build fingerprint and waits
+    /// up to five seconds for it, while the client below gives up after
+    /// two. So every moment the engine was slow - a backtest, candles
+    /// being written, a MetaTrader call waiting on a terminal that is
+    /// going away - this window decided the desk was not running and
+    /// started a second one. That one could not take port 8080, the
+    /// launcher exited 1, and the trader was shown "port 8080 is held
+    /// by another program". It was held by AURION.
+    ///
+    /// /api/alive answers from the desk itself with no awaits at all.
+    /// </summary>
+    private const string AliveUrl = DeskUrl + "/api/alive";
+
     // Opening size. Deliberately a window, never maximised: traders keep the
     // desk next to MetaTrader. After the first run the size the user chose is
     // restored instead (see LoadPlacement / SavePlacement).
@@ -654,8 +670,21 @@ internal sealed class AppWindow : Form
                 .Any(e => e.Port == 8080);
             if (!mine) return "Nothing is listening on port 8080.";
 
-            // Something has it. If it were ours the health check would have
-            // answered, so it is another program.
+            /* Something has it. Ask WHAT, rather than assuming.
+               "If it were ours the health check would have answered"
+               was the assumption, and it was wrong in the one case
+               that matters: an AURION desk whose engine is busy
+               answers /api/health slowly, this window gave up after
+               two seconds, and the trader was told another program
+               had the port. The other program was AURION. */
+            if (AliveSaysAurion()) 
+            {
+                return "An AURION desk is already running on port 8080. "
+                     + "This window could not reach it in time, which usually means "
+                     + "the machine is busy rather than anything being wrong - "
+                     + "closing AURION completely and starting it again will clear it.";
+            }
+
             return "Port 8080 is held by another program. AURION's desk cannot "
                  + "start while something else has it.";
         }
@@ -665,8 +694,36 @@ internal sealed class AppWindow : Form
         }
     }
 
+    /// <summary>Does whatever holds the port say it is an AURION desk?</summary>
+    private bool AliveSaysAurion()
+    {
+        try
+        {
+            using var slow = new HttpClient { Timeout = TimeSpan.FromSeconds(8) };
+            var body = slow.GetStringAsync(AliveUrl).GetAwaiter().GetResult();
+            return body.Contains("\"AURION\"") && body.Contains("desk");
+        }
+        catch
+        {
+            return false;
+        }
+    }
+
     private async Task<bool> DeskIsAnsweringAsync()
     {
+        // The cheap probe first - see AliveUrl.
+        try
+        {
+            using var r = await _http.GetAsync(AliveUrl, HttpCompletionOption.ResponseHeadersRead);
+            if (r.IsSuccessStatusCode) return true;
+        }
+        catch
+        {
+            // Fall through: a desk from before /api/alive existed is
+            // still a desk, and an update leaves exactly that window
+            // open for one start.
+        }
+
         try
         {
             using var r = await _http.GetAsync(HealthUrl, HttpCompletionOption.ResponseHeadersRead);

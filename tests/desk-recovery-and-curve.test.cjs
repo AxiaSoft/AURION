@@ -171,18 +171,31 @@ function grab(src, name) {
 }
 
 function rest() {
-/* ===================== 4. the curve keeps one colour, and one story ==
+/* ============ 4. the colour says which side of the line; the numbers
+ *                 say which way it is going ============================
  *
- * The first attempt at "the curve counts the drops as profit" painted
- * the line green above the starting equity and red below it. That was
- * refused, in these words: I did not ask for half the curve green and
- * half red - when it drops, report the LOSS correctly, and otherwise
- * leave the colour alone and put it back as it was.
+ * This reverses an earlier decision, on the trader's own instruction.
  *
- * So the colour is one verdict on one run, taken from where it
- * finished, exactly as before. What must be true is the arithmetic:
- * the figure the panel reads off a dip has to be the loss at that
- * point. */
+ * The first attempt painted the line green above the starting equity
+ * and red below, and was refused: "I did not ask for half the curve
+ * green and half red." So it became one colour for the whole run,
+ * taken from where it finished. That has now been refused in turn,
+ * and precisely:
+ *
+ *   "even when the curve is above the line - in profit - there are
+ *    falls, and those falls have to count as losses; I see it
+ *    reporting a profit. The same must hold below the line. The
+ *    colour of the curve must not follow the profit or loss figure -
+ *    it should change only where it is above or below the line. The
+ *    profit and loss NUMBERS should be shown accurately, in their own
+ *    colours, according to whether the curve is rising or falling."
+ *
+ * Two separate questions, two separate answers, and the previous
+ * design gave the same answer to both:
+ *
+ *   the LINE's colour  - which side of the starting line is this?
+ *   the NUMBERS' colour - which way is it going right here?
+ */
 {
   const calls = [];
   const rec = (name) => (...a) => calls.push({ name, a });
@@ -219,39 +232,50 @@ function rest() {
     const document = { documentElement: {} };
   `;
   const draw = new Function("__cv", stub + grab(APP, "drawEquityCurve") + "\nreturn { drawEquityCurve, S };")(cv);
+  const strokes = () => [...new Set(calls.filter((c) => c.name === "stroke").map((c) => c.style))]
+    .filter((c) => c === UP || c === DOWN);
+  const shades = () => calls.filter((c) => c.name === "gradient").flatMap((g) => g.stops)
+    .map((c) => String(c).slice(0, 7));
 
-  /* A run that ends ahead but spends its middle well behind: exactly
-     the shape that used to be painted green from end to end. */
+  /* A run that ends ahead but spends its middle well behind. Under
+     the old rule the whole thing, underwater months included, was
+     drawn in the colour of profit. */
   const curve = [];
   for (let i = 0; i < 60; i += 1) curve.push(10000);
-  for (let i = 0; i < 60; i += 1) curve.push(9400);        // a real drawdown
-  for (let i = 0; i < 60; i += 1) curve.push(10600);       // and a recovery
+  for (let i = 0; i < 60; i += 1) curve.push(9400);        // genuinely below
+  for (let i = 0; i < 60; i += 1) curve.push(10600);       // and back above
   draw.drawEquityCurve(curve);
 
-  const colours = (list) => [...new Set(list.filter((c) => c.name === "stroke").map((c) => c.style))]
-    .filter((c) => c === UP || c === DOWN);
-  ok(colours(calls).length === 1,
-    "a run is drawn in a single colour, not cut into green and red stretches");
-  ok(colours(calls)[0] === UP, "...and a run that finished ahead is drawn as one that finished ahead");
-  const shades = calls.filter((c) => c.name === "gradient").flatMap((g) => g.stops);
-  ok(!shades.includes(DOWN), "the fill under it is not split either");
-  ok(!calls.some((c) => c.name === "clip"), "nothing is clipped into halves any more");
+  ok(strokes().length === 2,
+    "a run that went below the line and came back is drawn in one colour: " + strokes().join(" "));
+  ok(shades().includes(UP) && shades().includes(DOWN),
+    "the fill under it does not change at the line either");
+  ok(calls.some((c) => c.name === "clip"),
+    "nothing is clipped, so the colour cannot change exactly at the crossing");
+
+  /* ...and the colour does NOT follow the final figure. The two runs
+     below end at the same place and spend their time on opposite
+     sides of the line; each must be drawn as what it did. */
+  calls.length = 0;
+  draw.drawEquityCurve([10000, 10400, 10800, 10600, 10900]);
+  ok(strokes().length === 1 && strokes()[0] === UP,
+    "a run that never went below the line is drawn green throughout");
 
   calls.length = 0;
   draw.drawEquityCurve([10000, 9800, 9600, 9000, 8800]);
-  ok(colours(calls).length === 1 && colours(calls)[0] === DOWN,
-    "and a run that finished behind is drawn, whole, as a loss");
+  ok(strokes().length === 1 && strokes()[0] === DOWN,
+    "and one that never came back above it is drawn red throughout");
 
-  /* The number, which is the part that had to be right.
+  /* The numbers, which are the other half of the instruction.
    *
-   * btPaintCurveTip is what the trader actually reads: hovering the
-   * bottom of a drawdown must say how far behind the run was there,
-   * with a minus in front of it, however well the run ended. */
+   * At the bottom of a dip the trader is pointing at a fall. It is
+   * simultaneously true that the run is ahead of where it started -
+   * both facts belong on screen, each with its own colour. */
   const tipStub = `
     const S = __S;
     const I18N = { t: (k) => k };
     const fmt = (v, dp) => Number(v).toFixed(dp === undefined ? 2 : dp);
-    const clsPnl = (v) => (Number(v) < 0 ? "down" : "up");
+    const clsPnl = (v) => (Number(v) > 0 ? "up" : Number(v) < 0 ? "down" : "");
     const btTip = () => __el;
     const btPlaceTip = (el, host, px, py) => { __el.at = { px, py }; };
   `;
@@ -260,21 +284,43 @@ function rest() {
   const tip = new Function("__S", "__el",
     tipStub + grab(APP, "btPaintCurveTip") + "\nreturn { btPaintCurveTip, S };")(tipS, el);
 
-  // A run that ends 600 ahead but is 600 behind in the middle.
-  const c2 = { curve, w: 600, h: 240, padL: 8, padR: 8, padT: 10, padB: 10, lo: 9300, hi: 10700, base: 10000 };
-  tipS._btCurve = c2;
-  tipS._btCurveAt = 90;                       // deep inside the drawdown
+  /* A run that climbs to 11000 and then slides to 10600: still 600
+     ahead of its start, and 400 down from its peak. "I see it
+     reporting a profit" was about exactly this point. */
+  const dip = [10000, 10400, 11000, 10800, 10600];
+  tipS._btCurve = { curve: dip, w: 600, h: 240, padL: 8, padR: 8, padT: 10, padB: 10, lo: 9900, hi: 11100, base: 10000 };
+  tipS._btCurveAt = 4;
   tip.btPaintCurveTip({ parentElement: {} });
-  ok(/-600\.00/.test(el.innerHTML),
-    "the figure at the bottom of a drawdown is the loss, in full, with its sign");
-  ok(/-6\.00%/.test(el.innerHTML), "and as a percentage of the starting equity");
-  ok(/class="mono down"/.test(el.innerHTML), "marked as a loss, not as a gain");
-  ok(/9400\.00/.test(el.innerHTML), "beside the equity the run actually had there");
+  const rows = el.innerHTML.split("<span>").slice(1);
+  const row = (key) => rows.find((r) => r.startsWith("bt." + key)) || "";
+  ok(/-200\.00/.test(row("tip_move")) && /mono down/.test(row("tip_move")),
+    "a step DOWN above the line is reported as the loss it is: " + row("tip_move"));
+  ok(/-400\.00/.test(row("tip_frompeak")) && /mono down/.test(row("tip_frompeak")),
+    "the fall from the run's own peak is missing or not marked as a loss");
+  ok(/\+600\.00/.test(row("tip_pnl")) && /mono up/.test(row("tip_pnl")),
+    "...while the distance from the start is still the gain it is");
+  ok(/10600\.00/.test(el.innerHTML), "beside the equity the run actually had there");
 
-  tipS._btCurveAt = curve.length - 1;
+  /* The mirror case, which the instruction asked for by name: below
+     the line, a RISE is a gain. */
+  const under = [10000, 9400, 9000, 9200];
+  tipS._btCurve = { curve: under, w: 600, h: 240, padL: 8, padR: 8, padT: 10, padB: 10, lo: 8900, hi: 10100, base: 10000 };
+  tipS._btCurveAt = 3;
   tip.btPaintCurveTip({ parentElement: {} });
-  ok(/\+600\.00/.test(el.innerHTML) && /class="mono up"/.test(el.innerHTML),
-    "and the end of the same run still reads as the gain it is");
+  const rows2 = el.innerHTML.split("<span>").slice(1);
+  const row2 = (key) => rows2.find((r) => r.startsWith("bt." + key)) || "";
+  ok(/\+200\.00/.test(row2("tip_move")) && /mono up/.test(row2("tip_move")),
+    "a rise below the line is reported as a gain, not swallowed by the overall loss");
+  ok(/-800\.00/.test(row2("tip_pnl")) && /mono down/.test(row2("tip_pnl")),
+    "...while the run is still, correctly, behind where it started");
+
+  /* The first point has no step into it. A fabricated 0 would read as
+     "flat here" rather than "nothing has happened yet". */
+  tipS._btCurveAt = 0;
+  tip.btPaintCurveTip({ parentElement: {} });
+  const rows3 = el.innerHTML.split("<span>").slice(1);
+  ok(/—/.test(rows3.find((r) => r.startsWith("bt.tip_move")) || ""),
+    "the very first point invents a move it never made");
 }
 
 /* ========================= 5. the drop has to survive being thinned */
