@@ -2115,10 +2115,33 @@ class MT5Bridge:
         return "".join(ch for ch in str(symbol or "").upper() if ch.isalnum())
 
     def _sym_match(self, a: str, b: str) -> bool:
+        """Are these two spellings the same instrument?
+
+        Prefix matching exists for broker suffixes: the same gold is
+        XAUUSD here, XAUUSD.m there, XAUUSDm, XAUUSD-ECN, XAUUSD_i. A
+        trader whose broker adds one of those must not be told the
+        expert is attached to something else.
+
+        But a prefix is only a suffix away from a DIFFERENT
+        instrument, and the extra part starting with a digit is how
+        you tell: US30 and US3000 are two indices, NAS100 and NAS1000
+        are two indices, and matching them crosses two markets'
+        candles into one series. A broker suffix is never a number -
+        it names an account type, not a contract size.
+
+        That is the one case ruled out here, deliberately and no
+        more. Tightening further - insisting the remainder be one of
+        a known list - would break brokers nobody here has seen.
+        """
         na, nb = self._norm_sym(a), self._norm_sym(b)
         if not na or not nb:
             return False
-        return na == nb or na.startswith(nb) or nb.startswith(na)
+        if na == nb:
+            return True
+        longer, shorter = (na, nb) if len(na) > len(nb) else (nb, na)
+        if not longer.startswith(shorter):
+            return False
+        return not longer[len(shorter)].isdigit()
 
     async def _mark_agent_offline(self, chart_id: int) -> None:
         agent = self.agents.get(int(chart_id))

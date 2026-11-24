@@ -312,11 +312,24 @@ const CHARTCSS = read("apps", "web", "css", "chart.css");
   ok(/if \(other && Array\.isArray\(other\.bars\)\)/.test(live),
     "and only when that series is already held, so it cannot invent one");
 
-  /* Switching back to a warm symbol must not go behind the veil. */
-  const pick = APP.slice(APP.indexOf("async function pickMarket("),
-                         APP.indexOf("async function pickMarket(") + 4200);
-  ok(/const warm = cachedCandlesFor\(symbol, timeframe\)/.test(pick),
-    "pickMarket looks in the cache before it asks the engine");
+  /* Switching back to a warm symbol must not go behind the veil.
+     Sliced to the next function rather than by a byte count, which
+     stops covering the end of the body as soon as a comment is
+     added above it. */
+  const pickAt = APP.indexOf("async function pickMarket(");
+  const pick = APP.slice(pickAt, APP.indexOf("\nfunction typing()", pickAt));
+  /* The cache lookup now lives inside focusSeries, which does the
+     whole move: adopt the series, take its bars if they are held,
+     drop another series' bars if they are not, and repaint the
+     veils. What matters here is unchanged - the cache is consulted
+     before the engine is asked - so this follows the call rather
+     than insisting the lookup be written out in place. */
+  ok(/focusSeries\(symbol, timeframe\)/.test(pick),
+    "pickMarket adopts the series before it asks the engine");
+  const focus = APP.slice(APP.indexOf("function focusSeries("),
+                          APP.indexOf("function bindChartDesk("));
+  ok(/cachedCandlesFor\(symbol, timeframe\)/.test(focus),
+    "...and adopting it looks in the cache first");
   ok(/rememberSeries\(symbol, timeframe, S\.candles\)/.test(pick),
     "and puts what it downloads back in");
 }

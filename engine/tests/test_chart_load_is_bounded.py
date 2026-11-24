@@ -200,3 +200,40 @@ def test_asking_for_nothing_still_means_the_promise() -> None:
     for tf in SIX_MONTHS:
         assert requested_window(tf, 0) == bars_for_days(tf)
         assert requested_window(tf, None) == bars_for_days(tf)
+
+
+# ---------------------------------------------------------------- #
+# Two instruments are not one instrument
+# ---------------------------------------------------------------- #
+
+def test_a_broker_suffix_is_still_the_same_instrument() -> None:
+    """The reason prefix matching exists at all.
+
+    The same gold is XAUUSD on one broker and XAUUSD.m, XAUUSDm,
+    XAUUSD-ECN or XAUUSD_i on another, and a trader on one of those
+    must not be told their expert is attached to something else.
+    """
+    from aurion.mt5.bridge import MT5Bridge
+
+    bridge = object.__new__(MT5Bridge)
+    for other in ("XAUUSD.m", "XAUUSDm", "XAUUSD-ECN", "XAUUSD_i", "XAUUSD.raw", "xauusd"):
+        assert bridge._sym_match("XAUUSD", other), f"XAUUSD and {other} are the same gold"
+
+
+def test_a_number_on_the_end_is_a_different_instrument() -> None:
+    """US30 and US3000 are two indices, not one with a suffix.
+
+    Prefix matching decides which waiters a history answer is handed
+    to, so a false match here delivers one market's candles into
+    another market's series - the same class of fault as the desk
+    drawing a lone candle from somewhere else, one layer down. A
+    broker suffix names an account type and is never a number.
+    """
+    from aurion.mt5.bridge import MT5Bridge
+
+    bridge = object.__new__(MT5Bridge)
+    for a, b in (("US30", "US3000"), ("NAS100", "NAS1000"), ("GER40", "GER403")):
+        assert not bridge._sym_match(a, b), f"{a} and {b} were treated as one instrument"
+    # And the plainly-unrelated case has not stopped working.
+    assert not bridge._sym_match("EURUSD", "GBPUSD")
+    assert bridge._sym_match("EURUSD", "EURUSD")

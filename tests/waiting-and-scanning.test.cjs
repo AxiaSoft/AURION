@@ -275,8 +275,18 @@ const inner = (box) => { const el = veilOn(box); return el ? String(el.innerHTML
     "mounting a chart decides straight away whether it has anything to draw");
   ok(/clearVeil\(cv\.parentElement\)/.test(grab(APP, "paintMiniCharts")),
     "a card uncovers itself as its own bars arrive");
-  ok(/S\.candlesKey = String\(S\.symbol/.test(APP),
-    "bars pushed over the socket are stamped with their series, or the veil would never lift");
+  /* Matched on the socket branch doing it, not on one spelling of
+     it. This read /S\.candlesKey = String\(S\.symbol/, which is how
+     the line used to be written; it is now built through seriesKey()
+     so that a half-named broadcast yields no identity instead of a
+     plausible-looking one like "|M15". The thing worth guarding is
+     that the bars are stamped at all. */
+  {
+    const at = APP.indexOf('if (msg.type === "candles")');
+    const branch = APP.slice(at, at + 3000);
+    ok(/S\.candles = incoming;/.test(branch) && /S\.candlesKey = /.test(branch),
+      "bars pushed over the socket are stamped with their series, or the veil would never lift");
+  }
   for (const key of ["veil_loading", "veil_getting", "veil_none"]) {
     for (const [name, pack] of PACKS) {
       ok(typeof pack.charts[key] === "string", `${name} has charts.${key}`);

@@ -3899,10 +3899,14 @@ function adoptEaNow() {
   if (!agents.length) return false;
   const hit = agents.find((a) => a.symbol === S.symbol);
   if (!hit) {
-    S.symbol = agents[0].symbol;
-    S.timeframe = agents[0].timeframe || S.timeframe || "M15";
+    /* Through focusSeries, not by assignment: this is the moment the
+       desk moves onto the expert's symbol, and the bars it is holding
+       belong to the symbol it is moving AWAY from. Assigning S.symbol
+       on its own left those bars on the chart and made them the
+       series the new symbol's live bars were merged into. */
+    focusSeries(agents[0].symbol, agents[0].timeframe || S.timeframe || "M15");
   } else if (!S.timeframe && hit.timeframe) {
-    S.timeframe = hit.timeframe;
+    focusSeries(S.symbol, hit.timeframe);
   }
   return true;
 }
@@ -15980,6 +15984,45 @@ function rememberSeries(symbol, timeframe, bars) {
 function forgetSeries() { S.series = {}; }
 
 /**
+ * Point the desk at a series, and never show another one's bars.
+ *
+ * Reported as "one small candle is at the right price and all the
+ * others sit a thousand higher". The desk holds one series of bars
+ * and a separate note of which symbol it is looking at, and for the
+ * moments between those two changing they disagree. Attaching the
+ * expert is one of those moments: adoptEaNow() moves the desk onto
+ * the expert's symbol, and the previous symbol's candles were still
+ * in S.candles - drawn, and treated as the place to put the new
+ * symbol's incoming bars.
+ *
+ * Bars that belong to something else are not "stale data to be
+ * refreshed shortly", they are wrong, and a chart of the wrong
+ * instrument is worse than no chart: the whole point of a price
+ * chart is that the prices on it are this market's. So they go, and
+ * what the trader sees in the gap is the loading state - which is
+ * also what was asked for: never show a chart until its own candles
+ * are there.
+ *
+ * Returns the bars now held, which is either this series' own or none.
+ */
+function focusSeries(symbol, timeframe) {
+  S.symbol = symbol;
+  S.timeframe = timeframe;
+  const want = seriesKey(symbol, timeframe);
+  const warm = cachedCandlesFor(symbol, timeframe);
+  if (warm) {
+    S.candles = warm;
+    S.candlesKey = want;
+  } else if (S.candlesKey !== want) {
+    S.candles = [];
+    S.candlesKey = "";
+  }
+  if (S.chart) S.chart.setBars(S.candles || []);
+  paintChartVeils();
+  return S.candles;
+}
+
+/**
  * Bars we already hold for exactly this series, or none.
  *
  * The key check is not pedantry: handing a chart of EURUSD M15 the
@@ -16365,6 +16408,11 @@ async function loadMoreHistory(opts) {
     const bars = (c && c.data) || [];
     if (bars.length > have) {
       S.candles = bars;
+      /* The key travels with the bars. It is the only record of what
+         S.candles actually holds, and the live-bar merge now refuses
+         to touch a series it cannot identify - so bars assigned
+         without it would stop receiving their own updates. */
+      S.candlesKey = seriesKey(f.symbol, f.timeframe);
       S._histDone = null;
       /* setBars keeps the span and the offset, so the view does not jump
          when older bars appear behind it. */
@@ -16421,6 +16469,7 @@ async function loadOlderSlab(f, before, count, key) {
       return 0;
     }
     S.candles = merged;
+    S.candlesKey = seriesKey(f.symbol, f.timeframe);
     S._histDone = null;
     /* setBars keeps the span and the offset, which are measured from
        the newest bar - so bars appearing BEHIND the view leave the
@@ -16651,6 +16700,23 @@ function paintChartVeils() {
     }
   } else if (deskBox) {
     clearVeil(deskBox);
+  }
+
+  /* The markets chart, which had no loading state of its own.
+   *
+   * Asked for explicitly: everywhere a chart is shown - the expert
+   * list, the markets page, and the chart itself - it must show the
+   * download before it shows a chart. This page had only a static
+   * "no data" card, which says the wrong thing during a download and
+   * nothing at all about how far along it is; and because it is the
+   * page a symbol is switched FROM, it is where a chart of the
+   * previous symbol would otherwise sit while the new one loads. */
+  const mktCv = $("cv");
+  const mktBox = mktCv && mktCv.parentElement;
+  if (mktBox) {
+    const held = cachedCandlesFor(S.symbol, S.timeframe);
+    if (held && held.length) clearVeil(mktBox);
+    else paintVeil(mktBox, S.symbol, S.timeframe);
   }
   for (const cv of document.querySelectorAll("canvas[data-mini]")) {
     const box = cv.parentElement;
@@ -17237,19 +17303,14 @@ async function pickMarket(symbol, timeframe, opts) {
      BUY left over from the symbol just switched away from would read
      as a setup on this one. Cleared before anything else moves. */
   if (symbol !== S.symbol || timeframe !== S.timeframe) clearLiveSignals();
-  S.symbol = symbol; S.timeframe = timeframe;
-  /* Already held? Then this symbol is on screen before the request
-     goes out, not after it comes back. This is what "several symbols
-     without anything being disrupted" means in practice: switching
-     back to a market you were just watching is instant, and the
-     download below refreshes it underneath rather than gating it. */
-  const warm = cachedCandlesFor(symbol, timeframe);
-  if (warm) {
-    S.candles = warm;
-    S.candlesKey = seriesKey(symbol, timeframe);
-    if (S.chart) S.chart.setBars(S.candles);
-    paintChartVeils();
-  }
+  /* Held already? Then this symbol is on screen before the request
+     goes out - switching back to a market you were just watching is
+     instant, which is what "several symbols without anything being
+     disrupted" means, and the download below refreshes it underneath
+     rather than gating it. Not held? Then the chart is emptied and
+     the loading state comes up, because it must not keep drawing the
+     symbol just switched away from while the download runs. */
+  focusSeries(symbol, timeframe);
   if (S.view === "markets") {
     const box = document.querySelector(".chart-box");
     if (box && !box.querySelector(".empty")) {
@@ -17423,7 +17484,28 @@ function onLive(msg) {
      * its neighbours. Which is the fault as it was reported. A series
      * is one symbol on one timeframe or it is nothing. */
     const sameTf = Boolean(S.timeframe) && String(c.timeframe || "") === String(S.timeframe);
-    if (c.symbol === S.symbol && sameTf) {
+    /* Matched against the identity of the BARS, not against the
+       symbol the desk is pointed at.
+     *
+     * Reported: "the price is 3000, I attach the EA, and one small
+     * candle is at the right price while all the others sit a
+     * thousand higher." Every one of those others belonged to a
+     * different symbol.
+     *
+     * S.symbol is where the desk is LOOKING; S.candlesKey is what
+     * S.candles actually contains, and they are not the same thing
+     * for the moments between a symbol changing and its history
+     * arriving. adoptEaNow() is exactly that moment - attaching the
+     * expert to a chart the desk was not already on moves S.symbol to
+     * the expert's symbol and leaves the previous symbol's bars in
+     * place - so the first live bar of the new symbol passed this
+     * test and was appended to the old symbol's history. One correct
+     * candle, in a series belonging to something else.
+     *
+     * Comparing the key cannot make that mistake: a bar is merged
+     * into a series only when it IS that series. */
+    const liveKey = seriesKey(c.symbol, c.timeframe);
+    if (liveKey && liveKey === S.candlesKey && sameTf) {
       /* Matched on the NORMALISED time. Reported as "every time the
          price changes it draws a new broken candle": the forming bar
          comes back several times a second, and when it came back
@@ -17523,7 +17605,14 @@ function onLive(msg) {
            could not prove belonged to the chart in front of it, so
            cachedCandlesFor() said no - and the loading veil stayed up
            over a chart that was already drawing them. */
-        S.candlesKey = String(S.symbol || "") + "|" + String(S.timeframe || "");
+        /* Through seriesKey, so a half-named broadcast produces NO
+           identity rather than a plausible-looking one. Built by
+           hand, a message with no symbol yielded the string "|M15",
+           which is not a series but compares equal to the next
+           message that also has no symbol - and the live-bar merge
+           now trusts this value to decide what a bar may be joined
+           to. Unknown must stay unknown. */
+        S.candlesKey = seriesKey(S.symbol, S.timeframe);
         rememberSeries(S.symbol, S.timeframe, S.candles);
         if (S.chart) S.chart.setBars(S.candles);
         paintChartVeils();
