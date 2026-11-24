@@ -204,62 +204,45 @@ function startEngine() {
 }
 
 /**
- * Replace a running engine with one that reads the files on disk now.
+ * Stop the engine, and know that it stopped.
  *
- * The missing recovery, and the one the field keeps asking for. An
- * update writes new files; the engine that imported the old ones is
- * still running and still perfectly healthy, so the supervisor above -
- * which only ever starts an engine that is DOWN - correctly leaves it
- * alone. The desk then says "the engine is still running the previous
- * version" and the only cure on offer was a full restart of the
- * product, or closing the window and opening it again. For one
- * process.
+ * Lifted out of replaceEngine so that the two callers who need an engine
+ * that is really gone - replacing it, and shutting the whole product
+ * down when Windows asks AURION to close - cannot drift apart. "Asked it
+ * to stop" is not "it stopped"; that assumption is what made every
+ * earlier restart path unreliable.
  *
- * This stops that process and starts a new one, leaving the desk's own
- * server untouched. The desk stays up, the page is not reloaded, and
- * nobody has to close anything.
- *
- * Three stages, each only used because the one before it did not work:
- *
- *   1. ask the engine to shut itself down. It persists its settings on
- *      the way out, which a kill does not, so this is the only stage
- *      that is allowed to be slow;
- *   2. wait for the port to go quiet. "Asked it to stop" is not "it
- *      stopped" - that assumption is what made every previous restart
- *      path unreliable;
- *   3. on Windows, fall back to stop-engine.ps1, which knows how to
- *      identify an AURION process, refuses to touch anything else, and
- *      reports who is holding the port when it cannot.
- *
- * Only then is a new engine started. Starting one on top of a survivor
- * is the exact failure this is here to end: the new process loses the
- * race for the port, exits, and the old one keeps answering - which
- * looks like success to everything that only checks health.
+ * Three stages, each only reached because the one before it did not
+ * work: persist and ask politely (the only stage allowed to be slow,
+ * because it is the one that saves the trader's settings), wait for the
+ * port to go quiet, then on Windows hand it to stop-engine.ps1, which
+ * knows how to identify an AURION process and refuses to touch anything
+ * else.
  */
-async function replaceEngine(opts) {
+async function stopEngine(opts) {
   const budgetMs = Number((opts && opts.budgetMs) || 30000);
   const deadline = Date.now() + budgetMs;
   const port = enginePort();
   const steps = [];
+  const persist = !opts || opts.persist !== false;
 
   const alive = async () => {
     try { return await engine.healthy(); } catch { return false; }
   };
 
   if (!(await alive())) {
-    // Nothing to replace. Start one, so "replace" always ends with an
-    // engine running rather than reporting that there was none.
     steps.push("engine was not answering");
-    const started = startEngine();
-    return { ok: started, steps, started, stopped: false, forced: false };
+    return { ok: true, stopped: false, gone: true, forced: false, steps };
   }
 
   /* 1. Save, then ask it to go. A kill would skip the saving. */
-  try {
-    await engine.request("POST", "/v1/persist", {}, 8000);
-    steps.push("settings persisted");
-  } catch (err) {
-    steps.push("persist failed: " + (err && err.message ? err.message : "unknown"));
+  if (persist) {
+    try {
+      await engine.request("POST", "/v1/persist", {}, 8000);
+      steps.push("settings persisted");
+    } catch (err) {
+      steps.push("persist failed: " + (err && err.message ? err.message : "unknown"));
+    }
   }
   try {
     await engine.request("POST", "/v1/shutdown", {}, 5000);
@@ -303,7 +286,69 @@ async function replaceEngine(opts) {
     if (!gone && !(await alive())) gone = true;
   }
 
-  if (!gone) {
+  if (gone) {
+    /* The supervisor's counters describe an engine that no longer
+       exists - and it must not start a new one behind our back. */
+    misses = 0;
+    attempts = 0;
+    lastAttemptAt = 0;
+  }
+  return { ok: Boolean(gone), stopped: Boolean(gone), gone: Boolean(gone), forced, steps };
+}
+
+/**
+ * Replace a running engine with one that reads the files on disk now.
+ *
+ * The missing recovery, and the one the field keeps asking for. An
+ * update writes new files; the engine that imported the old ones is
+ * still running and still perfectly healthy, so the supervisor above -
+ * which only ever starts an engine that is DOWN - correctly leaves it
+ * alone. The desk then says "the engine is still running the previous
+ * version" and the only cure on offer was a full restart of the
+ * product, or closing the window and opening it again. For one
+ * process.
+ *
+ * This stops that process and starts a new one, leaving the desk's own
+ * server untouched. The desk stays up, the page is not reloaded, and
+ * nobody has to close anything.
+ *
+ * Three stages, each only used because the one before it did not work:
+ *
+ *   1. ask the engine to shut itself down. It persists its settings on
+ *      the way out, which a kill does not, so this is the only stage
+ *      that is allowed to be slow;
+ *   2. wait for the port to go quiet. "Asked it to stop" is not "it
+ *      stopped" - that assumption is what made every previous restart
+ *      path unreliable;
+ *   3. on Windows, fall back to stop-engine.ps1, which knows how to
+ *      identify an AURION process, refuses to touch anything else, and
+ *      reports who is holding the port when it cannot.
+ *
+ * Only then is a new engine started. Starting one on top of a survivor
+ * is the exact failure this is here to end: the new process loses the
+ * race for the port, exits, and the old one keeps answering - which
+ * looks like success to everything that only checks health.
+ */
+async function replaceEngine(opts) {
+  const budgetMs = Number((opts && opts.budgetMs) || 30000);
+  const steps = [];
+
+  const alive = async () => {
+    try { return await engine.healthy(); } catch { return false; }
+  };
+
+  if (!(await alive())) {
+    // Nothing to replace. Start one, so "replace" always ends with an
+    // engine running rather than reporting that there was none.
+    steps.push("engine was not answering");
+    const started = startEngine();
+    return { ok: started, steps, started, stopped: false, forced: false };
+  }
+
+  const halt = await stopEngine({ budgetMs });
+  steps.push(...halt.steps);
+
+  if (!halt.gone) {
     logLine("could not stop the running engine; not starting a second one");
     return {
       ok: false,
@@ -311,7 +356,7 @@ async function replaceEngine(opts) {
       steps,
       started: false,
       stopped: false,
-      forced,
+      forced: halt.forced,
     };
   }
 
@@ -321,7 +366,7 @@ async function replaceEngine(opts) {
   misses = 0;
   attempts = 0;
   lastAttemptAt = 0;
-  return { ok: Boolean(started), steps, started, stopped: true, forced };
+  return { ok: Boolean(started), steps, started, stopped: true, forced: halt.forced };
 }
 
 async function tick() {
@@ -404,4 +449,4 @@ function state() {
   };
 }
 
-module.exports = { start, stop, state, startEngine, replaceEngine, setStarter, findPython, tick, enginePort, CHECK_MS, MISSES_BEFORE_START, MAX_ATTEMPTS };
+module.exports = { start, stop, state, startEngine, stopEngine, replaceEngine, setStarter, findPython, tick, enginePort, CHECK_MS, MISSES_BEFORE_START, MAX_ATTEMPTS };

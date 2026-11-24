@@ -81,6 +81,13 @@ function icon(name) {
     send: '<path d="M21 3.5L10.8 13.7"/><path d="M21 3.5l-6.6 17.3-3.6-7.1-7.1-3.6z"/>',
     star: '<polygon points="12,3.6 14.4,9 20.2,9.6 15.8,13.5 17.1,19.2 12,16.2 6.9,19.2 8.2,13.5 3.8,9.6 9.6,9"/>',
     minus: '<line x1="5.5" y1="12" x2="18.5" y2="12"/>',
+    /* Nobody is allowed to trade. A dash said "not applicable", which is
+       not what that state means - it means the desk is shut out of the
+       market - so it is a face now, and a face reads before any word on
+       the card does. No outline around it: asked for explicitly, "not a
+       circle, just the eyes and a sad mouth", and the frame the card
+       already draws behind it is the only ring this needs. */
+    sad: '<line x1="9" y1="9" x2="9" y2="11.2"/><line x1="15" y1="9" x2="15" y2="11.2"/><path d="M7.8 17c1-2.1 2.4-3.1 4.2-3.1s3.2 1 4.2 3.1"/>',
     sun: '<circle cx="12" cy="12" r="4.2"/><line x1="12" y1="2.4" x2="12" y2="5"/><line x1="12" y1="19" x2="12" y2="21.6"/><line x1="2.4" y1="12" x2="5" y2="12"/><line x1="19" y1="12" x2="21.6" y2="12"/><line x1="5.2" y1="5.2" x2="7" y2="7"/><line x1="17" y1="17" x2="18.8" y2="18.8"/><line x1="18.8" y1="5.2" x2="17" y2="7"/><line x1="7" y1="17" x2="5.2" y2="18.8"/>',
     moon: '<path d="M20.2 14.3A8.4 8.4 0 0 1 9.7 3.8a8.4 8.4 0 1 0 10.5 10.5z"/>',
     themeAuto: '<circle cx="12" cy="12" r="8.4"/><path d="M12 3.6a8.4 8.4 0 0 1 0 16.8z" fill="currentColor" stroke="none"/>',
@@ -4400,7 +4407,7 @@ function gateSlideInnerHtml(slide) {
   const whoLabel = I18N.t("gate.who_" + who);
   /* The face is the fastest read on the card: a robot that is allowed
      to act, a hand that is not, or a dead terminal. */
-  const faceIcon = who === "robot" ? "bolt" : who === "manual" ? "user" : "minus";
+  const faceIcon = who === "robot" ? "bolt" : who === "manual" ? "user" : "sad";
   const items = [
     ["mt5", g.mt5, "gate.mt5"],
     ["auto", g.auto_trade, "gate.auto"],
@@ -7497,6 +7504,90 @@ function moneyReach(money) {
  * expert, silently, with everything still showing "connected". The card
  * puts both numbers side by side and says plainly when they differ.
  */
+/**
+ * "1.24" against "1.23", the engine's rule, written again here.
+ *
+ * The engine decides this in aurion/mt5/experts.py and sends the verdict
+ * down with the snapshot. The snapshot arrives every ten seconds; the
+ * agents list arrives the instant a chart appears or goes away. Taking
+ * the expert off a MetaTrader chart and putting it back should show on
+ * this card while the trader is still looking at it - reported as "it
+ * does not update at the moment I remove it, I have to refresh" - so
+ * the desk has to be able to reach the same verdict on its own.
+ *
+ * Kept deliberately identical to experts.compare, including the two
+ * rules that are easy to get wrong: an unreadable number sorts before
+ * everything, and "no version reported" is "unknown", never "old".
+ */
+function eaVersionState(running, shipped) {
+  const parse = (v) => {
+    const out = [];
+    for (const chunk of String(v || "").trim().replace(/^v/i, "").split(".")) {
+      const digits = chunk.replace(/\D/g, "");
+      if (!digits) break;
+      out.push(parseInt(digits, 10));
+    }
+    return out.length ? out : [0];
+  };
+  if (!String(shipped || "").trim()) return "unknown";
+  if (!String(running || "").trim()) return "unknown";
+  const a = parse(running);
+  const b = parse(shipped);
+  const n = Math.max(a.length, b.length);
+  for (let i = 0; i < n; i += 1) {
+    const x = a[i] === undefined ? 0 : a[i];
+    const y = b[i] === undefined ? 0 : b[i];
+    if (x !== y) return x < y ? "old" : "newer";
+  }
+  return "ok";
+}
+
+/** The chart rows for the expert card, from the agents the desk holds now. */
+function eaChartsNow() {
+  const shipped = String(((S.snap && S.snap.experts) || {}).version || "");
+  return (allAgents() || [])
+    .filter((a) => a && String(a.status || "online").toLowerCase() !== "offline")
+    .map((a) => {
+      /* The version the engine remembers for this chart, not only the
+         one this particular message happened to carry. */
+      const running = String(a.version || "");
+      return {
+        chart_id: String(a.chart_id || ""),
+        symbol: String(a.symbol || ""),
+        timeframe: String(a.timeframe || ""),
+        ea_name: String(a.ea_name || "AurionBridge"),
+        version: running,
+        state: eaVersionState(running, shipped),
+        tester: isTesterAgent(a),
+      };
+    });
+}
+
+/**
+ * Repaint the expert card in place, now, from the live agents list.
+ *
+ * Attaching or removing AurionBridge in MetaTrader reaches the desk in
+ * under a second - the expert says hello, or says bye on the way out,
+ * and the engine pushes a new agents list. Everything on this card was
+ * nevertheless read from the ten-second snapshot, so the one screen a
+ * trader stares at while plugging the expert in was the last to know.
+ */
+function patchExpertsCard() {
+  const host = document.getElementById("ea-card");
+  if (!host) return;
+  S.snap = S.snap || {};
+  const ea = { ...(S.snap.experts || {}) };
+  ea.charts = eaChartsNow();
+  ea.stale = ea.charts.filter((c) => c.state === "old");
+  S.snap.experts = ea;
+  const slot = document.createElement("div");
+  slot.innerHTML = expertsCardHtml();
+  const fresh = slot.firstElementChild;
+  if (!fresh) return;
+  host.replaceWith(fresh);
+  bindExpertsCard();
+}
+
 function expertsCardHtml() {
   const ea = (S.snap && S.snap.experts) || {};
   const ships = Array.isArray(ea.shipped) ? ea.shipped : [];
@@ -10686,15 +10777,25 @@ async function bindExpertsCard() {
   // when they go to do something about it.
   const note = document.getElementById("ea-upd-note");
   if (!note) return;
+  /* Asked once per session. This card is now repainted every time a
+     chart appears or goes away (patchExpertsCard), and the answer to
+     "did the last update change the experts" does not change while the
+     app is running. */
+  if (S._eaUpdNote !== undefined) {
+    if (S._eaUpdNote) { note.hidden = false; note.textContent = S._eaUpdNote; }
+    return;
+  }
   try {
     const st = await API.get("/api/system/update/state");
     const last = st && st.data && st.data.last_applied;
+    S._eaUpdNote = "";
     if (last && last.ea_changed) {
       note.hidden = false;
       note.textContent = I18N.t("ea.changed_by_update", {
         v: String(last.version || ""),
         n: String((last.ea_files || []).length || 2),
       });
+      S._eaUpdNote = note.textContent;
     }
   } catch {}
 }
@@ -17008,7 +17109,19 @@ function onLive(msg) {
   }
   if (msg.type === "candle") {
     const c = msg.data || msg;
-    if (c.symbol === S.symbol && (!S.timeframe || c.timeframe === S.timeframe)) {
+    /* The timeframe has to MATCH, not merely "not disagree".
+     *
+     * This read `!S.timeframe || c.timeframe === S.timeframe`, so any
+     * live bar was accepted whenever the desk had not settled on a
+     * timeframe yet - and one chart in MetaTrader feeds two of them
+     * (its own, and the one the desk is looking at). An H1 bar merged
+     * into an M15 series lands on an M15 slot, carries an hour's range
+     * into it and sits at an hour-old price: a candle behind the head
+     * of the chart that is suddenly taller, higher and detached from
+     * its neighbours. Which is the fault as it was reported. A series
+     * is one symbol on one timeframe or it is nothing. */
+    const sameTf = Boolean(S.timeframe) && String(c.timeframe || "") === String(S.timeframe);
+    if (c.symbol === S.symbol && sameTf) {
       /* Matched on the NORMALISED time. Reported as "every time the
          price changes it draws a new broken candle": the forming bar
          comes back several times a second, and when it came back
@@ -17018,7 +17131,11 @@ function onLive(msg) {
          appended instead of updated. One tick, one new candle. */
       const when = barTime(c.time);
       const i = S.candles.findIndex((b) => b && barTime(b.time) === when);
-      if (i >= 0) S.candles[i] = c;
+      /* Merged rather than replaced - see mergeBar in charts.js. The
+         same bar reaches the desk many times and the copies do not all
+         tell the same story; the open never moves again, the high only
+         rises, the low only falls. */
+      if (i >= 0) S.candles[i] = mergeBar(S.candles[i], c);
       else {
         S.candles.push(c);
         S.candles.sort((a, b) => barTime(a.time).localeCompare(barTime(b.time)));
@@ -17034,7 +17151,10 @@ function onLive(msg) {
         scheduleSignalFill(S.symbol, S.timeframe);
       }
       if (S.chart) {
-        if (typeof S.chart.setLastBar === "function") S.chart.setLastBar(c);
+        /* The merged bar, not the message: the chart and the desk's own
+           series must hold the same candle, down to the wick. */
+        const bar = i >= 0 ? S.candles[i] : c;
+        if (typeof S.chart.setLastBar === "function") S.chart.setLastBar(bar);
         else S.chart.setBars(S.candles);
       }
     }
@@ -17045,7 +17165,18 @@ function onLive(msg) {
   if (msg.type === "candles") {
     const d = msg.data || msg;
     noteHistoryDepth(d.symbol, d.timeframe, d.depth);
-    if ((d.symbol === S.symbol || !S.symbol) && (d.timeframe === S.timeframe || !d.timeframe || !S.timeframe)) {
+    /* A broadcast for ANOTHER series is not for this chart.
+     *
+     * A broadcast that names a timeframe the desk is not showing used
+     * to be let through whenever the desk's own timeframe was briefly
+     * unset, and it replaces the series wholesale - so a priming pull
+     * on some other timeframe could hand the chart a set of bars from
+     * it. Mixed series is the fault behind "the earlier candles come
+     * away from the new one and read higher". */
+    const tfKnown = Boolean(S.timeframe);
+    const tfSaid = Boolean(d.timeframe);
+    const wrongTf = tfKnown && tfSaid && String(d.timeframe) !== String(S.timeframe);
+    if (!wrongTf && (d.symbol === S.symbol || !S.symbol) && (d.timeframe === S.timeframe || !tfSaid || !tfKnown)) {
       /* A broadcast never SHORTENS the chart.
          These arrive unasked - one per history answer the engine
          serves anyone, including the small priming pull it does for
@@ -17151,6 +17282,9 @@ function onLive(msg) {
     if (S.snap.mt5.ea_charts) S.snap.mt5.connected = true;
     scheduleSync();
     primeEaChart();
+    /* Settings is the page somebody is on WHILE they attach the expert
+       in MetaTrader. It used to wait for the next snapshot to notice. */
+    patchExpertsCard();
   }
   if (msg.type === "ticks") {
     const raw = msg.data || msg;

@@ -101,7 +101,7 @@ internal sealed class AppWindow : Form
 
         LoadPlacement();
         Shown += async (_, _) => await BootAsync();
-        FormClosing += (_, _) => { SavePlacement(); _tray.Visible = false; };
+        FormClosing += OnFormClosing;
 
         _tray.Icon = Icon ?? SystemIcons.Application;
         _tray.BalloonTipClicked += (_, _) => OpenSignalFromToast();
@@ -113,6 +113,243 @@ internal sealed class AppWindow : Form
         Resize += (_, _) => ReportVisibility();
         Activated += (_, _) => ReportVisibility();
         Deactivate += (_, _) => ReportVisibility();
+    }
+
+    // ------------------------------------------------------------- shutdown
+
+    /// <summary>Windows is asking every program whether it may end the session.</summary>
+    private const int WM_QUERYENDSESSION = 0x0011;
+
+    /// <summary>Windows has decided. No questions may be asked from here on.</summary>
+    private const int WM_ENDSESSION = 0x0016;
+
+    /// <summary>True once AURION has really been stopped, so Close() may proceed.</summary>
+    private bool _stopped;
+
+    /// <summary>True while a shutdown is already running, so two cannot overlap.</summary>
+    private bool _stopping;
+
+    /// <summary>Set by WM_QUERYENDSESSION: this close is Windows, not the user.</summary>
+    private bool _sessionEnding;
+
+    /// <summary>
+    /// Closing the window closes AURION - all of it.
+    ///
+    /// Reported as a product fault rather than a preference: the window
+    /// went away and the desk and the engine stayed, so the application
+    /// the trader believed they had quit was still running, still holding
+    /// its MetaTrader connection and still holding port 8080. The next
+    /// start then met "port 8080 is held by another program", which was
+    /// AURION all along.
+    ///
+    /// Two different requests, deliberately answered differently:
+    ///
+    ///   * a TERMINATE - the user pressing the X, Alt+F4, "End task"'s
+    ///     first polite attempt - is a request, so it is answered with a
+    ///     question. Shutting a trading desk down is not undoable and the
+    ///     X is next to the minimise button;
+    ///   * a KILL - the session ending, a shutdown, a reboot - is not a
+    ///     request and there is nobody left to ask. It is obeyed at once,
+    ///     with a budget measured in seconds, because Windows will not
+    ///     wait long before ending us anyway.
+    ///
+    /// The third case, TerminateProcess, cannot run code here at all. The
+    /// desk covers it: it watches this window's pid and stops itself and
+    /// the engine when it disappears. See AURION_OWNER_PID.
+    /// </summary>
+    private async void OnFormClosing(object? sender, FormClosingEventArgs e)
+    {
+        SavePlacement();
+
+        // The setup pass owns nothing: it ran a prerequisite check and is
+        // closing itself, which must not take a running desk with it.
+        if (_setupOnly || _stopped)
+        {
+            _tray.Visible = false;
+            return;
+        }
+
+        var forced = _sessionEnding
+            || e.CloseReason == CloseReason.WindowsShutDown
+            || e.CloseReason == CloseReason.TaskManagerClosing;
+
+        if (forced)
+        {
+            // No question, no await: this thread is being allowed to finish
+            // and nothing else.
+            _tray.Visible = false;
+            StopAurionNow(hard: true);
+            _stopped = true;
+            return;
+        }
+
+        if (_stopping) { e.Cancel = true; return; }
+
+        e.Cancel = true;
+        var answer = AskToShutDown();
+        if (answer != DialogResult.Yes) return;
+
+        _stopping = true;
+        _tray.Visible = false;
+        ShowStoppingScreen();
+        try
+        {
+            await ShutdownAurionAsync(hard: false);
+        }
+        finally
+        {
+            _stopping = false;
+            _stopped = true;
+        }
+        Close();
+    }
+
+    /// <summary>The question, asked once, in the trader's own words.</summary>
+    private DialogResult AskToShutDown()
+    {
+        return MessageBox.Show(
+            this,
+            "Shut AURION down?\n\n"
+            + "The desk and the engine both stop. Open positions are left exactly as "
+            + "they are at your broker, but AURION will not be watching them, and "
+            + "automated trading stops until you start it again.",
+            "AURION",
+            MessageBoxButtons.YesNo,
+            MessageBoxIcon.Question,
+            MessageBoxDefaultButton.Button2);
+    }
+
+    /// <summary>Put the splash back, so the wait is explained rather than frozen.</summary>
+    private void ShowStoppingScreen()
+    {
+        try
+        {
+            _view.Visible = false;
+            _splash.Status = "Shutting AURION down\u2026";
+            _splash.Progress = 0.5f;
+            _splash.Visible = true;
+            _splash.BringToFront();
+            Refresh();
+        }
+        catch { /* a cosmetic step must never block the shutdown */ }
+    }
+
+    /// <summary>
+    /// Stop the desk and the engine, and wait until they really have stopped.
+    ///
+    /// The desk does the work - it is the only process that knows how to
+    /// persist the engine's settings, wait for its port to go quiet and
+    /// fall back to stop-engine.ps1. This asks it to, then verifies, and
+    /// only reaches for stop-aurion.cmd when the desk could not be reached
+    /// or would not go.
+    /// </summary>
+    private async Task ShutdownAurionAsync(bool hard)
+    {
+        var budget = TimeSpan.FromSeconds(hard ? 8 : 35);
+        var deadline = DateTime.UtcNow + budget;
+
+        try
+        {
+            using var client = new HttpClient { Timeout = TimeSpan.FromSeconds(hard ? 3 : 10) };
+            var body = new StringContent(
+                "{\"reason\":\"window\",\"hard\":" + (hard ? "true" : "false") + "}",
+                System.Text.Encoding.UTF8,
+                "application/json");
+            using var reply = await client.PostAsync(DeskUrl + "/api/shutdown", body);
+        }
+        catch
+        {
+            // A desk that cannot be asked is a desk that may already be
+            // gone, or one that is wedged. Both are settled below.
+        }
+
+        while (DateTime.UtcNow < deadline)
+        {
+            if (!await DeskIsAnsweringAsync()) return;
+            await Task.Delay(400);
+        }
+
+        RunStopScript(TimeSpan.FromSeconds(hard ? 6 : 20));
+    }
+
+    /// <summary>The blocking form, for the one caller that cannot await.</summary>
+    private void StopAurionNow(bool hard)
+    {
+        try
+        {
+            // Off the UI thread on purpose: awaiting into a message pump
+            // that is being torn down is how a shutdown turns into a hang.
+            Task.Run(() => ShutdownAurionAsync(hard))
+                .Wait(TimeSpan.FromSeconds(hard ? 9 : 36));
+        }
+        catch { /* the session is ending; there is nothing left to report to */ }
+    }
+
+    /// <summary>
+    /// The product's own stop script, as a last resort.
+    ///
+    /// Only reached when the desk could not be asked or would not go. It
+    /// is the same script a person would run by hand, so there is nothing
+    /// here that the application does not already do to itself.
+    /// </summary>
+    private void RunStopScript(TimeSpan budget)
+    {
+        try
+        {
+            var script = Path.Combine(_installDir, "stop-aurion.cmd");
+            if (!File.Exists(script)) return;
+            var psi = new ProcessStartInfo
+            {
+                FileName = script,
+                WorkingDirectory = _installDir,
+                UseShellExecute = false,
+                CreateNoWindow = true,
+                WindowStyle = ProcessWindowStyle.Hidden,
+            };
+            using var run = Process.Start(psi);
+            run?.WaitForExit((int)budget.TotalMilliseconds);
+        }
+        catch { /* nothing above this is allowed to fail the close */ }
+    }
+
+    /// <summary>
+    /// The session ending is not a question, so it is not asked as one.
+    ///
+    /// WM_QUERYENDSESSION is Windows asking whether it may log out or shut
+    /// down. Answering it with a modal is how an application becomes the
+    /// one that blocks a reboot, so it is answered yes and remembered;
+    /// WM_ENDSESSION is then the point of no return and AURION is stopped
+    /// on the spot, inside the few seconds Windows allows.
+    /// </summary>
+    protected override void WndProc(ref Message m)
+    {
+        if (m.Msg == WM_QUERYENDSESSION)
+        {
+            _sessionEnding = true;
+            base.WndProc(ref m);
+            m.Result = (IntPtr)1;
+            return;
+        }
+
+        if (m.Msg == WM_ENDSESSION)
+        {
+            // wParam zero means the session is NOT ending after all - some
+            // other program refused - so nothing should be stopped.
+            if (m.WParam != IntPtr.Zero && !_setupOnly && !_stopped)
+            {
+                _stopped = true;
+                _tray.Visible = false;
+                StopAurionNow(hard: true);
+            }
+            else if (m.WParam == IntPtr.Zero)
+            {
+                _sessionEnding = false;
+            }
+            base.WndProc(ref m);
+            return;
+        }
+
+        base.WndProc(ref m);
     }
 
     // ----------------------------------------------------------------- boot
@@ -462,6 +699,18 @@ internal sealed class AppWindow : Form
         // browser tab as well. The variable is honoured by the application's own
         // script; when it is absent the script behaves exactly as it always did.
         psi.Environment["AURION_NO_BROWSER"] = "1";
+
+        // Who owns this AURION.
+        //
+        // The desk watches this pid (see watchOwner in backend/src/index.js).
+        // "End task", taskkill /F and a crash all end this window without
+        // running a line of its code, and until now that left the desk and
+        // the engine running behind a window that no longer existed - the
+        // product was still trading, still holding port 8080, and nothing
+        // in it had noticed. A pid is all the desk needs to tell that its
+        // window has gone and to shut itself and the engine down with it.
+        psi.Environment["AURION_OWNER_PID"] =
+            Environment.ProcessId.ToString(System.Globalization.CultureInfo.InvariantCulture);
 
         // A child inherits this process's environment, and this process's
         // environment was captured before setup installed anything. Rebuild

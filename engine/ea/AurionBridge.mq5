@@ -2,6 +2,21 @@
 //| AurionBridge.mq5                                                 |
 //| Live chart agent for the AURION engine.                          |
 //|                                                                  |
+//| v1.24 — a closed bar is announced on ONE timeframe: its own.     |
+//|   SendCandle(1) mirrored the chart's shift onto the timeframe    |
+//|   the desk is showing, and a shift is only meaningful on the     |
+//|   timeframe it was counted on. An M15 chart feeding an H4 desk   |
+//|   therefore re-announced the PREVIOUS H4 bar as freshly closed   |
+//|   four times an hour, carrying whatever open/high/low the        |
+//|   terminal held for it at that moment. The desk rewrote a        |
+//|   finished candle again and again - reported as "the earlier     |
+//|   candles come away from the new one, get taller and read at     |
+//|   higher prices" - and the engine re-ran its strategies on a bar |
+//|   that had been decided hours before. The forming bar is still   |
+//|   mirrored, because that is what keeps a desk chart on another   |
+//|   timeframe alive; the closed one is sent by MaybeClosedBar,     |
+//|   which watches that timeframe and counts its own bars.          |
+//|                                                                  |
 //| v1.23 — the price goes out as the market makes it. Until now a  |
 //|   quote travelled only on the 1s heartbeat, bundled with the     |
 //|   account, the forming candle and every open position, so the    |
@@ -80,10 +95,10 @@
 // nobody could tell. AURION_EA_VERSION is the value sent to the engine;
 // engine/tests/test_ea_version.py fails the build if the #property below
 // drifts from it, because #property will not take a macro.
-#define AURION_EA_VERSION "1.23"
-#property version   "1.23"
+#define AURION_EA_VERSION "1.24"
+#property version   "1.24"
 #property strict
-#property description "AURION live bridge 1.23 — price goes out as the market makes it, not on the heartbeat"
+#property description "AURION live bridge 1.24 — a closed bar is announced on its own timeframe only"
 
 input string InpEngineHost   = "127.0.0.1";
 input int    InpEnginePort   = 18766;
@@ -774,7 +789,19 @@ void SendCandle(const int shift)
    SendCandleOn(_Period, shift);
    // The desk's timeframe too, when it differs - this is what keeps a
    // chart the trader switched to inside AURION alive.
-   if(g_feed_tf != PERIOD_CURRENT && g_feed_tf != _Period)
+   //
+   // ONLY the forming bar, though. `shift` counts bars on the chart's
+   // own timeframe, and the same number means something else on the
+   // desk's: with an M15 chart feeding an H4 desk, shift 1 at an M15
+   // close is the previous H4 bar - a bar that closed hours ago,
+   // re-announced as closed=true with whatever open/high/low this
+   // terminal holds for it now. The desk then rewrote a finished
+   // candle several times an hour, which is the "earlier candles get
+   // taller and ride upward" fault, and the engine re-ran the
+   // strategies on a bar that had long since been decided. The desk
+   // timeframe's own closed bar is sent by MaybeClosedBar, which
+   // watches that timeframe and uses its own shift 1.
+   if(shift == 0 && g_feed_tf != PERIOD_CURRENT && g_feed_tf != _Period)
       SendCandleOn(g_feed_tf, shift);
   }
 

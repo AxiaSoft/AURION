@@ -584,3 +584,149 @@ def test_a_synchronous_caller_still_gets_an_answer_inline() -> None:
     bridge, _ = _bridge()
     bridge.native = _SlowTerminal(delay=0.0)
     assert bridge.symbol_spec("EURUSD").get("digits") == 5
+
+
+# ---------------------------------------------------------------------------
+# 6. "In Settings, System, the Aurion Bridge must identify the version in
+#    every case - not 'version unknown'."
+#
+# Only hello carries a version. An agent is also built the first time a
+# tick or a candle arrives for a chart we have not met, and that happens
+# routinely: the expert sends a tick in the same breath as its hello, a
+# reattach throws the agent record away while the stream carries on, and
+# a purged chart comes straight back through its next tick. The rebuilt
+# agent had version "" forever after, and the desk has no word for an
+# empty version except "unknown".
+# ---------------------------------------------------------------------------
+
+
+def test_a_chart_met_through_a_tick_keeps_the_version_its_hello_reported() -> None:
+    bridge, _ = _bridge()
+
+    async def go() -> tuple[str, str, str]:
+        await bridge._on_ea_message(None, {
+            "type": "hello", "chart_id": 11, "symbol": "EURUSD",
+            "timeframe": "M15", "version": "1.24",
+        })
+        said = bridge.agents[11].version
+
+        # The chart is closed, or the terminal restarts, or the expert is
+        # taken off and put back: the record goes.
+        await bridge._purge_chart(11, force=True)
+
+        # ...and the very next tick rebuilds it, with no hello in sight.
+        rebuilt = await bridge._touch_agent(11, "EURUSD", "M15")
+        assert rebuilt is not None
+
+        # A second chart on the same terminal, also met through a tick.
+        other = await bridge._touch_agent(12, "XAUUSD", "M5")
+        assert other is not None
+        return said, rebuilt.version, other.version
+
+    said, rebuilt, other = asyncio.run(go())
+    assert said == "1.24"
+    assert rebuilt == "1.24", "a rebuilt agent forgot which expert is running on that chart"
+    assert other == "1.24", \
+        "a chart we have never had a hello from is told 'unknown' when the terminal's version is known"
+
+
+def test_a_version_is_never_invented() -> None:
+    """Remembering is not guessing: with nothing reported, nothing is said."""
+    bridge, _ = _bridge()
+
+    async def go() -> str:
+        agent = await bridge._touch_agent(31, "EURUSD", "M15")
+        assert agent is not None
+        return agent.version
+
+    assert asyncio.run(go()) == ""
+
+
+def test_a_hello_does_not_overwrite_another_chart_s_version() -> None:
+    bridge, _ = _bridge()
+
+    async def go() -> tuple[str, str]:
+        await bridge._on_ea_message(None, {
+            "type": "hello", "chart_id": 41, "symbol": "EURUSD",
+            "timeframe": "M15", "version": "1.24",
+        })
+        await bridge._on_ea_message(None, {
+            "type": "hello", "chart_id": 42, "symbol": "XAUUSD",
+            "timeframe": "M5", "version": "1.19",
+        })
+        return bridge.remembered_ea_version(41, "EURUSD"), bridge.remembered_ea_version(42, "XAUUSD")
+
+    first, second = asyncio.run(go())
+    assert first == "1.24", "one terminal's version was written over another's"
+    assert second == "1.19", "a second terminal on an older expert must still read as older"
+
+
+# ---------------------------------------------------------------------------
+# 7. "When a new candle arrives the candles before it come away from it,
+#    get taller and read at higher prices."
+#
+# The expert's half of that: a shift counts bars on the timeframe it was
+# counted on. Mirroring the chart's shift onto the desk's timeframe meant
+# an M15 chart feeding an H4 desk re-announcing the previous H4 bar as
+# freshly closed four times an hour.
+# ---------------------------------------------------------------------------
+
+
+def test_the_expert_mirrors_only_the_forming_bar_onto_the_desk_timeframe() -> None:
+    src = (ROOT / "engine" / "ea" / "AurionBridge.mq5").read_text(encoding="utf-8")
+    start = src.rindex("void SendCandle(const int shift)")
+    body = src[start:src.index("\n  }", start)]
+    assert "SendCandleOn(_Period, shift);" in body, "the chart's own bar is still sent"
+    assert "if(shift == 0 && g_feed_tf != PERIOD_CURRENT && g_feed_tf != _Period)" in body, \
+        "a closed bar is still mirrored onto a timeframe whose bars it does not count"
+    # ...and the desk timeframe's own closed bar still has a sender.
+    assert "SendCandleOn(g_feed_tf, 1);" in src, \
+        "nothing sends the closed bar of the timeframe the desk is showing"
+
+
+def test_a_bar_that_is_re_sent_is_merged_not_swapped() -> None:
+    """The engine's half of the same fault: see _merged_candle."""
+    bridge, _ = _bridge()
+
+    def bar(high: float, low: float, close: float, volume: float) -> Candle:
+        return Candle(symbol="EURUSD", timeframe="M15", time="2026-11-24T10:00:00",
+                      time_msc=0, open=1.10, high=high, low=low, close=close, volume=volume)
+
+    bridge._put_candle(bar(1.40, 1.05, 1.30, 10))
+    # The same bar as it looked a minute earlier, arriving again.
+    bridge._put_candle(bar(1.15, 1.09, 1.12, 4))
+    held = bridge.candles[("EURUSD", "M15")][-1]
+    assert held.high == 1.40, "a narrower re-send shrank a bar the desk had already drawn"
+    assert held.low == 1.05, "...and raised its low"
+    assert held.close == 1.12, "the close is what a re-send is for"
+    assert held.volume == 10, "volume only ever grows within one bar"
+    assert len(bridge.candles[("EURUSD", "M15")]) == 1, "a re-send is not a second bar"
+
+    # ...and a genuinely wider one still widens it.
+    bridge._put_candle(bar(1.52, 1.01, 1.50, 12))
+    held = bridge.candles[("EURUSD", "M15")][-1]
+    assert (held.high, held.low, held.close) == (1.52, 1.01, 1.50)
+
+
+def test_a_full_history_answer_still_replaces_the_series() -> None:
+    """Merging re-sends must not make a redraw impossible."""
+    bridge, _ = _bridge()
+
+    async def go() -> list[Candle]:
+        await bridge._on_ea_message(None, {
+            "type": "candles", "chart_id": 5, "symbol": "EURUSD", "timeframe": 15,
+            "timeframe_name": "M15", "replace": True, "final": True,
+            "bars": [{"time": "2026-11-24T10:00:00", "open": 1.1, "high": 1.9,
+                      "low": 0.9, "close": 1.5, "volume": 99}],
+        })
+        await bridge._on_ea_message(None, {
+            "type": "candles", "chart_id": 5, "symbol": "EURUSD", "timeframe": 15,
+            "timeframe_name": "M15", "replace": True, "final": True,
+            "bars": [{"time": "2026-11-24T10:00:00", "open": 1.1, "high": 1.2,
+                      "low": 1.0, "close": 1.15, "volume": 7}],
+        })
+        return list(bridge.candles[("EURUSD", "M15")])
+
+    rows = asyncio.run(go())
+    assert len(rows) == 1
+    assert rows[0].high == 1.2, "replace:true must be able to correct a bar outright"
