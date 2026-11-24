@@ -340,8 +340,13 @@ for (const [id, name] of Object.entries(PAIRS)) {
   ok(body === iconTable[name],
     `#${id}'s markup is icon("${name}") verbatim, so the two can never drift`);
 }
-/* icon() itself draws at one stroke width; the markup must use the same. */
-const iconStroke = /stroke-width="([\d.]+)"/.exec(appJs.slice(appJs.indexOf("function icon("), appJs.indexOf("function icon(") + 9000));
+/* icon() itself draws at one stroke width; the markup must use the same.
+   Sliced to the end of the function rather than a fixed byte count: the
+   stroke width is written after the glyph table, so every glyph added to
+   that table pushed it further out of a fixed window. */
+const iconAt = appJs.indexOf("function icon(");
+const iconEnd = appJs.indexOf("\n}\n", iconAt);
+const iconStroke = /stroke-width="([\d.]+)"/.exec(appJs.slice(iconAt, iconEnd < 0 ? iconAt + 20000 : iconEnd));
 ok(iconStroke && iconStroke[1] === widths[0],
   `and at icon()'s own stroke width (${iconStroke ? iconStroke[1] : "?"} vs ${widths[0]})`);
 

@@ -395,6 +395,11 @@ class CandleChart {
     this.pending = { sl: 0, tp: 0 };
     this.dragLevel = null;
     this.signals = [];
+    /* What the armed strategies see on the candle that has not closed
+       yet. Held apart from `signals` on purpose: those are findings on
+       finished bars and they do not change, these are a reading of a
+       bar that is still moving and they may be gone in a second. */
+    this.liveSignals = [];
     this.signalCoverage = null;
     this._sigHits = [];
     this._sigHover = null;
@@ -912,6 +917,27 @@ class CandleChart {
     this.signals = Array.isArray(signals) ? signals : [];
     this._sigHover = null;
     if (typeof show === "boolean") this.showSignals = show;
+    this.draw();
+  }
+
+  /**
+   * The setups the engine can see on the bar that is still forming.
+   *
+   * Reported as "it should signal as the chart moves, not only on
+   * finished candles". The confirmed marks are a replay over closed
+   * bars, so on M15 a setup born at 10:00:30 stayed invisible until
+   * 10:15 — a quarter of an hour of the one thing the trader is
+   * sitting there for.
+   *
+   * These are drawn hollow and dashed, and they are drawn ONLY on the
+   * newest bar: see paintLiveSignals. That rule is what makes them
+   * self-clearing. The moment a new candle opens, yesterday's
+   * provisional arrow stops being painted without anyone having to
+   * send a message saying so — and if the engine goes quiet, the
+   * chart cannot be left showing a setup that expired ten bars ago.
+   */
+  setLiveSignals(signals) {
+    this.liveSignals = Array.isArray(signals) ? signals : [];
     this.draw();
   }
 
@@ -1566,6 +1592,10 @@ class CandleChart {
     this.paintSignalCoverage(L);
     this.paintTimeMark(L);
     this.paintSignals(L);
+    /* After the confirmed marks, so a forming setup on the newest bar
+       is never hidden under one, and inside the same clip so it
+       cannot spill past the axes. */
+    this.paintLiveSignals(L);
     this.paintLastPrice(L);
     ctx.restore();
 
@@ -2499,6 +2529,123 @@ class CandleChart {
   }
 
   /**
+   * The provisional marks, on the candle that is still being written.
+   *
+   * Everything here says "not yet": the triangle is an outline rather
+   * than a solid, the lines are dashed, and the entry price is carried
+   * across the plot as a dotted guide so the trader can watch price
+   * approach it while the bar is alive. A filled arrow identical to
+   * the confirmed ones would be a lie — this setup can disappear
+   * before the candle closes, and several of them will.
+   *
+   * Two rules keep it honest:
+   *
+   *   1. Only ever on the LAST bar. A forming mark is a statement
+   *      about the present, so the moment a new candle opens it stops
+   *      being drawn, whatever the engine last said.
+   *   2. Only while the confirmed marks are being shown. One switch
+   *      governs "signals on the chart"; a trader who turned them off
+   *      did not ask for a quieter version of them.
+   */
+  paintLiveSignals(L) {
+    if (!this.showSignals) return;
+    const live = this.liveSignals || [];
+    if (!live.length) return;
+    const rows = L.rows;
+    if (!rows.length) return;
+    const bars = this.bars || [];
+    if (!bars.length) return;
+
+    /* The newest bar on the chart, and it must also be the newest bar
+       in view - scroll back through history and the forming mark is
+       not on screen at all, which is correct: it belongs to a candle
+       that is off to the right. */
+    const headTime = barTime(bars[bars.length - 1].time || bars[bars.length - 1].ts);
+    const lastIdx = rows.length - 1;
+    const lastRow = rows[lastIdx];
+    if (!headTime || !lastRow || barTime(lastRow.t) !== headTime) return;
+
+    const ctx = this.ctx;
+    const T = chartTheme();
+    const x = L.xOf(lastIdx);
+    let rank = 0;
+    for (const sig of live) {
+      if (barTime(sig.time) !== headTime) continue;   // rule 1
+      const isBuy = sig.side === "buy" || sig.type === "buy";
+      const col = isBuy ? T.up : T.down;
+      const price = Number(sig.price || 0) || (isBuy ? lastRow.l : lastRow.h);
+      /* Stacked, so two strategies agreeing on the same bar are two
+         readable marks rather than one drawn twice. */
+      const step = rank * 22;
+      const anchorY = isBuy ? L.yOf(lastRow.l) + 14 + step : L.yOf(lastRow.h) - 14 - step;
+      rank += 1;
+
+      ctx.save();
+      ctx.strokeStyle = col;
+      ctx.fillStyle = col;
+      ctx.lineWidth = 1.3;
+
+      // The entry, carried across the plot. This is the line price is
+      // walking towards while the bar is open.
+      if (Number(sig.price)) {
+        ctx.globalAlpha = 0.5;
+        ctx.setLineDash([2, 4]);
+        ctx.beginPath();
+        ctx.moveTo(L.plotL, L.yOf(price));
+        ctx.lineTo(x, L.yOf(price));
+        ctx.stroke();
+        ctx.setLineDash([]);
+        ctx.globalAlpha = 1;
+      }
+
+      // Hollow triangle, dashed. Same geometry as the confirmed mark
+      // so the eye reads it as the same kind of thing, same outline so
+      // it never reads as the same claim.
+      ctx.setLineDash([3, 2]);
+      ctx.beginPath();
+      if (isBuy) {
+        ctx.moveTo(x, anchorY - 8);
+        ctx.lineTo(x - 6, anchorY + 2);
+        ctx.lineTo(x + 6, anchorY + 2);
+      } else {
+        ctx.moveTo(x, anchorY + 8);
+        ctx.lineTo(x - 6, anchorY - 2);
+        ctx.lineTo(x + 6, anchorY - 2);
+      }
+      ctx.closePath();
+      ctx.stroke();
+      ctx.setLineDash([]);
+
+      // A word, because an outline on its own is not self-explaining.
+      // Translated where the desk has a dictionary; the fallback is
+      // short enough to survive being English on a Persian chart.
+      const label = this.i18n("signal.forming", "FORMING");
+      ctx.font = "9px IBM Plex Mono, Vazirmatn, monospace";
+      ctx.textAlign = "center";
+      ctx.textBaseline = "alphabetic";
+      const w = Math.max(44, ctx.measureText(label).width + 10);
+      const boxY = isBuy ? anchorY + 6 : anchorY - 20;
+      ctx.globalAlpha = 0.85;
+      ctx.setLineDash([3, 2]);
+      ctx.strokeRect(x - w / 2, boxY, w, 14);
+      ctx.setLineDash([]);
+      ctx.globalAlpha = 1;
+      ctx.fillText(label, x, boxY + 10);
+      ctx.restore();
+
+      /* Hoverable like any other mark. The card is where the strategy
+         name, the stop and the target are, and a provisional setup the
+         trader cannot interrogate is one they can only obey or
+         ignore. `forming` rides along so the card can say so. */
+      this._sigHits.push({
+        x: x - 24, y: isBuy ? anchorY - 10 : anchorY - 24,
+        w: 48, h: 36, cx: x, cy: anchorY,
+        sig: { ...sig, forming: true },
+      });
+    }
+  }
+
+  /**
    * Show a signal's card without the trader hovering it, and scroll the
    * window until the mark is actually on screen.
    *
@@ -2573,7 +2720,12 @@ class CandleChart {
       rows.push([this.i18n("signal.confidence", "Confidence"), Math.round(Number(sig.confidence) * 100) + "%"]);
     }
 
-    const title = (isBuy ? "BUY" : "SELL") + "  " + String(sig.strategy || "").toUpperCase();
+    /* A forming setup says so in its own title. The rows underneath
+       are identical to a confirmed mark's, which is exactly why the
+       distinction has to be made in words as well as in dashes: the
+       numbers look just as firm, and they are not. */
+    const title = (isBuy ? "BUY" : "SELL") + "  " + String(sig.strategy || "").toUpperCase()
+      + (sig.forming ? "  · " + this.i18n("signal.forming", "FORMING") : "");
     ctx.save();
     ctx.font = "11px IBM Plex Mono, Vazirmatn, monospace";
 
@@ -2581,7 +2733,10 @@ class CandleChart {
     // edge. The reason is the whole point of the card for King, which says
     // which five confluences agreed.
     const maxW = 250;
-    const reason = String(sig.reason || "");
+    const note = sig.forming
+      ? this.i18n("signal.forming_note", "On the open candle — it can still disappear.")
+      : "";
+    const reason = (note ? note + " " : "") + String(sig.reason || "");
     const lines = [];
     if (reason) {
       let line = "";

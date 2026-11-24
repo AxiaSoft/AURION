@@ -1747,6 +1747,18 @@
     "signals_unanalysed": "Not analysed yet",
     "signals_doing_now": "Analysing these {n} candles"
   },
+  "quit": {
+    "menu": "Shut AURION down",
+    "title": "Shut AURION down?",
+    "body": "The desk and the engine both stop, and the window closes. Open positions are left exactly as they are at your broker, but AURION will not be watching them, and automated trading stops until you start it again.",
+    "confirm": "Shut down",
+    "stopping": "Shutting AURION down",
+    "stopping_sub": "The engine is being asked to save its settings and stop, and the desk goes after it. Please wait.",
+    "stopped": "AURION has stopped",
+    "stopped_sub": "The desk and the engine are no longer running. You can close this window.",
+    "stuck": "AURION did not stop",
+    "stuck_sub": "The desk is still answering. Close the window, or run stop-aurion.cmd from the installation folder."
+  },
   "signal": {
     "buy": "Buy signal",
     "sell": "Sell signal",
@@ -1763,7 +1775,9 @@
     "open_ea_chart": "Open the EA chart",
     "from_strategy": "from",
     "toggle_on": "Signals on",
-    "toggle_off": "Signals off"
+    "toggle_off": "Signals off",
+    "forming": "FORMING",
+    "forming_note": "On the candle that has not closed yet — it can still disappear."
   },
   "slots": {
     "title": "How many trades the robot opens",

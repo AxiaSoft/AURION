@@ -111,6 +111,16 @@
       </ol>
       <div class="card warn">استراتژی‌های پیش‌فرض متد <code>on_tick</code> ندارند. تیک فقط برای نمایش قیمت، تریل (اگر <code>trailing_points</code> در پارامتر باشد — در پک کارخانه صفر است) و استراتژی سفارشی شماست.</div>
 
+      <h3>سیگنال زنده روی کندل باز</h3>
+      <p>بالا دربارهٔ <b>معامله</b> است و تغییر نکرده: تصمیمِ اجرا هنوز فقط روی کندل بسته گرفته می‌شود. ولی <b>نمایش</b> دیگر منتظر بسته شدن کندل نمی‌ماند. موتور هر دو ثانیه همان پرسش را روی کندلِ در حال تشکیل از هر استراتژی روشن می‌پرسد و پاسخ را به چارت می‌فرستد.</p>
+      <ul>
+        <li>این نشانه‌ها <b>خط‌چین و توخالی</b> کشیده می‌شوند و برچسب «در حال شکل‌گیری» دارند — هرگز شبیه نشانهٔ تأییدشده نیستند.</li>
+        <li>فقط روی <b>آخرین</b> کندل دیده می‌شوند. تا کندل بسته شود خودبه‌خود محو می‌شوند، حتی اگر موتور ساکت باشد.</li>
+        <li>ممکن است پیش از بسته شدن کندل ناپدید شوند. این نقص نیست؛ معنای «در حال شکل‌گیری» همین است.</li>
+        <li>زیر همان کلید «سیگنال‌ها» در تنظیمات چارت‌اند و مثل بقیه ویژگی پریمیوم.</li>
+      </ul>
+      <div class="card warn">یک نشانهٔ در حال شکل‌گیری هرگز سفارش نمی‌شود. ربات آن را نمی‌بیند؛ فقط شما می‌بینید.</div>
+
       <h2 id="fa-5">۵. مدل نرمال در برابر اسکلپ</h2>
       <p>در تنظیمات یا کارت مدل معامله انتخاب می‌شود. منطق گیت یکی است. فقط اعداد استراتژی عوض می‌شود. اگر اسکلپ را بزنید و تایم‌فریم فعال H1 / H4 / D1 باشد، موتور آن را به <b>M1</b> می‌کشد.</p>
       <table>
@@ -439,6 +449,16 @@
       </ol>
       <div class="card warn">Built-ins have no <code>on_tick</code>. Ticks only paint the tape, optional trailing (<code>trailing_points</code> is 0 in factory packs), and your custom strategy.</div>
 
+      <h3>Live signalling on the open candle</h3>
+      <p>Everything above is about <b>trading</b>, and it has not changed: the decision to send an order is still taken on a closed bar only. What has changed is the <b>display</b>. Every two seconds the engine asks each armed strategy the same question against the candle that is still forming, and sends the answer to the chart.</p>
+      <ul>
+        <li>These marks are drawn <b>hollow and dashed</b> and labelled "forming". They never look like a confirmed mark.</li>
+        <li>They appear only on the <b>newest</b> candle. When it closes they retire themselves, even if the engine has gone quiet.</li>
+        <li>They may vanish before the candle closes. That is not a fault — it is what "forming" means.</li>
+        <li>They sit under the same Signals switch in the chart settings, and are premium on the same terms.</li>
+      </ul>
+      <div class="card warn">A forming mark never becomes an order. The robot does not act on it; only you see it.</div>
+
       <h2 id="en-5">5. Normal vs scalping</h2>
       <table>
         <tr><th></th><th>Normal</th><th>Scalping</th></tr>
@@ -712,6 +732,16 @@
         <li>إن كان البروب شغّالاً يجب أن يمرّ <code>allow_order</code>.</li>
         <li>الأمر بـ magic <code>908173</code> إلى مستشار واحد (أو Native).</li>
       </ol>
+
+      <h3>إشارة حية على الشمعة المفتوحة</h3>
+      <p>ما سبق يخص <b>التداول</b> ولم يتغيّر: قرار الإرسال ما زال يُتخذ على شمعة مغلقة فقط. الذي تغيّر هو <b>العرض</b>. كل ثانيتين يسأل المحرك كل استراتيجية مفعّلة السؤال نفسه على الشمعة التي لم تُغلق بعد، ويرسل الجواب إلى الرسم.</p>
+      <ul>
+        <li>تُرسم هذه العلامات <b>مجوّفة ومتقطّعة</b> وتحمل كلمة «قيد التكوّن»، فلا تشبه أبداً علامة مؤكَّدة.</li>
+        <li>تظهر على <b>آخر</b> شمعة فقط. وعند إغلاقها تنسحب من تلقاء نفسها حتى لو صمت المحرك.</li>
+        <li>قد تختفي قبل إغلاق الشمعة. ليس هذا عطلاً، بل هو معنى «قيد التكوّن».</li>
+        <li>تخضع لمفتاح «الإشارات» نفسه في إعدادات الرسم، وهي مميّزة بالشروط نفسها.</li>
+      </ul>
+      <div class="card warn">العلامة قيد التكوّن لا تصير أمراً أبداً. الروبوت لا يراها؛ أنت وحدك تراها.</div>
 
       <h2 id="ar-3">٣. عادي مقابل سكالب</h2>
       <table>

@@ -255,7 +255,11 @@ check("the Windows host actually accepts a news message", () => {
   const host = read("installer/window/AppWindow.cs");
   const i = host.indexOf("core.WebMessageReceived");
   must(i > 0, "the host no longer listens for desk messages at all");
-  const body = host.slice(i, i + 2200);
+  /* Sliced to the end of the handler rather than a fixed byte count:
+     a fixed window silently stops covering the checks below it the
+     moment anything new is handled above them. */
+  const end = host.indexOf("\n        };", i);
+  const body = host.slice(i, end < 0 ? i + 4000 : end);
   must(/var isNews = raw\.Contains/.test(body), "the host does not recognise a news message");
   must(/if \(!isSignal && !isTrade && !isNews\) return;/.test(body),
     "the early return still drops news");

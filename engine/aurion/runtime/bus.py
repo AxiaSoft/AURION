@@ -20,7 +20,11 @@ QUEUE_MAX = 500
 #: tick is replaced by the next tick, the analysis by the next
 #: analysis. Everything else - an order result, a log line, the bars of
 #: a history download - happens once and is kept.
-DROPPABLE = frozenset({"tick", "ticks", "analysis", "prop", "ai", "status", "agents"})
+#: `live_signal` is in here for the same reason as `tick`: it is what
+#: the armed strategies see on the bar that has not finished yet, and
+#: the next watch pass is two seconds behind it. A backlogged desk
+#: wants the current one, never the queue of them.
+DROPPABLE = frozenset({"tick", "ticks", "analysis", "prop", "ai", "status", "agents", "live_signal"})
 
 
 class Bus:
