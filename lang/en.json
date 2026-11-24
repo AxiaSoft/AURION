@@ -1763,7 +1763,9 @@
     "open_ea_chart": "Open the EA chart",
     "from_strategy": "from",
     "toggle_on": "Signals on",
-    "toggle_off": "Signals off"
+    "toggle_off": "Signals off",
+    "forming": "FORMING",
+    "forming_note": "On the candle that has not closed yet — it can still disappear."
   },
   "slots": {
     "title": "How many trades the robot opens",

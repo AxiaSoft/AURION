@@ -15922,6 +15922,10 @@ function bindChartDesk() {
         if (!on) {
           S.chartSignals = [];
           if (S.chart) S.chart.setSignals([], false);
+          // The forming layer lives under the same switch. Leaving it
+          // drawn after the trader turned signals off would be the
+          // switch not working.
+          clearLiveSignals();
           return;
         }
         await fetchChartSignals(S.chartFocus?.symbol, S.chartFocus?.timeframe);
@@ -16932,6 +16936,57 @@ function scheduleSignalFill(symbol, timeframe) {
   }, SIGNAL_FILL_DELAY_MS);
 }
 
+/**
+ * What the engine can see on the candle that has not closed yet.
+ *
+ * The confirmed marks are a replay over FINISHED bars, so until now
+ * the chart said nothing at all between one close and the next — on
+ * M15 that is fourteen minutes of a setup existing and not being
+ * shown, which is the whole of "it should signal as the chart moves".
+ *
+ * These are provisional and the desk treats them that way:
+ *
+ *   * they are kept only for the chart in front of the trader, never
+ *     for a held-but-unwatched series — a forming setup is a statement
+ *     about right now, and a stale one is worse than none;
+ *   * they are refused when the trader has signals switched off, or
+ *     when the licence does not include them, on the same terms as the
+ *     confirmed marks;
+ *   * an empty list is applied exactly like a full one. That is how a
+ *     setup that evaporated leaves the chart.
+ *
+ * Nothing here decides anything. The forming read never becomes an
+ * order and never touches S.chartSignals; it is a second, clearly
+ * marked layer, and the engine still trades on closed bars only.
+ */
+function applyLiveSignals(d) {
+  d = d || {};
+  if (!S.chart || typeof S.chart.setLiveSignals !== "function") return;
+  if (!S.signalsEnabled || !S.showSignals || !licFeat("chart_signals")) {
+    S.liveSignals = [];
+    S.chart.setLiveSignals([]);
+    return;
+  }
+  /* The wrong chart's reading is not a quieter version of this
+     chart's, it is a different instrument. Dropped, and the marks
+     already up are left alone — the engine will speak for this
+     symbol on its next pass. */
+  const sym = String(d.symbol || "");
+  const tf = String(d.timeframe || "");
+  if (sym && S.symbol && sym !== S.symbol) return;
+  if (tf && S.timeframe && tf !== S.timeframe) return;
+  const rows = Array.isArray(d.signals) ? d.signals : [];
+  S.liveSignals = rows;
+  S.chart.setLiveSignals(rows);
+}
+
+/** Forget the forming marks. Called wherever the chart stops being the
+ *  chart they were found on. */
+function clearLiveSignals() {
+  S.liveSignals = [];
+  if (S.chart && typeof S.chart.setLiveSignals === "function") S.chart.setLiveSignals([]);
+}
+
 async function fetchChartSignals(symbol, timeframe) {
   symbol = symbol || S.symbol || (S.chartFocus && S.chartFocus.symbol) || "";
   timeframe = timeframe || S.timeframe || "M15";
@@ -16939,10 +16994,12 @@ async function fetchChartSignals(symbol, timeframe) {
   if (!S.signalsEnabled) {
     S.chartSignals = [];
     if (S.chart && typeof S.chart.setSignals === "function") S.chart.setSignals([], S.showSignals);
+    clearLiveSignals();
     return;
   }
   if (!licFeat("chart_signals")) {
     S.chartSignals = [];
+    clearLiveSignals();
     return;
   }
   S.signalsLoading = true;
@@ -17013,6 +17070,11 @@ async function pickMarket(symbol, timeframe, opts) {
     S.candlesKey = "";
     return;
   }
+  /* Forming marks belong to the chart they were found on, and they
+     are the one layer with no proof of identity drawn on it: a dashed
+     BUY left over from the symbol just switched away from would read
+     as a setup on this one. Cleared before anything else moves. */
+  if (symbol !== S.symbol || timeframe !== S.timeframe) clearLiveSignals();
   S.symbol = symbol; S.timeframe = timeframe;
   /* Already held? Then this symbol is on screen before the request
      goes out, not after it comes back. This is what "several symbols
@@ -17256,6 +17318,9 @@ function onLive(msg) {
         }
       }
     }
+  }
+  if (msg.type === "live_signal") {
+    applyLiveSignals(msg.data || msg);
   }
   if (msg.type === "hist_progress") {
     noteHistoryProgress(msg.data || msg);

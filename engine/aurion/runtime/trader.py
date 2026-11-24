@@ -127,6 +127,22 @@ CHART_MARK_STEP_BACK = 1500
 CHART_MARK_CACHES = 8
 
 
+def _as_float(value: Any) -> float:
+    """A number, or 0.0 — never an exception.
+
+    Strategies are user code and a price on one of them can be a
+    string, a Decimal, None, or a numpy scalar that stops being JSON
+    the moment it reaches the socket. A forming mark is a courtesy
+    drawn thirty times a minute; it must never be the thing that takes
+    the watch pass down.
+    """
+    try:
+        out = float(value)
+    except (TypeError, ValueError):
+        return 0.0
+    return out if out == out and out not in (float("inf"), float("-inf")) else 0.0
+
+
 def _slice_bars(
     bars: list[dict[str, Any]],
     start: Any,
@@ -2586,7 +2602,7 @@ class Trader:
         )
 
     async def _watch_strategies(self, tick: dict[str, Any]) -> None:
-        """Keep the strategy cards honest between bar closes.
+        """Keep the strategy cards and the chart honest between bar closes.
 
         A card that only changes when a candle closes is a card that says
         "idle" for fourteen minutes out of fifteen, and the trader cannot
@@ -2595,6 +2611,17 @@ class Trader:
         on the bar as it stands — and publishes the answer. It never
         trades: the decision that counts is still taken on a closed bar,
         because a signal measured on half a candle is not a signal.
+
+        The same pass now also feeds the chart. Reported as "it should
+        signal as the chart moves, not only on finished candles": the
+        marks on the canvas came from a replay over closed bars, so on
+        M15 a setup that formed at 10:00:30 was invisible until 10:15,
+        and by then it was history. What goes out here is labelled
+        `forming` and carries the time of the bar it was seen on, so the
+        desk can draw it as provisional and drop it the moment the
+        strategy stops seeing it. A forming mark is a question, not an
+        instruction; the confirmed mark is still the one the closed-bar
+        replay produces.
         """
         now = time.time()
         if now - float(getattr(self, "_watch_at", 0.0) or 0.0) < self.WATCH_EVERY_SEC:
@@ -2610,8 +2637,8 @@ class Trader:
         if not ctx.candles or len(ctx.candles) < 30:
             return
 
-        def look() -> dict[str, tuple[str, str]]:
-            out: dict[str, tuple[str, str]] = {}
+        def look() -> dict[str, tuple[str, str, dict[str, Any]]]:
+            out: dict[str, tuple[str, str, dict[str, Any]]] = {}
             for name, slot in armed:
                 inst = slot.get("inst")
                 # The tally of "why it stayed out" is per closed bar and the
@@ -2623,16 +2650,24 @@ class Trader:
                 try:
                     signal = inst.on_candle(ctx)
                 except Exception as exc:        # a watch pass must never arm safe mode
-                    out[name] = ("fault", str(exc))
+                    out[name] = ("fault", str(exc), {})
                     continue
                 finally:
                     if hasattr(inst, "refusals"):
                         inst.refusals = tally
                 action = str(getattr(signal, "action", "") or "") if signal else ""
                 if signal and action in {"buy", "sell", "close", "close_all", "flatten"}:
-                    out[name] = (action, str(getattr(signal, "reason", "") or action))
+                    # The levels come with it, because a mark on the chart
+                    # that cannot say where the stop would go is an arrow,
+                    # not a case the trader can judge.
+                    out[name] = (action, str(getattr(signal, "reason", "") or action), {
+                        "price": _as_float(getattr(signal, "price", 0.0)),
+                        "sl": _as_float(getattr(signal, "sl", 0.0)),
+                        "tp": _as_float(getattr(signal, "tp", 0.0)),
+                        "confidence": _as_float(getattr(signal, "confidence", 0.0)),
+                    })
                 else:
-                    out[name] = ("hold", str(getattr(inst, "last_refusal", "") or "no setup on this bar"))
+                    out[name] = ("hold", str(getattr(inst, "last_refusal", "") or "no setup on this bar"), {})
                 # And the strategy is left exactly as the last closed bar
                 # left it, so nothing the watch saw can leak into a trade.
                 if hasattr(inst, "last_refusal"):
@@ -2646,7 +2681,7 @@ class Trader:
             log.exception("strategy watch failed")
             return
         changed = False
-        for name, (action, why) in seen.items():
+        for name, (action, why, _levels) in seen.items():
             slot = self.book.get(name)
             if slot is None:
                 continue
@@ -2657,10 +2692,73 @@ class Trader:
             slot["live_ts"] = utc_iso()
             self._note_symbol(slot, symbol, live_action=action, live_reason=why,
                               live_ts=slot["live_ts"])
+        await self._publish_forming(symbol, self.active_timeframe, ctx, seen, tick)
         if not changed:
             return
         self._sync_book_meta()
         await self.bus.publish("strategy", self.strategy_meta)
+
+    async def _publish_forming(
+        self,
+        symbol: str,
+        timeframe: str,
+        ctx: StrategyContext,
+        seen: dict[str, tuple[str, str, dict[str, Any]]],
+        tick: dict[str, Any],
+    ) -> None:
+        """Send the chart what the armed strategies see on the unfinished bar.
+
+        Only entries — buy and sell. A `hold` is not a mark and a
+        `fault` belongs in the log, not on the canvas.
+
+        The bar's TIME goes with it, because that is the only thing that
+        says where the mark belongs; the desk holds its own array and
+        an index into ours would land on a different candle. When the
+        bar closes, that time stops being the newest bar and the desk
+        drops the mark — the closed-bar replay is what replaces it, and
+        a provisional arrow left behind on a finished candle would be a
+        signal the robot never acted on.
+
+        An empty list is published as readily as a full one. Silence
+        would leave the last mark on the chart for ever, and a setup
+        that has evaporated is precisely the thing the trader must see
+        evaporate.
+        """
+        bars = ctx.candles or []
+        bar_time = str((bars[-1] or {}).get("time") or "") if bars else ""
+        if not bar_time:
+            return
+        fallback = _as_float((tick or {}).get("bid")) or _as_float((bars[-1] or {}).get("close"))
+        marks: list[dict[str, Any]] = []
+        for name, (action, why, levels) in sorted(seen.items()):
+            if action not in {"buy", "sell"}:
+                continue
+            marks.append({
+                "strategy": name,
+                "side": action,
+                "type": action,
+                "time": bar_time,
+                "price": _as_float(levels.get("price")) or fallback,
+                "sl": _as_float(levels.get("sl")),
+                "tp": _as_float(levels.get("tp")),
+                "confidence": _as_float(levels.get("confidence")),
+                "reason": why,
+                "forming": True,
+            })
+        payload = {
+            "symbol": symbol,
+            "timeframe": timeframe,
+            "time": bar_time,
+            "signals": marks,
+            "ts": utc_iso(),
+        }
+        # Nothing to say, and nothing was being said: do not spend a
+        # broadcast on it. The desk clears its own marks when the chart
+        # changes, so a silent engine cannot strand one here.
+        if not marks and not getattr(self, "_forming_had", False):
+            return
+        self._forming_had = bool(marks)
+        await self.bus.publish("live_signal", payload)
 
     async def _maybe_strategy_tick(self, tick: dict[str, Any]) -> None:
         if not self.auto_trade:
