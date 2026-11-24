@@ -226,6 +226,124 @@ app.get("/api/health", async (_req, res) => {
   });
 });
 
+/* ------------------------------------------------------------------ *
+ * Shutting AURION down, and meaning it.
+ *
+ * Closing the window used to close the WINDOW. The desk kept serving on
+ * 8080 and the engine kept running, holding its MetaTrader connection,
+ * its timers and its port - so "I closed AURION" and "AURION is not
+ * running" were two different statements, and the next start met a port
+ * that was already taken by the product the user believed they had
+ * quit.
+ *
+ * This is the one place that ends it, in the one order that is safe:
+ *
+ *   1. the engine is asked to persist and stop, and is WAITED for - it
+ *      holds settings that are only written on the way out;
+ *   2. the supervisor is stopped first of all, or it would helpfully
+ *      start a fresh engine two seconds after we stopped this one;
+ *   3. only then does the desk's own server go.
+ *
+ * Idempotent: a second call while the first is running joins it rather
+ * than starting a second teardown.
+ * ------------------------------------------------------------------ */
+let shuttingDown = null;
+
+function shutdownAurion(reason, opts) {
+  if (shuttingDown) return shuttingDown;
+  const why = String(reason || "requested");
+  const hard = Boolean(opts && opts.hard);
+  shuttingDown = (async () => {
+    const steps = [];
+    /* Before anything else: nothing may restart what we are stopping. */
+    try { supervisor.stop(); steps.push("supervisor stopped"); } catch { /* */ }
+    try {
+      const halt = await supervisor.stopEngine({
+        /* A kill is not allowed to be slow. A requested shutdown is,
+           because that is the one that saves the settings. */
+        budgetMs: hard ? 6000 : 25000,
+        persist: !hard,
+      });
+      steps.push(...(halt.steps || []));
+      steps.push(halt.stopped ? "engine stopped" : (halt.gone ? "no engine to stop" : "engine would not stop"));
+    } catch (err) {
+      steps.push("stopping the engine failed: " + (err && err.message ? err.message : "unknown"));
+    }
+    console.log(JSON.stringify({
+      ts: new Date().toISOString(),
+      msg: `AURION shutting down (${why}): ${steps.join("; ")}`,
+    }));
+    /* The desk last, so the caller could be told what happened. */
+    try { server.close(); } catch { /* */ }
+    setTimeout(() => process.exit(0), hard ? 150 : 400).unref?.();
+    return { ok: true, reason: why, steps };
+  })();
+  return shuttingDown;
+}
+
+/* Asked by the window when the trader confirms "shut AURION down", and
+ * by anything else that wants the product stopped rather than hidden.
+ * Answers FIRST and shuts down behind the reply: a caller that is told
+ * nothing cannot tell a shutdown from a hang. */
+app.post("/api/shutdown", (req, res) => {
+  /* From this machine only.
+   *
+   * The desk listens on 0.0.0.0 so a trader can reach it from a phone
+   * on the same network, which makes "stop the whole product" the one
+   * endpoint that must not be reachable from there. The caller is the
+   * window that started AURION, and it is always local. */
+  const from = String(req.ip || req.socket?.remoteAddress || "").replace(/^::ffff:/, "");
+  if (from !== "127.0.0.1" && from !== "::1" && from !== "localhost") {
+    return res.status(403).json({ ok: false, error: "local_only" });
+  }
+  const body = req.body || {};
+  const reason = String(body.reason || "requested");
+  const hard = Boolean(body.hard);
+  res.json({ ok: true, product: "AURION", stopping: true, reason });
+  setTimeout(() => { shutdownAurion(reason, { hard }); }, 10);
+});
+
+/* The window went away without asking.
+ *
+ * Task Manager's "End task", taskkill /F, a crash - none of them give
+ * the window a chance to run any code at all, and the trader is left
+ * with a desk and an engine still running behind a window that no
+ * longer exists. Nothing in the product noticed, because nothing was
+ * looking.
+ *
+ * So the desk watches whoever launched it. AURION_OWNER_PID is set by
+ * the window when it starts the product; signal 0 does not touch the
+ * process, it only asks the operating system whether that pid is still
+ * there. When it is not, AURION shuts itself down - the hard way, since
+ * the person has already said what they want by killing it.
+ *
+ * Deliberately not on by default: a desk started from a terminal has no
+ * owner and must not invent one.
+ */
+function watchOwner(pid, everyMs) {
+  const owner = Number(pid);
+  if (!Number.isFinite(owner) || owner <= 0) return null;
+  const timer = setInterval(() => {
+    let gone = false;
+    try { process.kill(owner, 0); } catch (err) { gone = !err || err.code !== "EPERM"; }
+    if (!gone) return;
+    clearInterval(timer);
+    console.log(JSON.stringify({
+      ts: new Date().toISOString(),
+      msg: `the AURION window (pid ${owner}) is gone - shutting the desk and the engine down with it`,
+    }));
+    shutdownAurion("owner_gone", { hard: true });
+  }, Math.max(500, Number(everyMs) || 2000));
+  if (typeof timer.unref === "function") timer.unref();
+  return timer;
+}
+
+/* The desk's own terminate. A console AURION is stopped with Ctrl-C or
+ * by a service manager, and that must take the engine with it too. */
+for (const signal of ["SIGINT", "SIGTERM", "SIGHUP"]) {
+  try { process.on(signal, () => { shutdownAurion(signal.toLowerCase(), { hard: signal === "SIGHUP" }); }); } catch { /* */ }
+}
+
 app.get("/api/meta", async (req, res) => {
   let buildDate = "";
   try {
@@ -1422,6 +1540,10 @@ try {
  * update restart risks - left a healthy desk talking to nothing, with
  * no way to fix it from inside the product. */
 try { supervisor.start(); } catch { /* never let it stop the desk starting */ }
+
+/* ...and stop everything when whoever started us is killed. See
+   watchOwner: the window passes its own pid in AURION_OWNER_PID. */
+try { watchOwner(process.env.AURION_OWNER_PID); } catch { /* */ }
 
 /* Somebody already has the port.
  *

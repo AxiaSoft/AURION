@@ -37,6 +37,73 @@ function barTime(value) {
   return text;
 }
 
+/* ── one bar, re-sent ───────────────────────────────────────────────
+ *
+ * Reported: "when a new candle arrives the new one lands in the right
+ * place, but the candles before it come away from it, get taller, ride
+ * upwards, and even read at higher prices."
+ *
+ * A bar is sent to the desk many times: once a second or so while it
+ * is forming, again the moment it closes, again inside every history
+ * answer, and - until the expert was fixed alongside this - a second
+ * time on the desk's own timeframe. Every one of those copies used to
+ * REPLACE the bar already on the chart, wholesale, and the copies do
+ * not all carry the same picture of the bar:
+ *
+ *   * a forming bar seen a moment ago has a smaller range than the
+ *     finished one, so replacing a closed bar with a re-sent earlier
+ *     view SHRINKS it, and replacing the earlier view with the closed
+ *     one GROWS it - visible as the body changing height under a
+ *     candle that is supposed to be finished;
+ *   * a copy that arrives with a different open (a history answer
+ *     built from a different first tick) MOVES the body.
+ *
+ * A bar's own arithmetic does not allow any of that. Once the bar has
+ * opened, its open never changes again; its high only ever rises and
+ * its low only ever falls; only the close and the volume move freely.
+ * So a re-send is merged under those rules rather than swapped in, and
+ * a copy that disagrees with what we already saw can no longer drag an
+ * earlier candle anywhere.
+ */
+function mergeBar(prev, next) {
+  if (!prev) return next;
+  if (!next) return prev;
+  const num = (v) => { const n = Number(v); return Number.isFinite(n) ? n : null; };
+  const pick = (a, b) => (a === null ? b : (b === null ? a : null));
+  const po = num(prev.open ?? prev.o), no = num(next.open ?? next.o);
+  const ph = num(prev.high ?? prev.h), nh = num(next.high ?? next.h);
+  const pl = num(prev.low ?? prev.l), nl = num(next.low ?? next.l);
+  const pc = num(prev.close ?? prev.c), nc = num(next.close ?? next.c);
+  const pv = num(prev.volume ?? prev.v), nv = num(next.volume ?? next.v);
+  const out = { ...prev, ...next };
+  /* The open belongs to the first copy that had one. */
+  if (po !== null) out.open = po; else if (no !== null) out.open = no;
+  if ("o" in out) delete out.o;
+  out.high = pick(ph, nh) ?? Math.max(ph, nh);
+  out.low = pick(pl, nl) ?? Math.min(pl, nl);
+  if ("h" in out) delete out.h;
+  if ("l" in out) delete out.l;
+  /* The close and the volume are the two things a re-send is for. */
+  if (nc !== null) out.close = nc; else if (pc !== null) out.close = pc;
+  if ("c" in out) delete out.c;
+  if (nv !== null || pv !== null) out.volume = Math.max(nv ?? 0, pv ?? 0);
+  if ("v" in out) delete out.v;
+  /* The high and the low must still contain the two prices they bound,
+     whichever copy supplied them. */
+  for (const p of [out.open, out.close]) {
+    const n = num(p);
+    if (n === null) continue;
+    if (out.high === null || n > out.high) out.high = n;
+    if (out.low === null || n < out.low) out.low = n;
+  }
+  /* Closed is a latch: a bar that has finished does not re-open. */
+  out.closed = Boolean(prev.closed) || Boolean(next.closed);
+  /* The time it is already filed under wins, so a different spelling of
+     the same minute cannot re-key the bar. */
+  if (prev.time || prev.ts) { out.time = prev.time || prev.ts; }
+  return out;
+}
+
 function chartTheme() {
   const rev = (typeof window !== "undefined" && window.__aurionThemeRev) || 0;
   if (__aurionChartTheme && __aurionChartThemeRev === rev) return __aurionChartTheme;
@@ -1028,7 +1095,9 @@ class CandleChart {
     const last = this.bars[this.bars.length - 1];
     const lastT = barTime(last.time || last.ts);
     if (t === lastT) {
-      this.bars[this.bars.length - 1] = b;
+      /* Merged, not swapped: see mergeBar. A re-send of the bar the
+         chart is already showing may be an older, smaller view of it. */
+      this.bars[this.bars.length - 1] = mergeBar(last, b);
     } else if (t > lastT) {
       this.bars.push(b);
     } else {
@@ -1039,11 +1108,15 @@ class CandleChart {
          it belongs, or put it there. */
       let at = this.bars.length - 1;
       while (at >= 0 && barTime(this.bars[at].time || this.bars[at].ts) > t) at -= 1;
-      if (at >= 0 && barTime(this.bars[at].time || this.bars[at].ts) === t) this.bars[at] = b;
-      else this.bars.splice(at + 1, 0, b);
+      if (at >= 0 && barTime(this.bars[at].time || this.bars[at].ts) === t) {
+        this.bars[at] = mergeBar(this.bars[at], b);
+      } else {
+        this.bars.splice(at + 1, 0, b);
+      }
     }
     this._series = null;
     this._timeIdx = null;
+    this._rev = (this._rev || 0) + 1;
     this.draw();
   }
 
@@ -1065,6 +1138,7 @@ class CandleChart {
     this.bars = [...map.values()].sort((a, b) => barTime(a.time || a.ts).localeCompare(barTime(b.time || b.ts)));
     this._series = null;
     this._timeIdx = null;
+    this._rev = (this._rev || 0) + 1;
     if (!had && this._wantView) {
       /* Coming back to a chart that was already open once. The window
          it was left on is restored rather than reset - see saveView. */
@@ -1109,7 +1183,15 @@ class CandleChart {
    * repaints on every pointer move.
    */
   rows() {
-    if (this._series && this._seriesType === this.type && this._seriesLen === this.bars.length) {
+    /* Keyed on a revision counter, not on the LENGTH of the series.
+       Every update that leaves the count alone - the forming bar coming
+       back with a new close, a closed bar being re-sent, a late bar
+       replacing one already held - used to look identical to the cache,
+       so a transforming chart type (Heikin-Ashi, Renko, line break)
+       could go on drawing rows computed from bars that had since
+       changed. That is bars that no longer agree with the one at the
+       head of the chart, which is exactly how it was reported. */
+    if (this._series && this._seriesType === this.type && this._seriesRev === (this._rev || 0)) {
       return this._series;
     }
     const lib = (typeof window !== "undefined" && window.AurionSeries) || null;
@@ -1119,6 +1201,7 @@ class CandleChart {
     if (!this._series.length) this._series = base;
     this._seriesType = this.type;
     this._seriesLen = this.bars.length;
+    this._seriesRev = this._rev || 0;
     return this._series;
   }
 
@@ -4835,6 +4918,6 @@ class CandleChart {
 
 if (typeof module !== "undefined" && module.exports) {
   module.exports = {
-    SHAPE_POINTS, SHAPE_LABELS, CandleChart, barTime,
+    SHAPE_POINTS, SHAPE_LABELS, CandleChart, barTime, mergeBar,
   };
 }

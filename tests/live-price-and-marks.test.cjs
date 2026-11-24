@@ -158,7 +158,7 @@ function priceKit(opts) {
   ok(/SendTick\(\)/.test(onTick) && /InpTickMs/.test(onTick),
     "OnTick sends the price rather than leaving it to the heartbeat");
   ok(/g_last_quote/.test(onTick), "and it is rate-limited, so a fast market cannot flood the engine");
-  ok(/#define AURION_EA_VERSION "1\.23"/.test(EA), "the expert says which version this is");
+  ok(/#define AURION_EA_VERSION "1\.24"/.test(EA), "the expert says which version this is");
 }
 
 /* ======================================================= 4. the marks ==== */

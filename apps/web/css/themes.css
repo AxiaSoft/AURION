@@ -1942,6 +1942,58 @@ html[data-skin] .field .dsk-search > input:focus-visible{
   outline:none;
 }
 
+/* ...and the lot stepper, for exactly the same reason.
+
+   Reported, twice: "the lot input in the robot settings is not like the
+   other lot inputs - the others are prettier, this one has a circle
+   inside it, and the inner corners where it meets the plus and the
+   minus have gone triangular."
+ 
+   Both of those are one rule. The number between the two buttons is not
+   a field; the frame around minus-number-plus is. app.css already says
+   so (`.ct-step input{border:0;background:transparent;border-radius:0}`)
+   but `html[data-skin] .field input` is (0,3,2) against that rule's
+   (0,1,1), so under every skin the inner number got the full field
+   treatment back: a surface of its own, a border, and a --radius-md
+   corner. A rounded, filled rectangle painted inside a square-cornered
+   shell is the "circle inside"; the shell's own colour showing through
+   at the four corners where the rounded inner box pulls away from it,
+   right where the buttons meet it, is the "triangles".
+ 
+   So the inner number is reset in both states, and the shell is given
+   the surface instead - which is what the other lot fields on the desk
+   have always looked like. */
+html[data-skin] .field .ct-step input,
+html[data-skin] .field .ct-step input:focus,
+html[data-skin] .field .ct-step input:focus-visible{
+  background:none;
+  border:0;
+  border-radius:0;
+  box-shadow:none;
+  outline:none;
+}
+html[data-skin] .field > .ct-step{
+  background:var(--field);
+  border:1px solid var(--line);
+  border-radius:var(--radius-md);
+  overflow:hidden;
+}
+html[data-skin] .field > .ct-step:focus-within{
+  border-color:rgb(var(--accent-rgb) / .55);
+  box-shadow:0 0 0 4px rgb(var(--accent-rgb) / .14);
+  background:var(--field-hi);
+}
+/* The two buttons are part of the shell, so they stop at its corners
+   and reach its full height rather than floating inside it. */
+html[data-skin] .field > .ct-step .ct-pm{
+  align-self:stretch;
+  height:auto;
+  border:0;
+  border-radius:0;
+  background:rgb(var(--wash) / .05);
+}
+html[data-skin] .field > .ct-step .ct-pm:hover{ background:rgb(var(--accent-rgb) / .16) }
+
 /* The empty state's orb is the only decorative animation on a data page. It
    keeps its float, at the theme's own amplitude, and stops with everything
    else when motion is off. */

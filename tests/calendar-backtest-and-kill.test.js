@@ -397,16 +397,25 @@ check("the backend can replace the engine without restarting the desk", () => {
 });
 
 check("it asks the engine to persist before stopping it", () => {
-  const fn = code(body(supJs, "replaceEngine"));
+  /* Lifted out of replaceEngine into stopEngine, which the shutdown
+     path uses as well - the two must not drift apart about what
+     stopping an engine properly means. */
+  const fn = code(body(supJs, "stopEngine"));
   const persist = fn.indexOf("/v1/persist");
   const shutdown = fn.indexOf("/v1/shutdown");
   if (persist === -1) throw new Error("settings would be lost");
   if (shutdown === -1 || shutdown < persist) throw new Error("it stops before it saves");
 });
 
+check("stopping the engine means waiting until it has stopped", () => {
+  const fn = body(supJs, "stopEngine");
+  if (!/while \(Date\.now\(\) < deadline\)/.test(fn)) throw new Error("it does not wait at all");
+  if (!/gone = true/.test(fn)) throw new Error("nothing records that it went");
+});
+
 check("it never starts a second engine on top of a survivor", () => {
   const fn = body(supJs, "replaceEngine");
-  const guard = fn.indexOf("if (!gone)");
+  const guard = fn.indexOf("if (!halt.gone)");
   const start = fn.lastIndexOf("startEngine()");
   if (guard === -1) throw new Error("nothing checks that the old process went away");
   if (start < guard) throw new Error("it starts one before deciding the old one is gone");
@@ -414,7 +423,7 @@ check("it never starts a second engine on top of a survivor", () => {
 });
 
 check("the forced stop targets the engine's ports only", () => {
-  const fn = body(supJs, "replaceEngine");
+  const fn = body(supJs, "stopEngine");
   if (!/"-Ports", String\(port\)/.test(fn)) throw new Error("the port list is not the engine's");
   if (/8080/.test(fn)) throw new Error("the desk's own port is in the kill list: it would kill itself");
 });
@@ -504,8 +513,13 @@ check("the EA version moves for behaviour, and only for behaviour", () => {
      price is much slower than MetaTrader", and the engine sees it as
      quotes arriving several times a second instead of once. Each of
      those is a change the engine can see, so the number moves; the
-     pin is kept, just moved, so the NEXT comment cannot drift it. */
-  if (!/#define AURION_EA_VERSION "1\.23"/.test(ea)) {
+     pin is kept, just moved, so the NEXT comment cannot drift it.
+     1.24 stops mirroring a CLOSED bar onto the desk's timeframe: a
+     shift counted on one timeframe names a different bar on another,
+     so an M15 chart feeding an H4 desk re-announced the previous H4
+     bar as freshly closed four times an hour, and the desk rewrote a
+     finished candle each time. */
+  if (!/#define AURION_EA_VERSION "1\.24"/.test(ea)) {
     throw new Error("the version moved again; bump it only for a change the engine can see");
   }
   if (!/PumpHistory/.test(ea) || !/AURION_HIST_TRIES/.test(ea)) {

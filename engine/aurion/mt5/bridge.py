@@ -7,6 +7,7 @@ import os
 import socket
 import time
 from collections import defaultdict, deque
+from dataclasses import replace
 from pathlib import Path
 from typing import Any, Awaitable, Callable
 
@@ -133,6 +134,29 @@ class MT5Bridge:
         # Which chart has already been told its expert is out of date, and
         # for which version - so the warning is said once, not every hello.
         self._ea_version_warned: dict[int, str] = {}
+        # The version each chart's expert last introduced itself with, kept
+        # ACROSS the life of the agent record.
+        #
+        # Reported: "the Aurion Bridge card says 'version unknown'". Only
+        # hello carries a version, and an agent is also created the moment
+        # a tick or a candle arrives for a chart we have not met - which
+        # is routinely first, because the expert sends a tick in the same
+        # breath as the hello and the two can be read in either order, and
+        # because a purge (a chart closed, a reattach, a terminal
+        # restarted) throws the record away while the expert carries on
+        # streaming. A rebuilt agent then had version "" forever, and the
+        # desk has no word for that except "unknown".
+        #
+        # So the number is remembered here, by chart and by symbol, and a
+        # rebuilt agent inherits it. It is the same expert on the same
+        # chart; the only thing that was lost was our note of it.
+        self._ea_versions: dict[int, str] = {}
+        self._ea_versions_by_symbol: dict[str, str] = {}
+        #: The last version ANY chart reported. One terminal usually runs
+        #: one compiled expert, so for a chart we have never had a hello
+        #: from this is a far better answer than nothing - and it is only
+        #: ever used when there is nothing.
+        self._ea_version_seen: str = ""
         self.AGENT_LIVE_SEC = 18.0
         # The broker's contract specification, per symbol: what one tick is
         # worth, the lot step, the digits. Money rules cannot be applied
@@ -775,6 +799,33 @@ class MT5Bridge:
         except (TypeError, ValueError):
             return default
 
+    def remember_ea_version(self, chart_id: int, symbol: str, version: str) -> None:
+        """File a version a hello just reported, so a rebuilt agent keeps it."""
+        version = str(version or "").strip()
+        if not version:
+            return
+        cid = self._cid(chart_id)
+        if cid > 0:
+            self._ea_versions[cid] = version
+        sym = str(symbol or "").strip().upper()
+        if sym:
+            self._ea_versions_by_symbol[sym] = version
+        self._ea_version_seen = version
+
+    def remembered_ea_version(self, chart_id: int, symbol: str = "") -> str:
+        """The best answer available for "which expert is this chart running".
+
+        In order: what THIS chart said, what this symbol's chart said, what
+        any chart said. Never a guess at a number nobody reported.
+        """
+        cid = self._cid(chart_id)
+        if cid > 0 and self._ea_versions.get(cid):
+            return self._ea_versions[cid]
+        sym = str(symbol or "").strip().upper()
+        if sym and self._ea_versions_by_symbol.get(sym):
+            return self._ea_versions_by_symbol[sym]
+        return self._ea_version_seen
+
     async def _touch_agent(
         self,
         chart_id: int,
@@ -803,7 +854,10 @@ class MT5Bridge:
                 symbol=symbol,
                 timeframe=timeframe or "M15",
                 ea_name="AurionBridge",
-                version="",
+                # Not "" - see _ea_versions. A chart met through a tick
+                # rather than a hello is still running an expert whose
+                # version we have very probably already been told.
+                version=self.remembered_ea_version(cid, symbol),
                 status="online",
                 last_seen=utc_iso(),
             )
@@ -816,6 +870,8 @@ class MT5Bridge:
                 agent.symbol = symbol
             if timeframe:
                 agent.timeframe = timeframe
+            if not str(agent.version or ""):
+                agent.version = self.remembered_ea_version(cid, symbol)
         self._agent_beat[cid] = time.time()
         self._http_seen[cid] = time.time()
         self.connected = True
@@ -826,6 +882,47 @@ class MT5Bridge:
             await self.emit("agents", {"items": [a.to_dict() for a in self.online_agents()]})
             await self.emit("status", self.snapshot_status)
         return agent
+
+    @staticmethod
+    def _merged_candle(held: Candle, fresh: Candle) -> Candle:
+        """One bar, arriving again - under a bar's own arithmetic.
+
+        Reported from the desk as "when a new candle arrives the candles
+        before it come away from it, get taller and read at higher
+        prices". A bar reaches the engine many times: once a second or
+        so while it forms, again the moment it closes, again inside a
+        history answer, and from an expert that also feeds the timeframe
+        the desk is showing. Those copies do not agree with each other -
+        a bar seen while it was forming has a smaller range than the
+        finished one - and replacing the stored bar with whichever copy
+        arrived last therefore made a finished candle change shape.
+
+        A bar's own arithmetic does not allow that. Once it has opened,
+        its open never changes; its high only rises and its low only
+        falls. Only the close, the volume and the spread move freely.
+
+        A full history answer still arrives with ``replace: true``, which
+        clears the buffer first - so a broker that genuinely revises its
+        series is not fought with, and only the re-sends are reconciled.
+        """
+        if not held:
+            return fresh
+        merged = replace(fresh)
+        if held.open:
+            merged.open = held.open
+        merged.high = max(held.high or 0.0, fresh.high or 0.0) or (fresh.high or held.high)
+        lows = [v for v in (held.low, fresh.low) if v]
+        merged.low = min(lows) if lows else (fresh.low or held.low)
+        # The body has to stay inside the wick, whichever copy supplied it.
+        for price in (merged.open, merged.close):
+            if not price:
+                continue
+            if not merged.high or price > merged.high:
+                merged.high = price
+            if not merged.low or price < merged.low:
+                merged.low = price
+        merged.volume = max(held.volume or 0.0, fresh.volume or 0.0)
+        return merged
 
     def _put_candle(self, candle: Candle, tape: str = "") -> None:
         if not candle.symbol or not candle.close:
@@ -850,14 +947,14 @@ class MT5Bridge:
         if bucket:
             newest = bucket[-1]
             if candle.time == newest.time:
-                bucket[-1] = candle
+                bucket[-1] = self._merged_candle(newest, candle)
                 return
             if candle.time > newest.time:
                 bucket.append(candle)
                 return
         for i, old in enumerate(bucket):
             if old.time == candle.time:
-                bucket[i] = candle
+                bucket[i] = self._merged_candle(old, candle)
                 return
         bucket.append(candle)
         if len(bucket) >= 2 and str(bucket[-1].time) < str(bucket[-2].time):
@@ -1634,6 +1731,11 @@ class MT5Bridge:
                 self.remember_spec(symbol, message.get("spec"))
             agent.ea_name = str(message.get("ea_name") or "AurionBridge")
             agent.version = str(message.get("version") or "1.0.0")
+            # Kept past the life of this agent record: a reattach, a chart
+            # close, a terminal restart all throw the record away, and the
+            # expert does not re-introduce itself to a desk that is already
+            # receiving its ticks. See _ea_versions.
+            self.remember_ea_version(chart_id, agent.symbol, agent.version)
             agent.params = {**agent.params, **params}
             agent.status = "online"
             self._agent_owner[chart_id] = writer
