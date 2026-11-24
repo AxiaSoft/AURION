@@ -59,9 +59,29 @@ from .store import Store, normalise_strategy_tag, parse_strategy_tag
 
 log = get("trader")
 
-# Keep the desk close to live. Matches news_feed.MIN_AGE_SECONDS; going faster
-# than the source updates only adds load.
+# How often the calendar loop wakes up. It is deliberately SHORTER than
+# news_feed.MIN_AGE_SECONDS: most passes find a warm cache, cost a stat()
+# and go back to sleep, and the few that do go to the network are spread
+# out by the cache age rather than by this number. The two used to be the
+# same value, which meant every single pass went to the network - see
+# MIN_AGE_SECONDS for what that did to the engine.
 NEWS_REFRESH_SECONDS = 5 * 60
+
+# The longest one calendar pass may take before it is abandoned. Nothing in
+# the calendar is worth holding a trading engine up for: a release that is
+# half an hour stale still blacks out the right minute, a tick that arrives
+# ten seconds late is gone.
+NEWS_PASS_BUDGET = 30.0
+
+# How many position snapshots in a row a ticket must be missing from before
+# AURION will write an exit for it without the broker having confirmed one.
+#
+# Positions arrive about once a second, so three strikes is roughly three
+# seconds of patience - far too short to matter to a trader reading the
+# blotter, and long enough to ride out the gap in the feed that was being
+# mistaken for a close. The confirmed path (a closing deal in the broker's
+# own history) does not wait at all; see Trader._close_is_evidenced.
+POSITION_MISSING_STRIKES = 3
 
 
 #: Bars of run-up handed to a range backtest before the period starts.
@@ -322,6 +342,10 @@ class Trader:
         self._analysis_task: asyncio.Task | None = None
         self.robot_log: deque[dict[str, Any]] = deque(maxlen=600)
         self._known_pos: dict[int, dict[str, Any]] = {}
+        #: ticket -> how many consecutive position snapshots it has been
+        #: missing from. See _sync_position_book: one gap in the feed is
+        #: not a close, and treating it as one wrote phantom exits.
+        self._pos_missing: dict[int, int] = {}
         self._pending_tag: list[dict[str, Any]] = []
         self._closed_tickets: set[int] = set()
         self._pos_bootstrapped = False
@@ -943,6 +967,25 @@ class Trader:
                 )
         return repaired
 
+    def _close_is_evidenced(self, ticket: int) -> bool:
+        """Has the broker actually told us this position closed?
+
+        A closing deal carrying the position's id is the broker's own word
+        for it, and it is the only thing that lets _sync_position_book call
+        a close immediately. Everything else has to wait for the ticket to
+        stay missing, because a feed with a hole in it looks identical to a
+        position that has gone.
+        """
+        try:
+            rows = [
+                d.to_dict() if hasattr(d, "to_dict") else d
+                for d in list(self.bridge.deals or [])[-400:]
+                if hasattr(d, "to_dict") or isinstance(d, dict)
+            ]
+            return aggregate_close_deals(rows, int(ticket)) is not None
+        except Exception:
+            return False
+
     async def _sync_position_book(self, rows: list[dict[str, Any]]) -> None:
         current: dict[int, dict[str, Any]] = {}
         opened: list[dict[str, Any]] = []
@@ -1020,7 +1063,53 @@ class Trader:
             else:
                 # Update known pos with latest MT5 values (SL/TP/profit) to keep matching MT5
                 prev.update(item)
-        closed = [t for t in list(self._known_pos) if t not in current]
+        # Which of the positions we were holding are not in this snapshot?
+        #
+        # Absence used to be proof of a close, and it is not. Reported, and
+        # ugly: AURION kept writing an exit for a trade that was still open
+        # at the broker - "it records the stop before the stop is touched,
+        # then the target before the target is touched, over and over until
+        # I hit the kill switch". Nothing was wrong with the stop logic. The
+        # positions feed had a gap in it. One snapshot arrives short or
+        # empty - the expert's post was refused, the engine was mid-stall,
+        # the terminal answered while it was still assembling the list - and
+        # every ticket in it looked closed, so an exit was written, and the
+        # next snapshot brought the position back, so an entry was written,
+        # and round it went.
+        #
+        # A close is now something we have to be shown, not something we
+        # infer from silence. Either the broker's own deal history carries a
+        # closing deal for the ticket, or the ticket has been missing from
+        # several consecutive snapshots in a row. One gap proves nothing.
+        # The constructor sets this. The guard is for the Traders that are
+        # built field by field rather than through __init__ - the suite is
+        # full of them, because a real Trader opens a database, loads a
+        # licence and starts four loops - and for any state restored from
+        # before this counter existed. A book that can sync is a book that
+        # can count strikes; demanding the caller remember a second field
+        # would just move the crash.
+        if getattr(self, "_pos_missing", None) is None:
+            self._pos_missing = {}
+        missing = [t for t in list(self._known_pos) if t not in current]
+        for ticket in list(self._pos_missing):
+            if ticket not in missing:
+                self._pos_missing.pop(ticket, None)
+        closed = []
+        for ticket in missing:
+            if self._close_is_evidenced(ticket):
+                self._pos_missing.pop(ticket, None)
+                closed.append(ticket)
+                continue
+            seen = self._pos_missing.get(ticket, 0) + 1
+            self._pos_missing[ticket] = seen
+            if seen >= POSITION_MISSING_STRIKES:
+                self._pos_missing.pop(ticket, None)
+                closed.append(ticket)
+            else:
+                log.debug(
+                    "position %s absent from the feed (%s/%s) - not calling it closed yet",
+                    ticket, seen, POSITION_MISSING_STRIKES,
+                )
         closed_rows: list[dict[str, Any]] = []
         for ticket in closed:
             old = self._known_pos.pop(ticket, {}) or {}
@@ -4861,13 +4950,32 @@ class Trader:
 
         The feed only carries the current week, so a robot left running over a
         weekend would otherwise keep filtering against last week's releases.
+
+        Everything this loop does happens on a worker thread, and the whole
+        pass is on a hard clock. The download was already off the event loop;
+        ``reload_news()`` was not, and it is not cheap - it re-reads the
+        calendar CSV off disk and builds a datetime for every release in it.
+        Nor was the pass bounded: a name server that accepts the connection
+        and then says nothing holds the thread for as long as the socket
+        timeout allows, twice, and the engine's logs showed exactly that -
+        a six and a half minute hole in the tape with "getaddrinfo failed"
+        at the end of it, while the expert's posts were refused and the desk
+        drew every chart as gone.
+
+        Nothing here is worth a single late tick. If a pass cannot finish in
+        the budget it is abandoned and the next one tries again.
         """
         from .. import news_feed
 
+        def _pass() -> None:
+            news_feed.refresh()
+            self.prop.reload_news()
+
         while not self._news_stop.is_set():
             try:
-                await asyncio.get_running_loop().run_in_executor(None, news_feed.refresh)
-                self.prop.reload_news()
+                await asyncio.wait_for(asyncio.to_thread(_pass), timeout=NEWS_PASS_BUDGET)
+            except asyncio.TimeoutError:
+                log.warning("news refresh took too long and was left behind")
             except Exception:
                 log.exception("news refresh failed")
             try:

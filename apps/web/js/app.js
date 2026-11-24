@@ -3928,6 +3928,11 @@ function pruneDeadSymbols() {
     S.symbol = "";
     S.candles = [];
     S.candlesKey = "";
+    /* No expert is attached anywhere, so nothing held is being kept
+       current by anything. Held bars that no live feed is updating
+       are a trap: they would draw instantly and silently out of date
+       the moment an expert came back. */
+    forgetSeries();
   }
   if (S.chartFocus && (!live.size || !live.has(S.chartFocus.symbol))) {
     /* The chart being looked at is gone - its expert was detached, or
@@ -15767,17 +15772,76 @@ async function onChartLevelMove(d) {
   await refresh(false);
 }
 
+/* ── more than one symbol at a time ────────────────────────────────
+ *
+ * Asked for plainly: "it has to be able to show several symbols
+ * without anything being disrupted."
+ *
+ * The desk held exactly ONE series - S.candles, with S.candlesKey
+ * naming which - so every symbol switch threw the previous symbol's
+ * bars away. Going back to it meant another round trip, another wait
+ * behind the loading veil, and another chance for the expert and the
+ * engine to disagree about what had been asked for. Watching two
+ * markets was a sequence of downloads, not two markets.
+ *
+ * S.series is the fix and it is deliberately a layer UNDERNEATH the
+ * old state rather than a replacement for it: S.candles and
+ * S.candlesKey keep meaning exactly what they meant - the series on
+ * screen - so nothing that reads them has to change or can break.
+ * All that is new is that the bars survive being switched away from.
+ *
+ * Bounded, because a trader flicking through a watchlist would
+ * otherwise accumulate every series they ever looked at: the least
+ * recently touched is dropped, and the one on screen is never
+ * dropped whatever its age.
+ */
+const SERIES_CACHE_MAX = 8;
+
+function seriesKey(symbol, timeframe) {
+  const s = String(symbol || "").trim();
+  const t = String(timeframe || "").trim();
+  return s && t ? s + "|" + t : "";
+}
+
+/** Keep these bars for this series, and mark it as just used. */
+function rememberSeries(symbol, timeframe, bars) {
+  const key = seriesKey(symbol, timeframe);
+  if (!key || !Array.isArray(bars)) return;
+  S.series = S.series || {};
+  S.series[key] = { bars, at: Date.now() };
+  const keys = Object.keys(S.series);
+  if (keys.length <= SERIES_CACHE_MAX) return;
+  // Oldest first, but never the one being drawn right now.
+  keys
+    .filter((k) => k !== S.candlesKey && k !== key)
+    .sort((a, b) => (S.series[a].at || 0) - (S.series[b].at || 0))
+    .slice(0, keys.length - SERIES_CACHE_MAX)
+    .forEach((k) => { delete S.series[k]; });
+}
+
+/** Forget every cached series. For a reconnect, where all of it is suspect. */
+function forgetSeries() { S.series = {}; }
+
 /**
  * Bars we already hold for exactly this series, or none.
  *
- * `S.candles` is one series at a time and pickMarket records which,
- * so this is a check and not a hope: handing a chart of EURUSD M15
- * the bars of XAUUSD H1 would be worse than showing nothing.
+ * The key check is not pedantry: handing a chart of EURUSD M15 the
+ * bars of XAUUSD H1 would be worse than showing nothing. What has
+ * changed is only where the answer may come from - the series on
+ * screen, or any other series still in the cache.
  */
 function cachedCandlesFor(symbol, timeframe) {
-  const want = String(symbol || "") + "|" + String(timeframe || "");
-  if (!want.trim() || S.candlesKey !== want) return null;
-  return Array.isArray(S.candles) && S.candles.length ? S.candles : null;
+  const want = seriesKey(symbol, timeframe);
+  if (!want) return null;
+  if (S.candlesKey === want && Array.isArray(S.candles) && S.candles.length) {
+    return S.candles;
+  }
+  const held = (S.series || {})[want];
+  if (held && Array.isArray(held.bars) && held.bars.length) {
+    held.at = Date.now();
+    return held.bars;
+  }
+  return null;
 }
 
 function bindChartDesk() {
@@ -16950,6 +17014,18 @@ async function pickMarket(symbol, timeframe, opts) {
     return;
   }
   S.symbol = symbol; S.timeframe = timeframe;
+  /* Already held? Then this symbol is on screen before the request
+     goes out, not after it comes back. This is what "several symbols
+     without anything being disrupted" means in practice: switching
+     back to a market you were just watching is instant, and the
+     download below refreshes it underneath rather than gating it. */
+  const warm = cachedCandlesFor(symbol, timeframe);
+  if (warm) {
+    S.candles = warm;
+    S.candlesKey = seriesKey(symbol, timeframe);
+    if (S.chart) S.chart.setBars(S.candles);
+    paintChartVeils();
+  }
   if (S.view === "markets") {
     const box = document.querySelector(".chart-box");
     if (box && !box.querySelector(".empty")) {
@@ -16975,12 +17051,14 @@ async function pickMarket(symbol, timeframe, opts) {
        and a guess is not good enough to paint from - see
        cachedCandlesFor(). */
     S.candlesKey = symbol + "|" + timeframe;
+    rememberSeries(symbol, timeframe, S.candles);
     /* A different series: whatever we learned about the end of the last
        one does not apply. */
     S._histDone = null;
   } else if (Array.isArray(r?.data)) {
     S.candles = r.data;
     S.candlesKey = symbol + "|" + timeframe;
+    rememberSeries(symbol, timeframe, S.candles);
   }
   if (S.view === "markets") {
     const lbl = $("tick-lbl");
@@ -17157,6 +17235,26 @@ function onLive(msg) {
         if (typeof S.chart.setLastBar === "function") S.chart.setLastBar(bar);
         else S.chart.setBars(S.candles);
       }
+      rememberSeries(S.symbol, S.timeframe, S.candles);
+    } else if (c.symbol && c.timeframe) {
+      /* A live bar for a series the trader is NOT looking at, but is
+         holding. Keeping it current is the whole point of holding it:
+         without this, switching back to the other symbol would draw a
+         chart that stopped at the moment it was switched away from,
+         and the trader would watch it jump when the refresh landed.
+         Same merge rule as above, and the same proof of identity -
+         only a series we already hold is touched, so this can never
+         invent one or cross two. */
+      const other = (S.series || {})[seriesKey(c.symbol, c.timeframe)];
+      if (other && Array.isArray(other.bars)) {
+        const when = barTime(c.time);
+        const j = other.bars.findIndex((b) => b && barTime(b.time) === when);
+        if (j >= 0) other.bars[j] = mergeBar(other.bars[j], c);
+        else {
+          other.bars.push(c);
+          other.bars.sort((a, b) => barTime(a.time).localeCompare(barTime(b.time)));
+        }
+      }
     }
   }
   if (msg.type === "hist_progress") {
@@ -17199,6 +17297,7 @@ function onLive(msg) {
            cachedCandlesFor() said no - and the loading veil stayed up
            over a chart that was already drawing them. */
         S.candlesKey = String(S.symbol || "") + "|" + String(S.timeframe || "");
+        rememberSeries(S.symbol, S.timeframe, S.candles);
         if (S.chart) S.chart.setBars(S.candles);
         paintChartVeils();
         /* A half-finished download now sends its bars too, so the

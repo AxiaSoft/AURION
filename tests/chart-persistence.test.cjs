@@ -182,7 +182,10 @@ const lift = (name) => {
 };
 
 {
-  const cached = new Function("S", lift("cachedCandlesFor") +
+  /* seriesKey comes with it now: the desk holds several series at a
+     time and cachedCandlesFor identifies them through that helper, so
+     lifting the one without the other would be testing half a unit. */
+  const cached = new Function("S", lift("seriesKey") + "\n" + lift("cachedCandlesFor") +
     "\nreturn cachedCandlesFor;");
   const held = [{ time: "t", close: 1 }];
   const hit = cached({ candles: held, candlesKey: "EURUSD|M15" })("EURUSD", "M15");
@@ -195,6 +198,26 @@ const lift = (name) => {
   check("an empty cache is not offered as a chart", none === null);
   const unknown = cached({ candles: held, candlesKey: "" })("EURUSD", "M15");
   check("bars of unknown provenance are refused", unknown === null);
+
+  /* Several symbols at a time. A series the trader has switched away
+     from is still held, so switching back draws at once instead of
+     going behind the loading veil for another download. */
+  const other = [{ time: "u", close: 2 }];
+  const two = {
+    candles: held, candlesKey: "EURUSD|M15",
+    series: { "XAUUSD|H1": { bars: other, at: 1 } },
+  };
+  check("a series switched away from is still offered",
+    cached(two)("XAUUSD", "H1") === other);
+  check("and the one on screen still answers first",
+    cached(two)("EURUSD", "M15") === held);
+  /* Holding more than one must not blur which is which. */
+  check("a symbol nobody holds is still refused",
+    cached(two)("GBPUSD", "M15") === null);
+  check("and the right symbol on the wrong timeframe too",
+    cached(two)("XAUUSD", "M15") === null);
+  check("an empty held series is not offered as a chart",
+    cached({ candles: [], candlesKey: "", series: { "XAUUSD|H1": { bars: [], at: 1 } } })("XAUUSD", "H1") === null);
 }
 
 {

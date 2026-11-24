@@ -40,13 +40,24 @@ CACHE = ROOT / "config" / "news_calendar.csv"
 STAMP = ROOT / "config" / "news_calendar.fetched"
 HEADERS = {"User-Agent": "Mozilla/5.0 (compatible; AURION/1.0)"}
 
-# Refresh at most every 6 hours; the feed only changes when FF revises it.
-# The desk is meant to feel live. FF itself only revises the feed every few
-# minutes, so going below that just adds load without fresher data.
-MIN_AGE_SECONDS = 5 * 60
+# How old the cache may get before a refresh actually goes to the network.
+#
+# This was 5 minutes, and Trader._news_refresh_loop wakes every 5 minutes,
+# so the two lined up exactly: EVERY pass of the loop found the cache one
+# second too old and went and downloaded the feed again. Forever. The
+# terminal logs show the cost of that - a burst of refused ingest posts on
+# the stroke of every fifth minute, hour after hour, because fetching and
+# parsing two weeks of releases holds the interpreter while the engine is
+# supposed to be answering the expert.
+#
+# It is an economic CALENDAR. Releases are scheduled days ahead; Forex
+# Factory revising a forecast figure does not change when the blackout
+# window around that release opens. Half an hour of staleness costs the
+# trader nothing and buys the engine eleven quiet passes out of twelve.
+MIN_AGE_SECONDS = 30 * 60
 
 # After a failure, wait before trying again. Without this a machine with no
-# outbound access retries a 25s-timeout download on every reload_news() call —
+# outbound access retries the download on every reload_news() call —
 # which the desk triggers each time the Calendar tab is opened.
 RETRY_AFTER_SECONDS = 30 * 60
 _last_failure = 0.0
@@ -130,7 +141,7 @@ def _get(url: str, timeout: float) -> list[dict[str, Any]]:
     return payload
 
 
-def fetch(timeout: float = 25.0) -> list[dict[str, str]]:
+def fetch(timeout: float = 8.0) -> list[dict[str, str]]:
     """Download this week + next week. Raises only if BOTH fail.
 
     One window being unreachable must not blank the calendar, so a failure on

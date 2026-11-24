@@ -2,6 +2,22 @@
 //| AurionBridge.mq5                                                 |
 //| Live chart agent for the AURION engine.                          |
 //|                                                                  |
+//| v1.25 — one engine, one port. Ingest used to fail over between   |
+//|   18765 and 8080 on every refused post, which is not redundancy: |
+//|   8080 is the DESK, and all it does with /v1/ea/ingest is pass   |
+//|   it to the engine on 18765. Both ends are the same single       |
+//|   process, so a busy engine refused both, and the expert         |
+//|   answered a four second stall by spending another four seconds  |
+//|   asking the same busy process through one more hop. Hours of    |
+//|   "status 1003 / recovered / switched to port ..." in Experts,   |
+//|   double traffic exactly when the engine could least afford it,  |
+//|   and a desk that kept redrawing an attached expert as detached  |
+//|   because each switch looked like a new transport. Now: post to  |
+//|   the engine, and if it will not take it write the file inbox,   |
+//|   which never times out. The queue also drops its OLDEST entry   |
+//|   when full rather than the newest, so what survives a stall is  |
+//|   the current price and not a backlog of stale ones.             |
+//|                                                                  |
 //| v1.24 — a closed bar is announced on ONE timeframe: its own.     |
 //|   SendCandle(1) mirrored the chart's shift onto the timeframe    |
 //|   the desk is showing, and a shift is only meaningful on the     |
@@ -95,10 +111,10 @@
 // nobody could tell. AURION_EA_VERSION is the value sent to the engine;
 // engine/tests/test_ea_version.py fails the build if the #property below
 // drifts from it, because #property will not take a macro.
-#define AURION_EA_VERSION "1.24"
-#property version   "1.24"
+#define AURION_EA_VERSION "1.25"
+#property version   "1.25"
 #property strict
-#property description "AURION live bridge 1.24 — a closed bar is announced on its own timeframe only"
+#property description "AURION live bridge 1.25 — one engine, one port; the file inbox is the only fallback"
 
 input string InpEngineHost   = "127.0.0.1";
 input int    InpEnginePort   = 18766;
@@ -141,6 +157,10 @@ input int    InpCandleDepth  = 3000;
 // M15 (17 280 bars) takes 288 passes, which was two minutes of
 // dribbling history while the engine's 25-second patience ran out.
 #define AURION_HIST_CHUNK 250
+/* The most messages one flush may carry. See QueueOut: this is the
+   brake that stops a busy engine from growing a bundle too big to
+   ever post inside the WebRequest timeout. */
+#define AURION_HTTP_QUEUE_MAX 24
 input bool   InpSendHistory  = true;
 input string InpEaName       = "AurionBridge";
 input int    InpHttpPort     = 18765;
@@ -453,11 +473,32 @@ string WithChartId(const string json)
    return StringSubstr(json, 0, last) + ",\"chart_id\":\"" + ChartIdToken() + "\"}";
   }
 
+/* Queue one message for the next flush.
+ *
+ * The cap matters more than it looks. When the engine stalls - a news
+ * refresh, a retrain, a terminal that will not answer - the queue is
+ * what stands between a four second hiccup and a death spiral: every
+ * timer pass adds messages, the bundle gets bigger, a bigger bundle
+ * takes longer to post, and the post that used to take 300 ms stops
+ * fitting inside the four second budget at all. That is how a stall
+ * that should have lasted one pass turned into "Abnormal termination".
+ *
+ * It used to drop the NEWEST message when full, which is exactly the
+ * wrong one to drop: the desk ends up fed a queue of stale prices
+ * while the current one is thrown away. The oldest goes instead, so
+ * what survives a stall is always the most recent picture.
+ */
 void QueueOut(const string json)
   {
    int n = ArraySize(g_http_q);
-   if(n >= 24)
-      return;
+   if(n >= AURION_HTTP_QUEUE_MAX)
+     {
+      int drop = n - AURION_HTTP_QUEUE_MAX + 1;
+      for(int i = 0; i + drop < n; i++)
+         g_http_q[i] = g_http_q[i + drop];
+      n -= drop;
+      ArrayResize(g_http_q, n);
+     }
    ArrayResize(g_http_q, n + 1);
    g_http_q[n] = WithChartId(json);
   }
@@ -592,7 +633,11 @@ bool PostJson(const string json, const int port)
         {
          Print("AURION: WebRequest err=", err, " url=", url, " (file inbox still runs)");
          if(err == 4014 || err == 4060)
-            Print("AURION: optional — allow WebRequest for 127.0.0.1, http://127.0.0.1, http://127.0.0.1:18765, http://127.0.0.1:8080");
+            // 18765 only. 8080 used to be listed here because ingest
+            // failed over to the desk, which is the same engine one hop
+            // further away; telling a trader to allow a URL nothing
+            // posts to just makes the setup longer and look fussier.
+            Print("AURION: optional — allow WebRequest for 127.0.0.1, http://127.0.0.1, http://127.0.0.1:18765");
          g_logged_http = true;
         }
       return false;
@@ -650,19 +695,38 @@ bool FlushOut()
         }
       json += "]}";
      }
-   int primary = ActiveHttpPort();
-   int alt = (primary == 8080 ? InpHttpPort : 8080);
+   /* One engine, one port, and the file inbox behind it.
+    *
+    * This used to fail over between 18765 and 8080 on every refused
+    * post. It reads like redundancy and is the opposite: 8080 is the
+    * DESK, and all the desk does with /v1/ea/ingest is hand it to the
+    * engine on 18765. Both "paths" end at the same single-threaded
+    * process, so when that process is busy BOTH time out - and the
+    * expert answered a four second stall by immediately spending
+    * another four seconds asking the same busy process through one
+    * more hop.
+    *
+    * The reported damage, all from this one loop:
+    *   * the Experts log filled with "status 1003 / recovered /
+    *     switched to port ..." for hours on end;
+    *   * every switch looked to the desk like the expert had arrived
+    *     on a new transport, which is why an expert that was plainly
+    *     attached in MetaTrader kept being drawn as detached;
+    *   * traffic doubled exactly when the engine could least afford
+    *     it, so a stall that should have passed in one timer tick
+    *     fed itself.
+    *
+    * So: post to the engine. If the engine will not take it, write
+    * the file inbox - which the engine drains the moment it is free,
+    * never times out, and cannot be blocked by a busy event loop -
+    * and try HTTP again next pass. Nothing flaps.
+    */
+   int primary = InpHttpPort;
    bool posted = false;
    if(PostJson(json, primary))
      {
       g_http_port = primary;
       posted = true;
-     }
-   else if(alt != primary && PostJson(json, alt))
-     {
-      g_http_port = alt;
-      posted = true;
-      Print("AURION: ingest switched to port ", alt);
      }
    bool wrote = false;
    if(!posted)
