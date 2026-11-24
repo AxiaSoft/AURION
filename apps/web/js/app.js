@@ -71,6 +71,10 @@ function icon(name) {
     check: '<polyline points="4.5,12.5 9.5,17.5 19.5,6.5"/>',
     hourglass: '<path d="M7 3h10"/><path d="M7 21h10"/><path d="M7 3v3.2c0 1 .4 1.9 1.1 2.6L12 12l-3.9 3.2A3.6 3.6 0 007 17.8V21"/><path d="M17 3v3.2c0 1-.4 1.9-1.1 2.6L12 12l3.9 3.2c.7.7 1.1 1.6 1.1 2.6V21"/>',
     close: '<line x1="6" y1="6" x2="18" y2="18"/><line x1="18" y1="6" x2="6" y2="18"/>',
+    /* The standard power glyph - the broken ring with the upright
+       stroke through the gap. Same grammar as the rest: 24x24,
+       stroked in currentColor, no fill. */
+    power: '<path d="M7.1 6.6a7.5 7.5 0 109.8 0"/><line x1="12" y1="3" x2="12" y2="11.5"/>',
     chevron: '<polyline points="6,9.5 12,15.5 18,9.5"/>',
     heart: '<path d="M12 20s-7.5-4.4-7.5-9.4A4.1 4.1 0 0112 8.2a4.1 4.1 0 017.5 2.4c0 5-7.5 9.4-7.5 9.4z"/>',
     lock: '<rect x="4.5" y="10.5" width="15" height="10" rx="2"/><path d="M8 10.5V7.8a4 4 0 018 0v2.7"/>',
@@ -3055,10 +3059,157 @@ function bindHostBridge() {
       if (!msg || typeof msg !== "object") return;
       if (msg.type === "visibility") window.__aurionWindowHidden = Boolean(msg.hidden);
       if (msg.type === "open-signal") openSignalChart(msg.symbol, msg.timeframe, msg.time || msg.side ? msg : null);
+      /* The window is closing AURION - the X, Alt+F4, the tray, or
+         Windows itself ending the session. Say so here, on the desk,
+         rather than leaving the trader looking at a live-looking
+         screen that has in fact stopped being true. */
+      if (msg.type === "shutdown") showShutdownScreen(msg.reason || "window");
     });
   } catch (e) {
     /* running in a browser, not the desk window */
   }
+}
+
+/* ------------------------------------------------------------------ *
+ * Quitting, and being told that you are quitting.
+ *
+ * Reported twice over. First: closing the window took the window away
+ * and left the desk and the engine running, so "I quit AURION" and
+ * "AURION is not running" were different statements. That half is
+ * fixed in the host and in POST /api/shutdown. What was still missing
+ * is this half - the desk said nothing at all while it happened. The
+ * screen stayed exactly as it was, live-looking, for as long as the
+ * stop took, over an engine that was already going down.
+ *
+ * So there is one screen for it, and everything that can stop AURION
+ * raises it: the window's X, Alt+F4, the tray, Windows ending the
+ * session, and the power button in the menu.
+ *
+ * It is deliberately not a modal. A modal can be dismissed, and this
+ * is not a question - by the time it is up the answer has been given
+ * and the engine is already being stopped. Nothing underneath it is
+ * true any more, so nothing underneath it is reachable.
+ * ------------------------------------------------------------------ */
+
+/** True from the moment a shutdown starts. Nothing may undo it. */
+function shuttingDown() { return Boolean(S._shuttingDown); }
+
+function showShutdownScreen(reason) {
+  S._shuttingDown = true;
+  let veil = $("shutdown-veil");
+  if (!veil) {
+    veil = document.createElement("div");
+    veil.id = "shutdown-veil";
+    veil.className = "shutdown-veil";
+    veil.setAttribute("role", "status");
+    veil.setAttribute("aria-live", "polite");
+    veil.innerHTML = `
+      <div class="sd-card">
+        <img class="sd-mark" src="icons/mark.png?v=desk46" alt="AURION" />
+        <b class="sd-title" id="sd-title"></b>
+        <small class="sd-sub" id="sd-sub"></small>
+        <div class="sd-bar"><i></i></div>
+      </div>`;
+    (document.body || document.documentElement).appendChild(veil);
+  }
+  const title = $("sd-title");
+  const sub = $("sd-sub");
+  if (title) title.textContent = I18N.t("quit.stopping");
+  if (sub) sub.textContent = I18N.t("quit.stopping_sub");
+  veil.classList.remove("done");
+  veil.hidden = false;
+  /* The feed is part of what is stopping. Left running it reconnects
+     against a dying desk and paints the engine light red behind the
+     curtain, which is noise about a process that is meant to go. */
+  try { if (S.live && typeof S.live.close === "function") S.live.close(); } catch { /* */ }
+  /* Same for the pollers. They would spend the shutdown asking a desk
+     that is closing its own server, and every one of those failures
+     is a red light behind the curtain about a process that is meant
+     to be going away. */
+  try { if (S._poll) { clearInterval(S._poll); S._poll = null; } } catch { /* */ }
+  try { if (S._engineWatch) { clearInterval(S._engineWatch); S._engineWatch = null; } } catch { /* */ }
+  return veil;
+}
+
+/** The last thing this page says: it is over, and nothing is running. */
+function showStoppedScreen() {
+  const veil = showShutdownScreen("done");
+  veil.classList.add("done");
+  const title = $("sd-title");
+  const sub = $("sd-sub");
+  if (title) title.textContent = I18N.t("quit.stopped");
+  if (sub) sub.textContent = I18N.t("quit.stopped_sub");
+}
+
+/**
+ * Shut AURION down from inside AURION.
+ *
+ * The power button in the menu is the X on the window, reached from
+ * the other side, and it must mean exactly the same thing: the desk
+ * stops, the engine stops, the window closes. Anything less would be
+ * a second, weaker kind of quit, and a trader would have no way of
+ * knowing which one they had used.
+ *
+ * Asked first, because it is not undoable and the button lives in a
+ * menu full of harmless ones. Then said, then done - in that order,
+ * so the screen is up before the thing that paints it goes away.
+ */
+async function quitAurion() {
+  if (shuttingDown()) return;
+  const yes = await askConfirm({
+    title: I18N.t("quit.title"),
+    body: I18N.t("quit.body"),
+    ok: I18N.t("quit.confirm"),
+    danger: true,
+  });
+  if (!yes) return;
+  showShutdownScreen("desk");
+
+  /* Inside the window, the host owns this: it has to stop AURION AND
+     close itself, and a window left open over a stopped desk is the
+     complaint in reverse. Posting the message gives it the same path
+     as the X, minus the question we have just asked. */
+  let host = false;
+  try {
+    const bridge = window.chrome && window.chrome.webview;
+    if (bridge && typeof bridge.postMessage === "function") {
+      bridge.postMessage(JSON.stringify({ type: "shutdown", reason: "desk" }));
+      host = true;
+    }
+  } catch { host = false; }
+
+  /* In a browser - or in a window whose host did not answer - the desk
+     is asked directly. Doing this as well as the message would be
+     harmless (the endpoint joins a shutdown already running rather
+     than starting a second), but it is only reached when nothing else
+     has, so that the host keeps ownership where it exists. */
+  if (!host) {
+    try { await API.post("/api/shutdown", { reason: "desk", hard: false }); }
+    catch { /* a desk that cannot be asked may already be going */ }
+  }
+  await waitUntilStopped();
+}
+
+/** Watch the desk until it stops answering, then say so. */
+async function waitUntilStopped(budgetMs) {
+  const deadline = Date.now() + (Number(budgetMs) || 40000);
+  while (Date.now() < deadline) {
+    await new Promise((r) => setTimeout(r, 700));
+    let answering = false;
+    try {
+      const res = await fetch("/api/alive", { cache: "no-store" });
+      answering = res.ok;
+    } catch { answering = false; }
+    if (!answering) { showStoppedScreen(); return true; }
+  }
+  /* It would not go. Said plainly rather than spinning for ever - the
+     trader needs to know the product is still up, because they are
+     about to be told the port is taken next time they start it. */
+  const title = $("sd-title");
+  const sub = $("sd-sub");
+  if (title) title.textContent = I18N.t("quit.stuck");
+  if (sub) sub.textContent = I18N.t("quit.stuck_sub");
+  return false;
 }
 
 
@@ -3697,13 +3848,14 @@ function renderNav() {
   const nav = $("nav");
   const tag = String(I18N.t("brand.tagline")).replace(/"/g, "&quot;");
   const ver = S.version || S.snap?.version || S._gateLic?.version || "1.0.0";
-  nav.innerHTML = `<div class="nav-head"><div class="nav-logo"><img class="mark" src="icons/mark.png?v=desk49" alt="AURION" /></div><div class="nav-brand"><b>AURION</b><span class="nav-tag">${tag}</span></div></div>` +
+  nav.innerHTML = `<div class="nav-head"><div class="nav-logo"><img class="mark" src="icons/mark.png?v=desk46" alt="AURION" /></div><div class="nav-brand"><b>AURION</b><span class="nav-tag">${tag}</span></div></div>` +
     NAV.map(([id, key, svg]) => {
       const label = I18N.t(key);
       return `<button type="button" data-view="${id}" class="nav-tab ${S.view === id ? "on" : ""}" title="${label.replace(/"/g, "&quot;")}">${svg}<span>${label}</span></button>`;
     }).join("") +
     `<div class="spacer"></div>
     <div class="nav-foot" id="nav-foot">
+      <button type="button" class="nav-quit" id="nav-quit" title="${esc(I18N.t("quit.title"))}">${icon("power")}<span>${esc(I18N.t("quit.menu"))}</span></button>
       <button type="button" class="nav-acc-btn" id="nav-acc-btn">${navAccountHtml()}</button>
       <div class="nav-brandline nav-brandline-stacked">
         <span class="nav-copy">© <span id="nav-year">${copyrightYear()}</span> Axiasoft</span>
@@ -3712,6 +3864,11 @@ function renderNav() {
     </div>`;
   const accBtn = nav.querySelector("#nav-acc-btn");
   if (accBtn) accBtn.onclick = () => show("upgrade");
+  /* Not a view, so not in NAV: every entry there is somewhere to go,
+     and this is the way out. It sits in the foot, away from the ten
+     buttons a trader presses all day. */
+  const quitBtn = nav.querySelector("#nav-quit");
+  if (quitBtn) quitBtn.onclick = () => { setMenu(false); quitAurion(); };
   nav.querySelectorAll("button[data-view]").forEach((b) => {
     b.onclick = () => {
       setMenu(false);
@@ -9715,7 +9872,7 @@ const views = {
 
         <!-- 1. What this is, and exactly which build of it. -->
         <header class="abx-hero">
-          <img class="abx-mark" src="icons/mark.png?v=desk49" alt="AURION" />
+          <img class="abx-mark" src="icons/mark.png?v=desk46" alt="AURION" />
           <h2 class="abx-name">AURION <small>${esc(I18N.t("about.product_sub"))}</small></h2>
           <p class="abx-blurb">${I18N.t("about.blurb")}</p>
           <div class="abx-tags">
@@ -17945,6 +18102,14 @@ function bindGate() {
     retry.disabled = true;
     S._gateTries = 0;
     paintGate();
+    /* "Try again" has to reach the thing that is actually broken.
+       This screen appears for a licence that could not be READ, and
+       by far the commonest reason is an engine that is not running -
+       so the request that matters is the one that lets the desk start
+       it again. /api/meta is where that lives, and it is deliberately
+       the same call a page load makes, because they are the same
+       request: a person saying "go on, then". */
+    try { await API.get("/api/meta"); } catch { /* the licence read below reports it */ }
     const lic = await fetchLicense();
     if (lic) S._gateLic = lic; else S._gateTries = 4;
     retry.disabled = false;

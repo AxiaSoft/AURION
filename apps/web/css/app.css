@@ -880,6 +880,51 @@ html[dir="rtl"] .nav button:hover{transform:translateX(-2px)}
 /* sidebar footer: account chip + company copyright */
 .nav-foot{padding:12px 10px 14px;border-top:1px solid var(--line);display:flex;flex-direction:column;gap:10px}
 .nav-acc-btn{background:none;border:0;padding:0;cursor:pointer}
+
+/* The way out of AURION, in the menu beside the ways around it.
+   Tinted rather than loud: it must read as different in kind from the
+   ten navigation buttons above it - pressing it stops the product -
+   without sitting there demanding to be pressed. */
+.nav button.nav-quit{color:var(--rose);opacity:.85}
+.nav button.nav-quit:hover{background:rgb(255 107 138 / .10);color:var(--rose);opacity:1}
+
+/* The screen AURION shuts down behind.
+   Above everything, including the welcome curtain (z 400) and the
+   modals, because by the time it is up nothing underneath it is true
+   any more. Not dismissible: it is not a question. */
+.shutdown-veil{
+  position:fixed;inset:0;z-index:900;display:grid;place-items:center;
+  background:rgb(var(--s1) / .97);
+  backdrop-filter:blur(10px);
+}
+.shutdown-veil[hidden]{display:none !important}
+.shutdown-veil .sd-card{
+  display:flex;flex-direction:column;align-items:center;gap:12px;
+  padding:34px 40px;text-align:center;max-width:min(92vw,420px);
+}
+.shutdown-veil .sd-mark{width:84px;height:84px;object-fit:contain;opacity:.92}
+.shutdown-veil .sd-title{font-size:17px;letter-spacing:.04em;color:var(--ink)}
+.shutdown-veil .sd-sub{font-size:12.5px;line-height:1.6;color:var(--muted)}
+.shutdown-veil .sd-bar{
+  width:190px;height:3px;border-radius:99px;overflow:hidden;
+  background:rgb(var(--wash) / .10);margin-top:6px;
+}
+.shutdown-veil .sd-bar i{
+  display:block;width:40%;height:100%;border-radius:99px;
+  background:linear-gradient(90deg,var(--cyan),var(--violet));
+  animation:sdSlide 1.15s var(--ease) infinite;
+}
+/* Finished: the bar has nothing left to report, so it goes rather
+   than spinning for ever over a product that has stopped. */
+.shutdown-veil.done .sd-bar{display:none}
+.shutdown-veil.done .sd-mark{opacity:.45}
+@keyframes sdSlide{
+  0%{transform:translateX(-110%)}
+  100%{transform:translateX(260%)}
+}
+@media (prefers-reduced-motion:reduce){
+  .shutdown-veil .sd-bar i{animation:none;width:100%}
+}
 .nav-acc{display:inline-block;font-size:11px;padding:4px 12px;border-radius:999px;border:1px solid var(--line);color:var(--muted);letter-spacing:.3px}
 .nav-acc.prem{color:var(--on-accent);background:linear-gradient(135deg,var(--cyan),#25b39b);border-color:transparent;font-weight:700}
 .nav-acc.free{color:var(--gold);border-color:rgba(232,192,122,.35)}

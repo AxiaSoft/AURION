@@ -133,6 +133,17 @@ internal sealed class AppWindow : Form
     private bool _sessionEnding;
 
     /// <summary>
+    /// Set when the desk's own power button asked for this.
+    ///
+    /// The trader has already been asked, inside AURION, in their own
+    /// language, and has already answered. The host's MessageBox would
+    /// be the same question a second time in a different voice - and
+    /// worse, it would appear behind a desk that has already put its
+    /// shutdown screen up, which reads as the product having hung.
+    /// </summary>
+    private bool _askedByDesk;
+
+    /// <summary>
     /// Closing the window closes AURION - all of it.
     ///
     /// Reported as a product fault rather than a preference: the window
@@ -176,8 +187,11 @@ internal sealed class AppWindow : Form
         if (forced)
         {
             // No question, no await: this thread is being allowed to finish
-            // and nothing else.
+            // and nothing else. The desk is told anyway - it costs a single
+            // non-blocking post, and on "End task" the window can stay on
+            // screen for a moment while Windows works through it.
             _tray.Visible = false;
+            TellDeskWeAreStopping(_sessionEnding ? "session" : "endtask");
             StopAurionNow(hard: true);
             _stopped = true;
             return;
@@ -186,11 +200,15 @@ internal sealed class AppWindow : Form
         if (_stopping) { e.Cancel = true; return; }
 
         e.Cancel = true;
-        var answer = AskToShutDown();
+        // The desk asked the question itself and is already showing the
+        // shutdown screen; asking a second time in a different dialog is
+        // the same request twice.
+        var answer = _askedByDesk ? DialogResult.Yes : AskToShutDown();
         if (answer != DialogResult.Yes) return;
 
         _stopping = true;
         _tray.Visible = false;
+        TellDeskWeAreStopping(_askedByDesk ? "desk" : "window");
         ShowStoppingScreen();
         try
         {
@@ -1022,6 +1040,33 @@ internal sealed class AppWindow : Form
         }
     }
 
+    /// <summary>
+    /// Tell the desk it is being shut down, so it can say so itself.
+    ///
+    /// Reported as: pressing the X left the desk on screen, looking
+    /// live, for the whole of the stop. The native splash that went up
+    /// over it is the host's own screen and it is the fallback here -
+    /// but the thing the trader is looking at is the desk, and the desk
+    /// is what should explain itself, in the desk's own language and
+    /// the trader's own words.
+    ///
+    /// Posted before anything is stopped, and never waited on: a page
+    /// that is wedged, or a WebView2 that never finished starting, must
+    /// not be able to delay a shutdown by one millisecond.
+    /// </summary>
+    private void TellDeskWeAreStopping(string reason)
+    {
+        try
+        {
+            _view.CoreWebView2?.PostWebMessageAsString(
+                "{\"type\":\"shutdown\",\"reason\":\"" + Escape(reason ?? "window") + "\"}");
+        }
+        catch
+        {
+            // No view, or no page. ShowStoppingScreen covers it.
+        }
+    }
+
     private void RaiseWindow()
     {
         Show();
@@ -1134,6 +1179,22 @@ internal sealed class AppWindow : Form
             try { raw = e.TryGetWebMessageAsString(); }
             catch { return; }
             if (string.IsNullOrWhiteSpace(raw)) return;
+            // The desk's power button. It is the X reached from the other
+            // side and it must mean exactly the same thing, or there would
+            // be two kinds of quit and no way to tell which one you used.
+            //
+            // The desk asks the question and puts its own screen up, so
+            // this skips the host's dialog and goes straight to Close(),
+            // which runs the one shutdown path in OnFormClosing. Doing the
+            // work here instead would be a second teardown to keep in step
+            // with the first.
+            if (raw.Contains("\"shutdown\""))
+            {
+                _askedByDesk = true;
+                BeginInvoke(new Action(Close));
+                return;
+            }
+
             var isSignal = raw.Contains("\"signal\"");
             var isTrade = raw.Contains("\"trade\"");
             // News was posted by the desk and silently dropped here. The

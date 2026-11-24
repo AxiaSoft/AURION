@@ -280,7 +280,7 @@ ok(/for \(const signal of \["SIGINT", "SIGTERM", "SIGHUP"\]\)/.test(INDEX),
   "a desk stopped from a console stops the engine too");
 
 ok(/async function stopEngine\(opts\)/.test(SUP), "stopping the engine is one routine");
-ok(/module\.exports = \{ start, stop, state, startEngine, stopEngine, replaceEngine,/.test(SUP),
+ok(/module\.exports = \{ start, stop, resume, state, startEngine, stopEngine, replaceEngine,/.test(SUP),
   "...shared by the restart path and the shutdown path");
 {
   const at = SUP.indexOf("async function replaceEngine(opts)");
@@ -297,8 +297,16 @@ ok(/private async void OnFormClosing\(object\? sender, FormClosingEventArgs e\)/
   ok(/CloseReason\.WindowsShutDown/.test(body) && /CloseReason\.TaskManagerClosing/.test(body),
     "a session ending is told apart from a person pressing the X");
   ok(/StopAurionNow\(hard: true\)/.test(body), "a kill is obeyed on the spot, with no question");
-  ok(/var answer = AskToShutDown\(\);/.test(body) && /e\.Cancel = true;/.test(body),
+  /* Still asked - unless the desk has already asked it. The power
+     button in the menu puts the same question in the trader's own
+     language and puts the shutdown screen up behind it; the host's
+     MessageBox appearing on top of that would be the same question
+     twice, the second time in English. */
+  ok(/var answer = _askedByDesk \? DialogResult\.Yes : AskToShutDown\(\);/.test(body)
+     && /e\.Cancel = true;/.test(body),
     "a terminate asks first, and the window stays open until it is answered");
+  ok(/TellDeskWeAreStopping\(/.test(body),
+    "and the desk is told, so the screen says what is happening");
   ok(/if \(_setupOnly \|\| _stopped\)/.test(body),
     "the setup pass owns nothing and must not stop a desk on its way out");
 }

@@ -60,12 +60,35 @@ const MAX_ATTEMPTS = 5;
    only fills the log. */
 const BACKOFF_BASE_MS = 10000;
 
+/* How long a desk that has given up waits before it tries once more.
+ *
+ * Reported as "when I reset or refresh, the engine never comes up
+ * again". It never did. Five failed attempts set `attempts` past
+ * MAX_ATTEMPTS, and the only thing that ever cleared it was the engine
+ * answering a health check - which nothing was left to bring about.
+ * That state survived every reload of the page, because the page is
+ * not what was broken, and the only cure was closing the whole product
+ * and opening it again. Which is precisely the complaint this
+ * supervisor was written to remove.
+ *
+ * The reasons an engine fails to start are not all permanent. A port
+ * still held by a process on its way out, a machine that has not
+ * finished waking its disk, an engine whose event loop was blocked long
+ * enough to miss five health checks - all of those pass. A missing
+ * Python library does not, and this is slow enough that it costs one
+ * log line every ten minutes rather than a loop.
+ *
+ * So giving up is now a rest, not a death. */
+const GIVE_UP_REST_MS = 10 * 60 * 1000;
+
 let timer = null;
 let misses = 0;
 let attempts = 0;
 let lastAttemptAt = 0;
 let starting = false;
 let everSeenHealthy = false;
+/* When the attempt ceiling was reached, or 0 when it has not been. */
+let gaveUpAt = 0;
 
 function logLine(text) {
   const file = path.join(DATA, "logs", "desk.log");
@@ -292,6 +315,7 @@ async function stopEngine(opts) {
     misses = 0;
     attempts = 0;
     lastAttemptAt = 0;
+    gaveUpAt = 0;
   }
   return { ok: Boolean(gone), stopped: Boolean(gone), gone: Boolean(gone), forced, steps };
 }
@@ -366,6 +390,7 @@ async function replaceEngine(opts) {
   misses = 0;
   attempts = 0;
   lastAttemptAt = 0;
+  gaveUpAt = 0;
   return { ok: Boolean(started), steps, started, stopped: true, forced: halt.forced };
 }
 
@@ -380,6 +405,7 @@ async function tick() {
     }
     misses = 0;
     attempts = 0;
+    gaveUpAt = 0;
     everSeenHealthy = true;
     return;
   }
@@ -392,7 +418,15 @@ async function tick() {
        restarting cannot fix, and the engine log is where it is. */
     if (attempts === MAX_ATTEMPTS) {
       attempts += 1;
-      logLine(`the engine did not come up after ${MAX_ATTEMPTS} attempts - see data/logs/engine.log. Not trying again until it answers.`);
+      gaveUpAt = Date.now();
+      logLine(`the engine did not come up after ${MAX_ATTEMPTS} attempts - see data/logs/engine.log. Resting for ${Math.round(GIVE_UP_REST_MS / 60000)} minutes, then trying again.`);
+    }
+    /* ...and then tried again. A desk that has given up for ever is a
+       desk that can only be fixed by closing the product, and that is
+       the bug, not the remedy. */
+    if (gaveUpAt && Date.now() - gaveUpAt >= GIVE_UP_REST_MS) {
+      logLine("trying the engine again after a rest");
+      resume("rest over");
     }
     return;
   }
@@ -406,7 +440,7 @@ async function tick() {
        seconds, and the engine may have come back inside them. */
     let nowAlive = false;
     try { nowAlive = await engine.healthy(); } catch { nowAlive = false; }
-    if (nowAlive) { misses = 0; attempts = 0; return; }
+    if (nowAlive) { misses = 0; attempts = 0; gaveUpAt = 0; return; }
 
     attempts += 1;
     lastAttemptAt = Date.now();
@@ -415,6 +449,33 @@ async function tick() {
   } finally {
     starting = false;
   }
+}
+
+/**
+ * Let the engine be tried again, now.
+ *
+ * Two callers, and they are the same request in two voices:
+ *
+ *   * the rest period above expiring, which is the desk deciding that
+ *     a failure ten minutes old is worth re-testing;
+ *   * a person. Opening or reloading the desk is what somebody does
+ *     when it is not working, and until now that gesture was answered
+ *     with nothing at all - the supervisor had stopped trying and the
+ *     page had no way to say "try again". Reloading now means what the
+ *     trader clearly intends it to mean.
+ *
+ * It only clears the counters. The next tick does the work, a second
+ * or so later, and it checks health first - so asking twice cannot
+ * start two engines, and asking while one is healthy costs nothing.
+ */
+function resume(why) {
+  const was = { misses, attempts, gave_up: attempts > MAX_ATTEMPTS };
+  misses = 0;
+  attempts = 0;
+  lastAttemptAt = 0;
+  gaveUpAt = 0;
+  if (was.gave_up) logLine(`starting the engine again at the request of ${String(why || "the desk")}`);
+  return was;
 }
 
 function start() {
@@ -444,9 +505,12 @@ function state() {
     ever_seen_healthy: everSeenHealthy,
     last_attempt_at: lastAttemptAt ? new Date(lastAttemptAt).toISOString() : "",
     /* Said plainly, because this is the sentence support needs: the
-       engine is down and the desk has given up trying to start it. */
+       engine is down and the desk is not trying to start it right now.
+       Not "never again" any more - resting, and the next line says
+       until when. */
     gave_up: attempts > MAX_ATTEMPTS,
+    resting_until: gaveUpAt ? new Date(gaveUpAt + GIVE_UP_REST_MS).toISOString() : "",
   };
 }
 
-module.exports = { start, stop, state, startEngine, stopEngine, replaceEngine, setStarter, findPython, tick, enginePort, CHECK_MS, MISSES_BEFORE_START, MAX_ATTEMPTS };
+module.exports = { start, stop, resume, state, startEngine, stopEngine, replaceEngine, setStarter, findPython, tick, enginePort, CHECK_MS, MISSES_BEFORE_START, MAX_ATTEMPTS, GIVE_UP_REST_MS };

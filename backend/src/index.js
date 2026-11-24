@@ -345,6 +345,23 @@ for (const signal of ["SIGINT", "SIGTERM", "SIGHUP"]) {
 }
 
 app.get("/api/meta", async (req, res) => {
+  /* A desk being opened is a person asking for AURION to work.
+   *
+   * Reported as "when I reset or refresh, the engine never comes up
+   * again, and neither does the app". The supervisor gives the engine
+   * five tries and then stops; the only thing that ever un-stopped it
+   * was the engine answering by itself, which nothing was left to
+   * bring about. So the state outlived every reload - the page was
+   * never what was broken - and the one cure was closing the whole
+   * product, which is the very thing the supervisor exists to avoid.
+   *
+   * This is the first call the desk makes when it loads. Reloading
+   * now means what the trader plainly intends it to mean: try again.
+   * Guarded on gave_up so that an ordinary page load cannot keep
+   * resetting the miss counter and hold off a restart that is due. */
+  try {
+    if (supervisor.state().gave_up) supervisor.resume("a desk page opening");
+  } catch { /* never fail /api/meta over this */ }
   let buildDate = "";
   try {
     const fs = require("fs");
