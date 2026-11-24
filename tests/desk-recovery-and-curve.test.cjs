@@ -129,6 +129,10 @@ function grab(src, name) {
       this.setTick = () => {};
     };
     const syncChartPrecision = () => {};
+    /* The grid also raises and clears the "waiting for candles" veil;
+       that is DOM work and has its own suite. */
+    const paintChartVeils = () => {};
+    const clearVeil = () => {};
   `;
   const mk = (sym, tf) => ({
     getAttribute: (k) => (k === "data-mini" ? sym : tf),
@@ -167,7 +171,18 @@ function grab(src, name) {
 }
 
 function rest() {
-/* ======================================== 4. losses look like losses */
+/* ===================== 4. the curve keeps one colour, and one story ==
+ *
+ * The first attempt at "the curve counts the drops as profit" painted
+ * the line green above the starting equity and red below it. That was
+ * refused, in these words: I did not ask for half the curve green and
+ * half red - when it drops, report the LOSS correctly, and otherwise
+ * leave the colour alone and put it back as it was.
+ *
+ * So the colour is one verdict on one run, taken from where it
+ * finished, exactly as before. What must be true is the arithmetic:
+ * the figure the panel reads off a dip has to be the loss at that
+ * point. */
 {
   const calls = [];
   const rec = (name) => (...a) => calls.push({ name, a });
@@ -213,30 +228,53 @@ function rest() {
   for (let i = 0; i < 60; i += 1) curve.push(10600);       // and a recovery
   draw.drawEquityCurve(curve);
 
-  const strokes = calls.filter((c) => c.name === "stroke").map((c) => c.style);
-  ok(strokes.includes(DOWN), "the stretch below the starting line is drawn in the loss colour");
-  ok(strokes.includes(UP), "and the stretch above it in the profit colour");
-  const grads = calls.filter((c) => c.name === "gradient");
-  const shades = grads.flatMap((g) => g.stops).join(" ");
-  ok(shades.includes(DOWN), "the area under the line is filled as a loss");
-  ok(shades.includes(UP), "and the area over it as a gain");
-  ok(calls.some((c) => c.name === "clip"),
-    "each half is clipped to its own side, so neither bleeds into the other");
+  const colours = (list) => [...new Set(list.filter((c) => c.name === "stroke").map((c) => c.style))]
+    .filter((c) => c === UP || c === DOWN);
+  ok(colours(calls).length === 1,
+    "a run is drawn in a single colour, not cut into green and red stretches");
+  ok(colours(calls)[0] === UP, "...and a run that finished ahead is drawn as one that finished ahead");
+  const shades = calls.filter((c) => c.name === "gradient").flatMap((g) => g.stops);
+  ok(!shades.includes(DOWN), "the fill under it is not split either");
+  ok(!calls.some((c) => c.name === "clip"), "nothing is clipped into halves any more");
 
-  /* And the converse: a run that only ever loses must have no profit
-     colour anywhere in it. */
   calls.length = 0;
   draw.drawEquityCurve([10000, 9800, 9600, 9000, 8800]);
-  const only = calls.filter((c) => c.name === "stroke").map((c) => c.style);
-  ok(only.includes(DOWN) && !only.includes(UP),
-    "a run that never recovers is never drawn in the profit colour");
-  const lossShades = calls.filter((c) => c.name === "gradient").flatMap((g) => g.stops).join(" ");
-  ok(!lossShades.includes(UP), "and nothing about it is filled as a gain");
+  ok(colours(calls).length === 1 && colours(calls)[0] === DOWN,
+    "and a run that finished behind is drawn, whole, as a loss");
 
-  calls.length = 0;
-  draw.drawEquityCurve([10000, 10200, 10400]);
-  const win = calls.filter((c) => c.name === "stroke").map((c) => c.style);
-  ok(win.includes(UP) && !win.includes(DOWN), "a run that only gains is never drawn as a loss");
+  /* The number, which is the part that had to be right.
+   *
+   * btPaintCurveTip is what the trader actually reads: hovering the
+   * bottom of a drawdown must say how far behind the run was there,
+   * with a minus in front of it, however well the run ended. */
+  const tipStub = `
+    const S = __S;
+    const I18N = { t: (k) => k };
+    const fmt = (v, dp) => Number(v).toFixed(dp === undefined ? 2 : dp);
+    const clsPnl = (v) => (Number(v) < 0 ? "down" : "up");
+    const btTip = () => __el;
+    const btPlaceTip = (el, host, px, py) => { __el.at = { px, py }; };
+  `;
+  const el = { hidden: true, innerHTML: "", style: {} };
+  const tipS = { _btCurve: null, _btCurveAt: null };
+  const tip = new Function("__S", "__el",
+    tipStub + grab(APP, "btPaintCurveTip") + "\nreturn { btPaintCurveTip, S };")(tipS, el);
+
+  // A run that ends 600 ahead but is 600 behind in the middle.
+  const c2 = { curve, w: 600, h: 240, padL: 8, padR: 8, padT: 10, padB: 10, lo: 9300, hi: 10700, base: 10000 };
+  tipS._btCurve = c2;
+  tipS._btCurveAt = 90;                       // deep inside the drawdown
+  tip.btPaintCurveTip({ parentElement: {} });
+  ok(/-600\.00/.test(el.innerHTML),
+    "the figure at the bottom of a drawdown is the loss, in full, with its sign");
+  ok(/-6\.00%/.test(el.innerHTML), "and as a percentage of the starting equity");
+  ok(/class="mono down"/.test(el.innerHTML), "marked as a loss, not as a gain");
+  ok(/9400\.00/.test(el.innerHTML), "beside the equity the run actually had there");
+
+  tipS._btCurveAt = curve.length - 1;
+  tip.btPaintCurveTip({ parentElement: {} });
+  ok(/\+600\.00/.test(el.innerHTML) && /class="mono up"/.test(el.innerHTML),
+    "and the end of the same run still reads as the gain it is");
 }
 
 /* ========================= 5. the drop has to survive being thinned */

@@ -21,6 +21,14 @@ const ROOT = path.resolve(__dirname, "..");
 const APP = fs.readFileSync(path.join(ROOT, "apps", "web", "js", "app.js"), "utf8");
 const CHARTS = path.join(ROOT, "apps", "web", "js", "charts.js");
 
+/* barTime lives in charts.js, which the page loads before app.js.
+   These sandboxes lift single functions out of app.js, so anything
+   app.js calls from the other file has to be handed over with them -
+   mergeOlder de-duplicates on the normalised bar time. */
+const BAR_TIME = "function barTime(v){let t=String(v==null?'':v).trim();"
+  + "if(!t)return '';return t.replace(' ','T').replace(/\\.\\d+/,'')"
+  + ".replace(/(Z|[+-]\\d{2}:?\\d{2})$/,'');}";
+
 const results = [];
 const pending = [];
 /* An async check has to be waited for. Without this the summary printed
@@ -177,6 +185,11 @@ check("reaching the oldest bar fetches one slab BEHIND it, once at a time", () =
       },
     },
     $: () => null,
+    /* The hint line now also drives the veil over a chart that has no
+       candles yet; that lives in the DOM and this sandbox has none. */
+    paintChartVeils: () => {},
+    signalCoverageNote: () => "",
+    signalCoveragePct: () => -1,
     console,
   };
   vm.createContext(box);
@@ -185,7 +198,7 @@ check("reaching the oldest bar fetches one slab BEHIND it, once at a time", () =
     + /const HIST_RETRY_MS = \d+;/.exec(APP)[0] + "\n"
     + liftFn("barsForDays") + "\n" + liftFn("chartDays")
     + "\n" + liftFn("historyStep") + "\n" + liftFn("oldestHeldTime")
-    + "\n" + liftFn("mergeOlder")
+    + "\n" + BAR_TIME + "\n" + liftFn("mergeOlder")
     + "\n" + liftFn("noteHistoryDepth") + "\n" + liftFn("historyDepthOf")
     + "\n" + liftFn("noteHistoryProgress")
     + "\n" + liftFn("paintHistoryEdge") + "\n" + liftFn("loadOlderSlab")

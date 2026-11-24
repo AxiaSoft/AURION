@@ -61,17 +61,22 @@ function sources(dir) {
  * actions, and only one of them may interrupt a trader.
  */
 let cached = { at: 0, value: "" };
-const CACHE_MS = 2000;
+/* Health is polled every couple of seconds by every open desk, and
+   this hashes every .py in the engine. Two seconds meant re-reading
+   the whole source tree on essentially every poll, for an answer that
+   can only change when an installer writes files - and the installer
+   calls invalidate() when it does. Fifteen seconds is still instant
+   from a trader's point of view and takes the hashing off the health
+   path entirely. */
+const CACHE_MS = 15000;
 
 /** Forget the cached reading - after an install has written files. */
 function invalidate() { cached = { at: 0, value: "" }; }
 
 function diskBuildId(root) {
   const base = root || SOURCE_DIR;
-  /* Health is polled, and hashing a hundred files on every poll would
-     be a silly price for an answer that changes only when an update
-     writes. Two seconds is short enough that the install screen sees the
-     change immediately and long enough that polling costs nothing. */
+  /* See CACHE_MS: an update calls invalidate(), so a stale reading
+     cannot outlive an install. */
   const useCache = !root;
   if (useCache && cached.value && Date.now() - cached.at < CACHE_MS) return cached.value;
   try {

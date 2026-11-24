@@ -26,6 +26,7 @@ from .risk import (
     round_volume,
     volume_for_risk,
 )
+from .sizing import auto_lot
 from .stops import ladder_target, resolve_stop, resolve_stop_r
 from ..ai.engine import AIEngine
 from ..backtest.engine import Backtester
@@ -4059,8 +4060,18 @@ class Trader:
         return out
 
     def _robot_volume(self, payload: dict[str, Any]) -> Any:
-        """Volume for a robot entry: manual mode pins every robot trade to the
-        user's fixed lot (any symbol); auto keeps the strategy's own volume."""
+        """Volume for a robot entry.
+
+        Manual mode pins every robot trade to the user's fixed lot, on
+        any symbol. Auto sizes the entry from how sure the strategy is
+        and how much equity stands behind it - see runtime/sizing.py.
+
+        Auto used to mean "whatever volume the strategy named", and
+        every built-in names 0.10, so auto was a constant: a setup the
+        robot barely liked was staked exactly as heavily as one it was
+        certain of. A signal that reports no confidence at all is not
+        sized on a guess - it keeps the volume it asked for.
+        """
         if str(getattr(self, "volume_mode", "auto")) == "manual":
             try:
                 vol = float(getattr(self, "manual_volume", 0) or 0)
@@ -4068,6 +4079,12 @@ class Trader:
                 vol = 0.0
             if vol > 0:
                 return vol
+        try:
+            conf = float(payload.get("confidence") or 0)
+        except (TypeError, ValueError):
+            conf = 0.0
+        if conf > 0:
+            return auto_lot(conf, self._equity_now())
         return payload.get("volume")
 
     async def _blocked(
@@ -5002,10 +5019,16 @@ class Trader:
     # (no pandas, no strategy call) but there is no point redrawing a
     # panel faster than a person can read it.
     # The desk repaints the Intelligence card from this, so the number is
-    # the worst-case age of what a trader is looking at. One analysis
-    # costs ~0.4ms of pure in-memory state, so 5/second is 0.2% of a
-    # core - the cadence is limited by what is useful, not by cost.
-    ANALYSIS_PUSH_SECONDS = 0.2
+    # the worst-case age of what a trader is looking at.
+    #
+    # It was 0.2s, and the cost estimate behind that number counted one
+    # symbol. The payload grew to carry an analysis PER WATCHED CHART -
+    # up to twelve - and the change test json-dumps the lot, so five
+    # times a second became the most expensive thing on the tick path
+    # on a desk with several experts attached. Twice a second is faster
+    # than a person reads a changing number, and the saving goes to the
+    # price updates the trader is actually watching.
+    ANALYSIS_PUSH_SECONDS = 0.5
     # How often the engine asks itself whether the reading changed. This
     # exists because ticks are NOT a reliable heartbeat: they only arrive
     # while an MT5 EA is attached and the market is open. Driving the
@@ -5052,6 +5075,13 @@ class Trader:
         """
         now = time.time()
         if not force and now - getattr(self, "_analysis_sent_at", 0.0) < self.ANALYSIS_PUSH_SECONDS:
+            return
+        # Nobody is listening. Recomputing an analysis for a dozen
+        # charts, json-dumping it and comparing it, so that the result
+        # can be published to no one, is pure cost on the tick path -
+        # and the tick path is what the live price rides on.
+        if not force and not self.bus.client_count():
+            self._analysis_sent_at = now
             return
         self._analysis_sent_at = now
         try:
@@ -5826,8 +5856,17 @@ class Trader:
                     continue
                 kept.append({**mark, "index": idx})
 
-        lo = plan["first"]
+        # What the pass ACTUALLY covered, not what it was asked to.
+        # The replay runs newest-first and stops on a time budget, so
+        # a truncated slab covers [covered_from, covered_to) with
+        # covered_from above the bar the plan named. Trusting the plan
+        # here marked the unanalysed remainder as analysed, and that
+        # stretch then never got a second look - the oldest bars of
+        # every slab silently kept their "no setups here" verdict
+        # without anything having looked at them.
+        lo = int(result.get("covered_from", plan["first"]) or 0)
         hi = int(result.get("covered_to") or plan["last"])
+        lo = max(0, min(lo, total))
         fresh_marks = list(result.get("signals") or [])
         # Anything previously known inside the slab just re-analysed is
         # replaced by what the slab found, so a strategy whose settings
@@ -5865,12 +5904,41 @@ class Trader:
             store.pop(next(iter(store)))
 
         complete = covered_lo <= WARMUP_BARS and covered_hi >= total
+
+        # Re-planning against the state just written is the only way
+        # to be sure this says what the next call will really do; a
+        # second copy of the planner's arithmetic here would drift
+        # away from it the first time either changed.
+        next_lo = next_hi = None
+        if not complete:
+            nxt = self._chart_mark_plan(symbol, timeframe, armed, bars)
+            if not nxt.get("complete"):
+                next_lo = max(0, min(total, int(nxt.get("first") or 0)))
+                next_hi = max(next_lo, min(total, int(nxt.get("last") or 0)))
+
         return {
             **result,
             "signals": merged,
             "count": len(merged),
             "covered_from": covered_lo,
             "covered_to": covered_hi,
+            # Which bars those are, by name. The desk cannot turn an
+            # index into a date on its own - it holds a different slice
+            # of the history than the engine analysed - and "analysed
+            # from bar 14 200" is not something a trader can check
+            # against their own chart.
+            "covered_from_time": times[covered_lo] if covered_lo < total else "",
+            "covered_to_time": times[covered_hi - 1] if 0 < covered_hi <= total else "",
+            "total_bars": total,
+            # The slab the NEXT call will work through, so the desk can
+            # point at the candles being analysed instead of shading
+            # everything that is not finished yet and labelling the lot
+            # "analysing". Asked for in those words: show exactly which
+            # candles the analysis is running on.
+            "next_from": next_lo,
+            "next_to": next_hi,
+            "next_from_time": times[next_lo] if next_lo is not None and next_lo < total else "",
+            "next_to_time": times[next_hi - 1] if next_hi and 0 < next_hi <= total else "",
             # The desk draws a boundary at `covered_from` and says marks
             # start there, so an unanalysed stretch is never read as a
             # stretch with no setups. `complete` turns that off.
@@ -6026,13 +6094,57 @@ class Trader:
         oldest_held = str((bars[0] or {}).get("time") or "")[:10] if bars else ""
         too_recent = bool(asked_from and oldest_held and asked_from < oldest_held)
         if len(bars) < want or too_recent:
+            # Three attempts, not one.
+            #
+            # Reported: "I tried to backtest M5 on a symbol, the app
+            # had that symbol on H1, and the M5 run said there is
+            # nothing there." There was nothing there - yet. A
+            # timeframe no chart has been opened on does not exist in
+            # the terminal until something asks for it, the expert's
+            # first CopyRates on it comes back empty while MetaTrader
+            # goes to the broker, and the single ask this made was
+            # over long before the series arrived. The answer then
+            # read as a verdict on the broker's archive instead of a
+            # report on a download that had just started.
             bars = await self.bridge.pull_candles(
-                symbol, timeframe, want, need_from=asked_from,
+                symbol, timeframe, want, need_from=asked_from, tries=3,
             ) or bars
         if not bars:
-            return {"ok": False, "code": "no_history",
-                    "args": {"symbol": symbol, "timeframe": timeframe},
-                    "error": "no real MT5 history available for this symbol/timeframe"}
+            # Still nothing. Say which of the two it is, because they
+            # need opposite things from the trader: waiting, or giving
+            # up on this symbol. An expert is attached (checked above),
+            # so a timeframe the terminal genuinely has no bars for at
+            # all is the rarer case by far.
+            depth = {}
+            try:
+                depth = self.bridge.hist_depth(symbol, timeframe) or {}
+            except Exception:
+                depth = {}
+            # The terminal ANSWERED and said it holds none: that is a
+            # fact about the broker's archive and waiting will not
+            # change it. Anything else - no answer yet, or an answer
+            # saying it holds bars we have not received - is a
+            # download in progress, and telling that trader there is
+            # "no history" sends them to the wrong place entirely.
+            answered = bool(depth.get("at"))
+            try:
+                available = int(depth.get("available") or 0)
+            except (TypeError, ValueError):
+                available = 0
+            if answered and available <= 0:
+                return {"ok": False, "code": "no_history",
+                        "args": {"symbol": symbol, "timeframe": timeframe},
+                        "depth": depth,
+                        "error": "no real MT5 history available for this symbol/timeframe",
+                        "build_id": BUILD_ID}
+            return {"ok": False, "code": "history_downloading",
+                    "args": {"symbol": symbol, "timeframe": timeframe,
+                             "have": 0, "want": int(want)},
+                    "depth": depth,
+                    "downloading": True,
+                    "error": (f"{timeframe} candles for {symbol} are still being "
+                              f"downloaded from MetaTrader — none have arrived yet"),
+                    "build_id": BUILD_ID}
 
         # A run over one month, one week or one day, chosen from the
         # calendar. Without this the only testable period was "all the
@@ -6057,8 +6169,17 @@ class Trader:
                     f"from {oldest} to {newest} for {symbol}"
                 )
                 code = "no_bars_in_period_have"
+            # A series that is still coming down is not a series that
+            # ends where it currently ends. Saying "this terminal only
+            # has March onwards" about a download that is thirty
+            # seconds old sends the trader to change broker settings
+            # over a window that is about to arrive.
+            filling = len(bars) < want
+            if filling:
+                args["filling"] = True
+                code = code + "_filling"
             return {"ok": False, "code": code, "args": args,
-                    "error": detail, "build_id": BUILD_ID}
+                    "filling": filling, "error": detail, "build_id": BUILD_ID}
         bars = window["bars"]
         tested_from = window["from"]
         tested_to = window["to"]

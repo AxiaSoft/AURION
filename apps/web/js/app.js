@@ -3154,8 +3154,17 @@ function mt5Live() {
   /* Everything the desk knows about the terminal arrived through the
      engine. With the engine gone, "MT5: live" is a claim about a
      snapshot, not about a broker - and two green lights over a dead
-     desk is worse than one red one. */
-  if (S._engineUp === false) return false;
+     desk is worse than one red one.
+
+     But only once the engine is really gone. Reported alongside the
+     flickering light: "it counts MetaTrader as down with it, and the
+     EA is attached". A momentary gap in the engine's answers says
+     nothing whatsoever about the terminal - the expert is still on
+     the chart, still sending - so pulling the MT5 light down with it
+     turned one wrong red light into two. The engine has to have been
+     down for ENGINE_DOWN_GRACE_MS before this follows it. */
+  if (S._engineUp === false
+      && Date.now() - (S._engineSince || 0) >= ENGINE_DOWN_GRACE_MS) return false;
   const mt = S.snap && S.snap.mt5;
   if (mt && mt.connected) return true;
   if (eaLive()) return true;
@@ -4891,12 +4900,11 @@ function patchLive() {
     if (curLbl && S.symbol && curLbl.textContent !== S.symbol) curLbl.textContent = S.symbol;
     const lbl = $("tick-lbl");
     if (lbl) lbl.textContent = tickLabel();
-    const ticks = S.snap?.ticks || {};
-    const symbols = liveSymbols().map((x) => x.symbol).filter((s) => ticks[s]);
-    const box = $("live-ticks");
     /* One template for the first paint and the refresh. They used to be
-       two copies of the same markup and had already begun to disagree. */
-    if (box) box.innerHTML = symbols.length ? watchlistHtml() : emptyMini(I18N.t("status.waiting_ticks"));
+       two copies of the same markup and had already begun to disagree.
+       The list is only rebuilt when the symbols in it change; the
+       prices inside it are patched - see paintWatchlist. */
+    paintWatchlist();
     const empty = document.querySelector(".chart-box .empty");
     if (empty && eaLive() && S.candles.length) empty.remove();
     /* Same patcher the Command Centre uses, so the table updates in place
@@ -5273,17 +5281,68 @@ function leaveChartFullscreen() {
 const ENGINE_PROBE_MS = 2000;
 const ENGINE_SILENCE_MS = 8000;
 
+/* How many times in a row the engine has to fail to answer before the
+ * light goes red.
+ *
+ * Reported: "the engine keeps going off and on in the desk". It did,
+ * and this was the desk's half of it. The light flipped on a SINGLE
+ * missed answer - one slow /api/health, one proxy socket that
+ * reconnected - while the thing whose job it is to act on a dead
+ * engine, the supervisor, requires three misses before it will even
+ * consider restarting it. The light was stricter than the watchdog,
+ * so it reported deaths the watchdog did not believe in.
+ *
+ * Going UP is still instant: one message from the engine, or one good
+ * health answer, and the light is green in that moment. Only the bad
+ * news waits for a second opinion, which is the asymmetry a trader
+ * actually wants - and two probes is under half a second, so a real
+ * death is still reported at once.
+ */
+const ENGINE_DOWN_MISSES = 2;
+
+/* How long an engine has to be gone before the MT5 light follows it
+ * down. See mt5Live(). */
+const ENGINE_DOWN_GRACE_MS = 6000;
+
 function engineUp() { return S._engineUp === true; }
 
 /** One place where the light changes, so every source agrees. */
 function noteEngine(up, why) {
   const now = Date.now();
   const next = Boolean(up);
-  if (next) S._engineSeenAt = now;
+  if (next) {
+    S._engineSeenAt = now;
+    S._engineMiss = 0;
+  } else {
+    S._engineMiss = (S._engineMiss || 0) + 1;
+    /* Not yet. One miss is a slow answer; the next probe decides.
+       A probe is scheduled immediately rather than waiting out the
+       two second cadence, so the confirmation costs a moment. */
+    if (S._engineMiss < ENGINE_DOWN_MISSES && S._engineUp !== false) {
+      if (!S._engineRecheck) {
+        S._engineRecheck = setTimeout(() => {
+          S._engineRecheck = null;
+          probeEngine();
+        }, 400);
+      }
+      return;
+    }
+  }
   if (S._engineUp === next) return;
   S._engineUp = next;
   S._engineSince = now;
   S._engineWhy = why || "";
+  /* The MT5 light follows this one only after a grace period, so the
+     moment the grace runs out has to repaint by itself - otherwise it
+     changes on whatever event happens to arrive next, which on a dead
+     engine is nothing at all. */
+  if (S._engineGrace) { clearTimeout(S._engineGrace); S._engineGrace = null; }
+  if (!next) {
+    S._engineGrace = setTimeout(() => {
+      S._engineGrace = null;
+      try { headerState(); } catch (e) { /* non-fatal */ }
+    }, ENGINE_DOWN_GRACE_MS + 100);
+  }
   try { headerState(); } catch (e) { /* a light must not break the desk */ }
 }
 
@@ -10263,6 +10322,103 @@ function paintPositions(boxId, rows, closable) {
   box.innerHTML = `<div class="pos-pane">${positionsListHtml(rows, [])}</div>`;
   if (closable) bindCloseButtons(box);
 }
+/* ------------------------------------------------- prices, as they move
+ *
+ * Reported: "the live price of each symbol has to be correct and in
+ * the moment, the same as MetaTrader - it is shown much slower."
+ *
+ * The ticks were already arriving on the socket. What they did not do
+ * was reach the screen: the watchlist was only ever redrawn by the
+ * refresh pass, which runs when an `account` or `positions` message
+ * happens to come in or when the twelve second poll lands. A price
+ * that arrived five times a second was therefore shown once a second
+ * at best, in steps, and behind the terminal.
+ *
+ * Two things change here. A tick repaints its own row the moment it
+ * lands, and the repaint is a text update on the row that is already
+ * there rather than a rebuild of the whole list - which is also why
+ * it can be done on every tick without the list flickering, losing
+ * the hover, or costing a layout of everything on the page.
+ */
+function watchRowEl(symbol) {
+  if (!symbol) return null;
+  try {
+    return document.querySelector(`.wl-row[data-wl="${CSS.escape(String(symbol))}"]`);
+  } catch (e) {
+    return null;
+  }
+}
+
+/** One symbol's prices, written into the row it already has. */
+function patchWatchRow(symbol) {
+  const row = watchRowEl(symbol);
+  if (!row) return false;
+  const t = (S.snap && S.snap.ticks && S.snap.ticks[symbol]) || null;
+  if (!t) return false;
+  const bid = Number(t.bid);
+  const ask = Number(t.ask);
+  const bidEl = row.querySelector(".wl-bid");
+  const askEl = row.querySelector(".wl-ask");
+  const spEl = row.querySelector(".wl-sp");
+  if (bidEl) {
+    const prev = tickMemo.get(symbol);
+    bidEl.classList.remove("up", "down");
+    if (Number.isFinite(bid) && Number.isFinite(prev) && bid !== prev) {
+      bidEl.classList.add(bid > prev ? "up" : "down");
+    }
+    const text = price(bid, symbol);
+    if (bidEl.textContent !== text) bidEl.textContent = text;
+  }
+  if (Number.isFinite(bid)) tickMemo.set(symbol, bid);
+  if (askEl) {
+    const text = price(ask, symbol);
+    if (askEl.textContent !== text) askEl.textContent = text;
+  }
+  if (spEl) {
+    const spread = (Number.isFinite(bid) && Number.isFinite(ask)) ? ask - bid : null;
+    /* .wl-sp keeps the broker's precision: it is a distance, not a
+       level, and rounded to the desk's two decimals it reads 0.00 on
+       every FX pair. Same rule as the template it patches. */
+    const text = spread === null ? "\u2014" : fmt(spread, 5); // wl-sp
+    if (spEl.textContent !== text) spEl.textContent = text;
+  }
+  return true;
+}
+
+/**
+ * The watchlist: rebuilt only when the SYMBOLS change.
+ *
+ * It used to be `box.innerHTML = watchlistHtml()` on every refresh,
+ * which on a desk with an expert attached is once a second: the whole
+ * list thrown away and parsed again to change two numbers in it.
+ */
+function paintWatchlist() {
+  const box = $("live-ticks");
+  if (!box) return;
+  const ticks = (S.snap && S.snap.ticks) || {};
+  const symbols = liveSymbols().map((x) => x.symbol).filter((sym) => ticks[sym]);
+  const key = symbols.join(",") + "|" + I18N.lang;
+  if (key !== S._wlKey || !box.querySelector(".wl-list")) {
+    S._wlKey = key;
+    box.innerHTML = symbols.length ? watchlistHtml() : emptyMini(I18N.t("status.waiting_ticks"));
+    return;
+  }
+  for (const sym of symbols) patchWatchRow(sym);
+}
+
+/** Everything on screen that shows this symbol's price, now. */
+function paintLivePrice(symbol) {
+  if (!symbol) return;
+  patchWatchRow(symbol);
+  if (symbol === S.symbol) {
+    const lbl = $("tick-lbl");
+    if (lbl) {
+      const text = tickLabel();
+      if (lbl.textContent !== text) lbl.textContent = text;
+    }
+  }
+}
+
 function tickLabel() {
   const t = S.snap?.ticks?.[S.symbol];
   if (!t) return "";
@@ -13673,6 +13829,9 @@ function drawReplayChart(all, marks) {
      * scale. Both are drawn UNDER the candles, so highlighting a
      * trade never hides the bars it is about. */
   const hover = S._btHover;
+  /* Where that highlight ended up, so the panel describing the trade
+     can be kept off it - see btPlaceTip. */
+  let hoverBox = null;
   if (hover && (hover.inT || hover.outT)) {
     const ai = atAll.has(hover.inT) ? atAll.get(hover.inT) : -1;
     const bi = atAll.has(hover.outT) ? atAll.get(hover.outT) : all.length - 1;
@@ -13688,10 +13847,19 @@ function drawReplayChart(all, marks) {
       g.fillStyle = tint;
       g.fillRect(Math.min(x0, x1), padT, Math.max(2, Math.abs(x1 - x0)), h - padT - padB);
       g.restore();
+      hoverBox = {
+        x0: Math.min(x0, x1), x1: Math.max(x0, x1),
+        // The band alone is the whole height of the chart; a price
+        // rectangle narrows that to the trade's own range below.
+        y0: padT, y1: h - padB, boxed: false,
+      };
       const pin = num(hover.entry), pout = num(hover.exit);
       if (pin && pout) {
         const yTop = Math.min(y(pin), y(pout));
         const yBot = Math.max(y(pin), y(pout));
+        hoverBox.boxed = true;
+        hoverBox.yTop = yTop;
+        hoverBox.yBot = Math.max(yTop + 2, yBot);
         g.save();
         g.globalAlpha = 0.18;
         g.fillStyle = tint;
@@ -13799,6 +13967,7 @@ function drawReplayChart(all, marks) {
     total: all.length, start, count: bars.length,
     padL, padR, padT, padB, w, h, lo, hi, bw,
     marks: placed,
+    box: hoverBox,
   };
   btPaintReplayTip(cv);
 }
@@ -13828,20 +13997,79 @@ function btTip(host) {
   return el;
 }
 
-/** Put it beside the point without letting it fall out of the frame. */
-function btPlaceTip(el, host, px, py) {
+/**
+ * Put it beside the point without letting it fall out of the frame -
+ * and, on the replay chart, without letting it sit on the thing it is
+ * describing.
+ *
+ * Reported: "when I hover the chart, the window with the details lands
+ * inside the square that is the trade's range and I cannot see the
+ * range". It did. The panel was placed from the marker alone, and the
+ * marker is a corner of that rectangle, so the one picture the hover
+ * exists to draw - where the trade ran, and between which two prices -
+ * was underneath the text describing it.
+ *
+ * `avoid` is that highlight in the same coordinates. The panel is put
+ * clear of it: beside the band if either side has room, otherwise
+ * above or below the price rectangle. Only when the highlight leaves
+ * nowhere to stand does it fall back to the old placement, because a
+ * panel pushed off the chart is worse than one overlapping it.
+ */
+function btPlaceTip(el, host, px, py, avoid) {
   if (!el || !host) return;
   const w = host.clientWidth || 0;
   const h = host.clientHeight || 0;
   el.hidden = false;
   const tw = el.offsetWidth || 150;
   const th = el.offsetHeight || 54;
-  let left = px + 14;
-  if (left + tw > w - 6) left = px - tw - 14;
-  if (left < 6) left = 6;
-  let top = py - th - 12;
-  if (top < 6) top = py + 16;
-  if (top + th > h - 6) top = Math.max(6, h - th - 6);
+  const gap = 12;
+  const edge = 6;
+  const fitsH = (l) => l >= edge && l + tw <= w - edge;
+  const fitsV = (t) => t >= edge && t + th <= h - edge;
+  // Near the pointer, but never outside the frame.
+  const nearV = () => Math.max(edge, Math.min(h - edge - th, py - th / 2));
+
+  let left = null;
+  let top = null;
+
+  if (avoid && Number.isFinite(avoid.x0) && Number.isFinite(avoid.x1)) {
+    // Beside the band: the whole highlight stays visible.
+    const right = avoid.x1 + gap;
+    const leftOf = avoid.x0 - tw - gap;
+    /* Whichever side has more room first, so a trade near the left
+       edge is described on its right and vice versa, rather than the
+       panel always trying the same side and giving up. */
+    const sides = (w - avoid.x1) >= avoid.x0 ? [right, leftOf] : [leftOf, right];
+    for (const cand of sides) {
+      if (fitsH(cand)) { left = cand; top = nearV(); break; }
+    }
+    if (left === null) {
+      /* The band is too wide to stand beside. Clear the rectangle
+         instead - that is the part carrying the prices, and the band
+         behind it is only a tint. */
+      const yTop = Number.isFinite(avoid.yTop) ? avoid.yTop : avoid.y0;
+      const yBot = Number.isFinite(avoid.yBot) ? avoid.yBot : avoid.y1;
+      const over = yTop - th - gap;
+      const under = yBot + gap;
+      const room = [over, under].filter(fitsV);
+      if (room.length) {
+        // The side with more clearance, so the panel is not jammed
+        // against the frame when both technically fit.
+        top = room.length === 1 ? room[0]
+          : (yTop - edge >= (h - edge) - yBot ? over : under);
+        left = Math.max(edge, Math.min(w - edge - tw, px - tw / 2));
+      }
+    }
+  }
+
+  if (left === null || top === null) {
+    left = px + 14;
+    if (left + tw > w - edge) left = px - tw - 14;
+    if (left < edge) left = edge;
+    top = py - th - gap;
+    if (top < edge) top = py + 16;
+    if (top + th > h - edge) top = Math.max(edge, h - th - edge);
+  }
   el.style.left = Math.round(left) + "px";
   el.style.top = Math.round(top) + "px";
 }
@@ -13870,7 +14098,7 @@ function btPaintReplayTip(cv) {
   }
   rows.push(`<span>${I18N.t("bt.tip_when")}</span><b class="mono">${esc(btWhen(m.inT))}${open ? "" : " → " + esc(btWhen(m.outT))}</b>`);
   el.innerHTML = `<div class="bt-tip-grid">${rows.join("")}</div>`;
-  btPlaceTip(el, host, m.x, m.y);
+  btPlaceTip(el, host, m.x, m.y, (S._btGeom || {}).box);
 }
 
 /**
@@ -14257,110 +14485,50 @@ function drawEquityCurve(curve) {
   g.stroke();
   g.setLineDash([]);
 
-  /* Profit above the starting line, loss below it - on the same curve.
+  /* One colour for the whole curve, chosen from where the run ended.
    *
-   * Reported as "the equity curve does not show the losses; it counts
-   * the drops as profit". It did. The whole picture took ONE colour,
-   * chosen from where the run happened to end, so a test that finished
-   * ahead drew its drawdowns in the profit colour and filled them in
-   * green: a trader reading the shape was shown a loss painted as a
-   * gain. The run's ending is not a fact about the middle of it.
-   *
-   * So the area is filled in two passes, each clipped to its own side
-   * of the starting line, and the line itself is drawn in pieces that
-   * change colour exactly where it crosses. Nothing about the data
-   * changed - this is the same curve, told truthfully. */
+   * This was briefly drawn in two colours, green above the starting
+   * line and red below it. That was not what was asked for and it is
+   * not what this picture is: the curve answers "how did the run go",
+   * one run, one answer, and a line that changes colour four times on
+   * the way up reads as four verdicts. What had to be right was the
+   * number - a drawdown must be reported as the loss it was - and
+   * that is a question about the data, which is fixed where the data
+   * is thinned (engine/aurion/backtest/engine.py::_thin) and read off
+   * in the panel below. The colour is left alone. */
   const ended = curve[curve.length - 1] >= base;
-  const yBase = y(base);
+  const colour = ended ? up : down;
 
-  /* Which side of the starting line each point is on. A point sitting
-     exactly ON the line belongs to the side its neighbours are on -
-     every run starts on the line, and calling that first point a
-     profit would open a losing run with a green stub. A run that
-     never leaves the line is flat, which is not a loss. */
-  const sides = curve.map((v) => (v > base ? 1 : v < base ? -1 : 0));
-  let carry = 0;
-  for (let i = 0; i < sides.length; i++) { if (sides[i]) carry = sides[i]; else sides[i] = carry; }
-  carry = 0;
-  for (let i = sides.length - 1; i >= 0; i--) { if (sides[i]) carry = sides[i]; else sides[i] = carry; }
-  const above = (i) => sides[i] >= 0;
-  const everAbove = curve.some((v) => v > base);
-  const everBelow = curve.some((v) => v < base);
-
+  const fill = g.createLinearGradient(0, padT, 0, h - padB);
   // A var() can resolve to anything; only a plain hex can take an alpha
   // suffix. Anything else falls back to a flat global alpha below.
-  const softOf = (c) => (/^#[0-9a-f]{6}$/i.test(c) ? c + "3a" : "");
-  const area = () => {
-    g.beginPath();
-    g.moveTo(x(0), yBase);
-    for (let i = 0; i < curve.length; i++) g.lineTo(x(i), y(curve[i]));
-    g.lineTo(x(curve.length - 1), yBase);
-    g.closePath();
-  };
-  /* One half of the area: everything above the starting line, or
-     everything below it. The gradient fades away from that line in
-     both cases, so the two halves read as one picture. */
-  const half = (colour, top, bottom) => {
-    if (bottom - top < 0.5) return;
-    const soft = softOf(colour);
-    const grad = g.createLinearGradient(0, top, 0, bottom);
-    grad.addColorStop(0, top < yBase ? (soft || colour) : "transparent");
-    grad.addColorStop(1, top < yBase ? "transparent" : (soft || colour));
-    g.save();
-    g.beginPath();
-    g.rect(0, top, w, bottom - top);
-    g.clip();
-    area();
-    if (!soft) g.globalAlpha = 0.22;
-    g.fillStyle = grad;
-    g.fill();
-    g.restore();
-  };
-  // Only the halves the run actually reached. Filling a side it never
-  // visited paints a colour over nothing, which is how a losing run
-  // came to carry a green wash along its top edge.
-  if (everAbove) half(up, padT, Math.min(yBase, h - padB));
-  if (everBelow) half(down, Math.max(yBase, padT), h - padB);
+  const soft = /^#[0-9a-f]{6}$/i.test(colour) ? colour + "3a" : "";
+  fill.addColorStop(0, soft || colour);
+  fill.addColorStop(1, "transparent");
+  g.beginPath();
+  g.moveTo(x(0), y(curve[0]));
+  for (let i = 1; i < curve.length; i++) g.lineTo(x(i), y(curve[i]));
+  g.lineTo(x(curve.length - 1), y(base));
+  g.lineTo(x(0), y(base));
+  g.closePath();
+  g.save();
+  if (!soft) g.globalAlpha = 0.22;
+  g.fillStyle = fill;
+  g.fill();
+  g.restore();
 
-  /* The line, in pieces. A segment that crosses the starting line is
-     cut at the crossing, so the colour changes where the run actually
-     went from ahead to behind rather than at the nearest sample. */
+  g.beginPath();
+  g.moveTo(x(0), y(curve[0]));
+  for (let i = 1; i < curve.length; i++) g.lineTo(x(i), y(curve[i]));
+  g.strokeStyle = colour;
   g.lineWidth = 2;
   g.lineJoin = "round";
-  g.lineCap = "round";
-  let from = 0;
-  const stroke = (a, b, ax, ay, bx, by, above) => {
-    g.beginPath();
-    g.moveTo(ax, ay);
-    for (let i = a + 1; i <= b; i++) g.lineTo(x(i), y(curve[i]));
-    if (bx !== null) g.lineTo(bx, by);
-    g.strokeStyle = above ? up : down;
-    g.stroke();
-  };
-  for (let i = 0; i < curve.length - 1; i++) {
-    const here = above(i);
-    const next = above(i + 1);
-    if (here === next) continue;
-    // Where between the two samples the line is worth exactly `base`.
-    const span = curve[i + 1] - curve[i];
-    const f = Math.abs(span) < 1e-12 ? 0 : (base - curve[i]) / span;
-    const cx = x(i) + (x(i + 1) - x(i)) * Math.max(0, Math.min(1, f));
-    stroke(from, i, x(from), y(curve[from]), cx, yBase, here);
-    from = i + 1;
-    // Start the next piece at the crossing, not at the next sample,
-    // or the line would have a gap at every crossing.
-    g.beginPath();
-    g.moveTo(cx, yBase);
-    g.lineTo(x(from), y(curve[from]));
-    g.strokeStyle = next ? up : down;
-    g.stroke();
-  }
-  stroke(from, curve.length - 1, x(from), y(curve[from]), null, null, above(from));
+  g.stroke();
 
   // Where it finished.
   g.beginPath();
   g.arc(x(curve.length - 1), y(curve[curve.length - 1]), 3.5, 0, Math.PI * 2);
-  g.fillStyle = ended ? up : down;
+  g.fillStyle = colour;
   g.fill();
 
   /* The point being asked about: a rule down the chart and a dot on
@@ -15553,6 +15721,11 @@ function bindChartDesk() {
     if (S.pendingMoment) goPendingMoment();
   }
 
+  /* Nothing held for this series yet - which is every timeframe
+     change, since the desk caches one series at a time. Say so over
+     the canvas rather than leaving an empty rectangle. */
+  paintChartVeils();
+
   (async () => {
     try {
       await pickMarket(S.chartFocus.symbol, S.chartFocus.timeframe);
@@ -15577,6 +15750,9 @@ function bindChartDesk() {
       const t = S.snap?.ticks?.[S.chartFocus.symbol];
       if (S.chart && t) S.chart.setTick(t);
       applyChartLevels();
+      // Bars are in, or the fetch came back empty and the veil now
+      // says which of those it was.
+      paintChartVeils();
       if (S.signalsEnabled && licFeat("chart_signals")) {
         await fetchChartSignals(S.chartFocus.symbol, S.chartFocus.timeframe);
       }
@@ -15726,8 +15902,11 @@ function mergeOlder(older, have) {
   const rows = Array.isArray(older) ? older : [];
   const kept = Array.isArray(have) ? have : [];
   if (!rows.length) return kept;
-  const seen = new Set(kept.map((b) => String(b && b.time)));
-  const add = rows.filter((b) => b && !seen.has(String(b.time)));
+  /* Normalised, for the same reason as everywhere else: an older
+     slab fetched through a different path must not re-add bars the
+     chart already holds under another spelling of the same time. */
+  const seen = new Set(kept.map((b) => barTime(b && b.time)));
+  const add = rows.filter((b) => b && !seen.has(barTime(b.time)));
   if (!add.length) return kept;
   return add.concat(kept);
 }
@@ -15925,6 +16104,160 @@ function histDate(iso) {
  */
 const HIST_SHOWN_MS = 9000;   // how long the "now showing" line stays up
 
+/* ── a chart with no candles yet shows that, not an empty box ───────
+ *
+ * Asked for twice in the same message: until the candles for a symbol
+ * have finished downloading, do not show that symbol's chart - put a
+ * loading state in it with the state of the download; and when the
+ * timeframe is changed, show the same thing until the new timeframe
+ * is actually drawn.
+ *
+ * Both are the same gap. The desk holds exactly one series at a time
+ * (see cachedCandlesFor), so switching to M5 on a chart that was on
+ * H1 leaves it with nothing to draw, and what the trader saw was an
+ * empty rectangle - indistinguishable from a chart of a market with
+ * no data, or from a desk that had stopped. The download can take
+ * tens of seconds: six months of M5 is fifty thousand candles and
+ * MetaTrader only starts building a timeframe when something asks
+ * for it.
+ *
+ * The veil is only ever shown over a box that has nothing real in it.
+ * A chart that is holding the trader's own bars is never covered,
+ * even while a refresh is in flight, because hiding real candles
+ * behind a spinner is the bug this is cousin to.
+ */
+function veilOf(box) {
+  if (!box) return null;
+  let el = box.querySelector(":scope > .chart-veil");
+  if (!el) {
+    el = document.createElement("div");
+    el.className = "chart-veil";
+    el.setAttribute("aria-live", "polite");
+    box.appendChild(el);
+  }
+  return el;
+}
+
+/** What to say over a chart of `symbol`/`timeframe` that has no bars. */
+function veilState(symbol, timeframe) {
+  const p = historyProgressOf(symbol, timeframe);
+  const fresh = p && (Date.now() - p.at) < 60000;
+  if (fresh && p.want > 0 && p.have > 0 && !p.done) {
+    return {
+      text: I18N.t("charts.veil_getting", {
+        have: fmt(p.have, 0), want: fmt(p.want, 0), tf: timeframe,
+      }),
+      pct: Math.max(2, Math.min(100, Math.round((p.have / p.want) * 100))),
+    };
+  }
+  /* The download has reported itself finished and there is still
+     nothing to draw. That is not a loading state and must not keep
+     spinning - an endless spinner is how "the chart never loads" gets
+     reported when the truth is "this market has no bars here". */
+  if (fresh && p.done && !p.have) {
+    return { text: I18N.t("charts.veil_none", { tf: timeframe }), pct: -1, done: true };
+  }
+  return { text: I18N.t("charts.veil_loading", { tf: timeframe }), pct: -1 };
+}
+
+function paintVeil(box, symbol, timeframe) {
+  const el = veilOf(box);
+  if (!el) return;
+  const st = veilState(symbol, timeframe);
+  el.innerHTML = `${st.done ? "" : '<span class="chart-veil-spin" aria-hidden="true"></span>'}
+    <span class="chart-veil-txt">${esc(st.text)}</span>
+    ${st.pct >= 0 ? `<span class="chart-veil-bar"><i style="width:${st.pct}%"></i></span>` : ""}`;
+  el.hidden = false;
+  box.classList.add("is-waiting");
+}
+
+function clearVeil(box) {
+  if (!box) return;
+  const el = box.querySelector(":scope > .chart-veil");
+  if (el) el.remove();
+  box.classList.remove("is-waiting");
+}
+
+/* Enough chart to be worth looking at, in days.
+ *
+ * Asked for in these words: "once the candles go back at least a
+ * month it is fine for that loading to go away - but let the
+ * download carry on, the way the download status in the corner of
+ * the chart does."
+ *
+ * So the veil is not a gate on the whole six-month window any more.
+ * It comes down at the first month, and the download line above the
+ * chart keeps counting while the rest arrives behind the candles the
+ * trader is already reading. */
+const VEIL_ENOUGH_DAYS = 30;
+
+/** Does the desk hold bars it could draw for this series right now? */
+function haveBarsFor(symbol, timeframe) {
+  return Boolean(cachedCandlesFor(symbol, timeframe));
+}
+
+/**
+ * Enough of this series to drop the loading state.
+ *
+ * Four ways to be enough, and the last three matter as much as the
+ * first - a chart that can never reach a month must not sit behind a
+ * veil for ever:
+ *
+ *   * a month of candles is held;
+ *   * the download says it has finished;
+ *   * we hold everything the terminal says it has;
+ *   * nothing is downloading, so no more are coming anyway.
+ */
+function enoughBarsFor(symbol, timeframe, bars) {
+  const held = Array.isArray(bars) ? bars.length : 0;
+  if (!held) return false;
+  /* Not barsForDays(): that has a 400-bar floor for the analysis, and
+     a month of D1 is thirty candles. The question here is only
+     "does this reach back a month", so it is asked plainly. */
+  const mins = TF_MINUTES[String(timeframe || "M15").toUpperCase()] || 15;
+  const month = Math.ceil((VEIL_ENOUGH_DAYS * 24 * 60) / mins);
+  if (held >= month) return true;
+  const p = historyProgressOf(symbol, timeframe);
+  const fresh = p && (Date.now() - p.at) < 60000;
+  /* Nothing is arriving, so these are all the bars there will be. */
+  if (!fresh || p.done) return true;
+  const available = Number((historyDepthOf(symbol, timeframe) || {}).available || 0);
+  if (available > 0 && held >= available) return true;
+  return false;
+}
+
+/**
+ * Put the veil up or take it down, everywhere a chart is mounted.
+ *
+ * Cheap enough to call from anywhere that changes what is held: it
+ * touches at most one chart box and the cards on the experts page.
+ */
+function paintChartVeils() {
+  const f = S.chartFocus;
+  const deskBox = $("tv-chartbox");
+  if (deskBox && f) {
+    if (enoughBarsFor(f.symbol, f.timeframe, cachedCandlesFor(f.symbol, f.timeframe))) {
+      clearVeil(deskBox);
+    } else {
+      paintVeil(deskBox, f.symbol, f.timeframe);
+    }
+  } else if (deskBox) {
+    clearVeil(deskBox);
+  }
+  for (const cv of document.querySelectorAll("canvas[data-mini]")) {
+    const box = cv.parentElement;
+    if (!box) continue;
+    const symbol = cv.getAttribute("data-mini") || "";
+    const tf = cv.getAttribute("data-tf") || S.timeframe || "M15";
+    /* A card is a thumbnail of the last few hours - MINI_BARS of
+       them - so "enough" there is simply "any", and asking it for a
+       month would leave every card behind a spinner for ever. */
+    const held = (S._mini || {})[symbol + "|" + tf];
+    if (held && held.length) clearVeil(box);
+    else paintVeil(box, symbol, tf);
+  }
+}
+
 function noteHistoryProgress(d) {
   if (!d || !d.symbol || !d.timeframe) return;
   noteHistoryDepth(d.symbol, d.timeframe, d.depth);
@@ -15960,6 +16293,10 @@ function historyShownNote() {
 }
 
 function paintHistoryEdge() {
+  /* Before the early return below: the cards on the experts page have
+     no hint line of their own, and their veils read the same download
+     numbers this is called for. */
+  paintChartVeils();
   const el = $("tv-hint");
   if (!el) return;
   const f = S.chartFocus;
@@ -15992,11 +16329,18 @@ function paintHistoryEdge() {
   } else if (atEdge) {
     note = historyEdgeNote();
   }
-  el.innerHTML = note
-    ? `<span class="tv-hint-txt">${esc(note)}</span>`
-      + (pct >= 0 ? `<span class="tv-hint-bar"><i style="width:${pct}%"></i></span>` : "")
-    : "";
-  el.hidden = !note;
+  /* The second line: what the strategies have been asked about.
+     History and analysis are two different jobs over the same
+     candles, they run at the same time, and collapsing them into one
+     line meant whichever spoke last hid the other. */
+  const scan = signalCoverageNote();
+  const scanPct = signalCoveragePct();
+  const row = (text, bar) => `<span class="tv-hint-row">`
+    + `<span class="tv-hint-txt">${esc(text)}</span>`
+    + (bar >= 0 ? `<span class="tv-hint-bar"><i style="width:${bar}%"></i></span>` : "")
+    + `</span>`;
+  el.innerHTML = (note ? row(note, pct) : "") + (scan ? row(scan, scanPct) : "");
+  el.hidden = !note && !scan;
 }
 
 /* ── from a day in the calendar to the candle it happened on ───────
@@ -16165,6 +16509,10 @@ async function paintMiniCharts() {
     if (held && held.length) paintMiniChart(cv, symbol, held);
     want.push({ cv, symbol, tf, key });
   }
+  /* Until a card has candles it shows that it is waiting for them,
+     with the download's own numbers - never an empty box, and never
+     the previous symbol's chart. */
+  paintChartVeils();
   await Promise.all(want.map(async ({ cv, symbol, tf, key }) => {
     try {
       const c = await API.get(`/api/candles?symbol=${encodeURIComponent(symbol)}`
@@ -16175,6 +16523,7 @@ async function paintMiniCharts() {
       // The trader may have left the page while this was in the air.
       if (cv.isConnected === false) return;
       paintMiniChart(cv, symbol, bars);
+      clearVeil(cv.parentElement);
     } catch { /* keep whatever is in the box */ }
   }));
 }
@@ -16195,9 +16544,74 @@ function noteSignalCoverage(res) {
   S.signalCoverage = {
     from: Number(res.covered_from || 0),
     to: Number(res.covered_to || 0),
-    bars: Number(res.bars || 0),
+    bars: Number(res.bars || res.total_bars || 0),
     complete: res.complete !== false,
+    /* The candles themselves, by name. An index is not checkable
+       against anything the trader can see; a date is. */
+    fromTime: String(res.covered_from_time || ""),
+    toTime: String(res.covered_to_time || ""),
+    /* The slab the engine will work through next, which is the slab
+       it is working through while the next request is in the air -
+       this is what "show exactly which candles it is analysing"
+       needs, and the desk cannot derive it. */
+    nextFrom: Number.isFinite(Number(res.next_from)) ? Number(res.next_from) : null,
+    nextTo: Number.isFinite(Number(res.next_to)) ? Number(res.next_to) : null,
+    nextFromTime: String(res.next_from_time || ""),
+    nextToTime: String(res.next_to_time || ""),
+    busy: false,
   };
+}
+
+/* Analysed how much, of what, and what is being worked on now.
+ *
+ * The chart draws the regions; this is the sentence under it. Both
+ * were asked for together: "show the state of the chart analysis and
+ * the signalling, and show it precisely".
+ */
+function signalCoverageNote() {
+  const cov = S.signalCoverage;
+  if (!cov || !S.signalsEnabled || !S.showSignals) return "";
+  const total = Math.max(0, Math.round(cov.bars || 0));
+  const done = Math.max(0, Math.round((cov.to || 0) - (cov.from || 0)));
+  if (!total) return "";
+  if (cov.complete) {
+    return I18N.t("charts.scan_done", {
+      n: fmt(total, 0),
+      from: histDate(cov.fromTime), to: histDate(cov.toTime),
+    });
+  }
+  if (cov.busy && Number.isFinite(cov.nextFrom) && Number.isFinite(cov.nextTo)
+      && cov.nextTo > cov.nextFrom) {
+    return I18N.t("charts.scan_doing", {
+      n: fmt(Math.round(cov.nextTo - cov.nextFrom), 0),
+      from: histDate(cov.nextFromTime) || "—",
+      to: histDate(cov.nextToTime) || "—",
+      done: fmt(done, 0), total: fmt(total, 0),
+    });
+  }
+  return I18N.t("charts.scan_progress", {
+    done: fmt(done, 0), total: fmt(total, 0),
+    from: histDate(cov.fromTime), to: histDate(cov.toTime),
+  });
+}
+
+/** How far through the history the analysis has reached, 0-100. */
+function signalCoveragePct() {
+  const cov = S.signalCoverage;
+  if (!cov || cov.complete) return -1;
+  const total = Math.max(0, Math.round(cov.bars || 0));
+  if (!total) return -1;
+  const done = Math.max(0, Math.round((cov.to || 0) - (cov.from || 0)));
+  return Math.max(2, Math.min(100, Math.round((done / total) * 100)));
+}
+
+/** Tell the chart, and the line under it, that a pass is in flight. */
+function markSignalsBusy(busy) {
+  if (S.signalCoverage) S.signalCoverage.busy = Boolean(busy);
+  if (S.chart && typeof S.chart.setSignalCoverage === "function") {
+    S.chart.setSignalCoverage(S.signalCoverage);
+  }
+  paintHistoryEdge();
 }
 
 /**
@@ -16237,6 +16651,9 @@ async function fetchChartSignals(symbol, timeframe) {
     return;
   }
   S.signalsLoading = true;
+  // The chart outlines the slab being worked through only while a
+  // pass is actually running; this is what turns it on.
+  markSignalsBusy(true);
   try {
     /* As many bars as the chart is holding, not a flat 800 and not the
        whole six months either.
@@ -16285,6 +16702,7 @@ async function fetchChartSignals(symbol, timeframe) {
     S.chartSignals = [];
   } finally {
     S.signalsLoading = false;
+    markSignalsBusy(false);
   }
 }
 
@@ -16341,6 +16759,7 @@ async function pickMarket(symbol, timeframe, opts) {
     }
   }
   if (S.view === "charts" && S.chartFocus && S.chartFocus.symbol === symbol) {
+    paintChartVeils();
     if (S.chart && S.signalsEnabled) fetchChartSignals(symbol, timeframe);
     /* The bars have just landed. Arriving here from the calendar, this
        is the first moment the jump can actually be made - the chart was
@@ -16445,18 +16864,30 @@ function onLive(msg) {
       S.snap.ticks[t.symbol] = t;
       if (S.chart && (t.symbol === S.symbol || (S.chartFocus && t.symbol === S.chartFocus.symbol))) {
         S.chart.setTick(t);
-        const lbl = $("tick-lbl"); if (lbl) lbl.textContent = tickLabel();
       }
+      /* Straight to the screen. This used to wait for the next full
+         refresh pass, so a price that arrived several times a second
+         was displayed about once a second and lagged the terminal
+         visibly. It is a text write on a row that already exists. */
+      paintLivePrice(t.symbol);
     }
   }
   if (msg.type === "candle") {
     const c = msg.data || msg;
     if (c.symbol === S.symbol && (!S.timeframe || c.timeframe === S.timeframe)) {
-      const i = S.candles.findIndex((b) => b && b.time === c.time);
+      /* Matched on the NORMALISED time. Reported as "every time the
+         price changes it draws a new broken candle": the forming bar
+         comes back several times a second, and when it came back
+         under a different spelling of the same minute - the expert
+         writes 2026-11-23T10:00:00, the MetaTrader5 package writes
+         2026-11-23T10:00:00+00:00 - this test failed and the bar was
+         appended instead of updated. One tick, one new candle. */
+      const when = barTime(c.time);
+      const i = S.candles.findIndex((b) => b && barTime(b.time) === when);
       if (i >= 0) S.candles[i] = c;
       else {
         S.candles.push(c);
-        S.candles.sort((a, b) => String(a.time || "").localeCompare(String(b.time || "")));
+        S.candles.sort((a, b) => barTime(a.time).localeCompare(barTime(b.time)));
       }
       if (S.chart) {
         if (typeof S.chart.setLastBar === "function") S.chart.setLastBar(c);
@@ -16488,7 +16919,22 @@ function onLive(msg) {
         if (d.symbol) S.symbol = d.symbol;
         if (d.timeframe) S.timeframe = d.timeframe;
         S.candles = incoming;
+        /* WHICH series these are. Without this the desk held bars it
+           could not prove belonged to the chart in front of it, so
+           cachedCandlesFor() said no - and the loading veil stayed up
+           over a chart that was already drawing them. */
+        S.candlesKey = String(S.symbol || "") + "|" + String(S.timeframe || "");
         if (S.chart) S.chart.setBars(S.candles);
+        paintChartVeils();
+        /* A half-finished download now sends its bars too, so the
+           chart can be read while the rest arrives (d.partial). Two
+           consequences: the download line must stay up - it is fed
+           by hist_progress and paintHistoryEdge, not by this - and
+           the marks have to be asked for again against the longer
+           series, or the trader reads a month of candles with the
+           signals of the first few hundred bars on it. */
+        paintHistoryEdge();
+        if (same) scheduleSignalFill(S.symbol, S.timeframe);
       }
     }
   }

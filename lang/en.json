@@ -336,7 +336,7 @@
     "lot_help": "How the robot sizes every entry.",
     "lot_auto": "Auto",
     "lot_manual": "Manual",
-    "lot_auto_sub": "Auto: each strategy trades with its own preset volume (Normal 0.10, Scalping 0.05).",
+    "lot_auto_sub": "Auto: the robot sizes each entry itself, between 0.01 and 1.00 lot — a stronger signal is staked harder, and the ceiling rises with your equity (about 0.10 per 1,000).",
     "lot_manual_sub": "Manual: the robot opens every entry with exactly this lot — on all symbols.",
     "lot_value": "Lot (e.g. 0.10)",
     "bad_type": "Only Python or text files (.py or .txt)",
@@ -588,7 +588,13 @@
     "hist_edge_fix": "MetaTrader keeps only a set number of bars — Tools → Options → Charts → Max bars in chart.",
     "hist_loading": "Fetching older candles…",
     "hist_getting": "Downloading candles from MetaTrader — {have} of {want} {tf}",
-    "hist_shown": "Now showing {from} to {to} — {n} {tf} candles"
+    "hist_shown": "Now showing {from} to {to} — {n} {tf} candles",
+    "veil_loading": "Loading {tf} candles…",
+    "veil_getting": "Downloading {tf} candles from MetaTrader — {have} of {want}",
+    "veil_none": "MetaTrader has not sent any {tf} candles for this symbol yet.",
+    "scan_done": "Analysed all {n} candles — {from} to {to}",
+    "scan_progress": "Analysed {done} of {total} candles — back to {from}",
+    "scan_doing": "Analysing {n} candles now — {from} to {to} · {done} of {total} done"
   },
   "terminal": {
     "title": "Terminal",
@@ -1437,7 +1443,7 @@
     "live_curve_hint": "Equity as the replay builds it. The finished curve replaces this when the run ends.",
     "replay_wait": "Lining up the replayed bars…",
     "replay_outside": "The bar being replayed is outside the history this desk holds.",
-    "prov_lot_auto": "lot: automatic (the strategy's own)",
+    "prov_lot_auto": "lot: automatic (sized by signal strength)",
     "prov_lot_manual": "lot: fixed at",
     "prov_max_open": "max open",
     "t_lots": "Lots",
@@ -1735,7 +1741,9 @@
     "lvl_sl_side": "A stop has to sit on the losing side of the price",
     "lvl_tp_side": "A target has to sit on the winning side of the price",
     "signals_analysing": "Still analysing",
-    "close": "Close"
+    "close": "Close",
+    "signals_unanalysed": "Not analysed yet",
+    "signals_doing_now": "Analysing these {n} candles"
   },
   "signal": {
     "buy": "Buy signal",
@@ -2022,7 +2030,10 @@
     "engine_offline": "The Python engine is offline.",
     "premium_required": "This feature is part of the paid plan.",
     "backtest_idle": "No backtest is running.",
-    "unknown_endpoint": "This desk's server is older than the page it gave you, so it does not know this request yet. Close AURION and start it again — the update is already on disk."
+    "unknown_endpoint": "This desk's server is older than the page it gave you, so it does not know this request yet. Close AURION and start it again — the update is already on disk.",
+    "history_downloading": "The {timeframe} candles for {symbol} are still coming down from MetaTrader — this timeframe had not been opened before, so the terminal is building it now. Give it a moment and run the backtest again.",
+    "no_bars_in_period_filling": "There are no {timeframe} bars in the period you picked yet — this timeframe is still downloading. Try again in a moment.",
+    "no_bars_in_period_have_filling": "This terminal holds {timeframe} bars for {symbol} only from {oldest} to {newest} so far, and is still downloading more. Wait a moment and try again, or pick a period inside that range."
   },
   "blocker": {
     "mt5_down": "MetaTrader is not connected",

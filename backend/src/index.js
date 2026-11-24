@@ -1251,21 +1251,51 @@ wss.on("connection", (socket, req) => {
       if (socket.readyState !== 1) return;
       try { socket.send(JSON.stringify({ type: "engine", data: { state } })); } catch { /* */ }
     };
-    upstream = new (require("ws"))(`ws://${host}:${port}/v1/stream`);
-    upstream.on("open", () => tell("online"));
-    upstream.on("message", (buf) => {
-      if (socket.readyState === 1) socket.send(buf.toString());
-    });
-    upstream.on("close", () => {
-      if (socket.readyState === 1) {
-        tell("offline");
-        socket.close();
-      }
-    });
-    upstream.on("error", () => {
-      tell("offline");
-      try { socket.close(); } catch { /* */ }
-    });
+
+    /* A dropped upstream is not automatically a dead engine.
+     *
+     * Reported: "the engine keeps going off and on in the desk". Every
+     * hiccup on this proxy socket - the engine restarting after an
+     * update, a stream closed by a slow write, anything at all - used
+     * to say "offline" to the browser and then close the browser's
+     * own socket. The desk went red, waited its two second reconnect,
+     * said green again, and the trader watched that cycle instead of
+     * their chart.
+     *
+     * So the drop is treated as what it is: this connection ended.
+     * It is reconnected here, a few times, quickly - the browser
+     * keeps its socket throughout and gets a fresh `hello` with a
+     * full snapshot the moment the new upstream opens. Only when the
+     * engine really will not take a connection is "offline" sent, and
+     * then the browser socket is closed so the desk's own reconnect
+     * takes over.
+     */
+    const RETRIES = 4;
+    const RETRY_MS = 600;
+    let tries = 0;
+    let gone = false;
+
+    const open = () => {
+      if (gone || socket.readyState !== 1) return;
+      upstream = new (require("ws"))(`ws://${host}:${port}/v1/stream`);
+      upstream.on("open", () => { tries = 0; tell("online"); });
+      upstream.on("message", (buf) => {
+        if (socket.readyState === 1) socket.send(buf.toString());
+      });
+      const retry = () => {
+        if (gone || socket.readyState !== 1) return;
+        if (tries >= RETRIES) {
+          tell("offline");
+          try { socket.close(); } catch { /* */ }
+          return;
+        }
+        tries += 1;
+        setTimeout(open, RETRY_MS);
+      };
+      upstream.on("close", retry);
+      upstream.on("error", () => { try { upstream.close(); } catch { /* */ } });
+    };
+    open();
     socket.on("message", (buf) => {
       // Prevent auth message loop after authenticated
       try {
@@ -1275,6 +1305,7 @@ wss.on("connection", (socket, req) => {
       if (upstream && upstream.readyState === 1) upstream.send(buf.toString());
     });
     socket.on("close", () => {
+      gone = true;
       try { if (upstream) upstream.close(); } catch {}
     });
   }

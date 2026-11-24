@@ -303,6 +303,10 @@ check("the walk back keeps going until the day is covered", () => {
     + /const CHART_OPEN_DAYS = \d+;/.exec(APP)[0] + "\n"
     + liftFn(APP, "barsForDays") + "\n" + liftFn(APP, "chartDays") + "\n"
     + liftFn(APP, "historyStep") + "\n" + liftFn(APP, "oldestHeldTime") + "\n"
+/* barTime lives in charts.js, which the page loads first; this
+       sandbox has to be given it or mergeOlder cannot de-duplicate. */
+    + "function barTime(v){let t=String(v==null?\"\":v).trim();if(!t)return \"\";"
+    + "t=t.replace(\" \",\"T\").replace(/\\.\\d+/,\"\").replace(/(Z|[+-]\\d{2}:?\\d{2})$/,\"\");return t;}\n"
     + liftFn(APP, "mergeOlder") + "\n" + liftFn(APP, "noteHistoryDepth") + "\n"
     + liftFn(APP, "historyDepthOf") + "\n" + liftFn(APP, "noteHistoryProgress") + "\n"
     + liftFn(APP, "paintHistoryEdge") + "\n" + liftFn(APP, "loadOlderSlab") + "\n"
@@ -350,6 +354,10 @@ check("the walk stops when the history genuinely runs out", () => {
     + /const CHART_OPEN_DAYS = \d+;/.exec(APP)[0] + "\n"
     + liftFn(APP, "barsForDays") + "\n" + liftFn(APP, "chartDays") + "\n"
     + liftFn(APP, "historyStep") + "\n" + liftFn(APP, "oldestHeldTime") + "\n"
+/* barTime lives in charts.js, which the page loads first; this
+       sandbox has to be given it or mergeOlder cannot de-duplicate. */
+    + "function barTime(v){let t=String(v==null?\"\":v).trim();if(!t)return \"\";"
+    + "t=t.replace(\" \",\"T\").replace(/\\.\\d+/,\"\").replace(/(Z|[+-]\\d{2}:?\\d{2})$/,\"\");return t;}\n"
     + liftFn(APP, "mergeOlder") + "\n" + liftFn(APP, "noteHistoryDepth") + "\n"
     + liftFn(APP, "historyDepthOf") + "\n" + liftFn(APP, "noteHistoryProgress") + "\n"
     + liftFn(APP, "paintHistoryEdge") + "\n" + liftFn(APP, "loadOlderSlab") + "\n"

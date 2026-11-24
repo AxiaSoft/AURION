@@ -3,6 +3,40 @@
 // light/dark theme. Safe to call in non-DOM environments (falls back to dark).
 let __aurionChartTheme = null;
 let __aurionChartThemeRev = -1;
+/* ── one spelling for a bar's time ──────────────────────────────────
+ *
+ * Reported: "the candles are printing broken - lots of long shadows
+ * one after another, and every time the price changes it draws a new
+ * broken candle."
+ *
+ * They were new candles. The same bar was arriving under two
+ * different strings, and every comparison in the chart is a string
+ * comparison: the de-duplication in setBars, the "is this the bar we
+ * already have" test in setLastBar, the sort that keeps the series in
+ * order, the lookup that places a signal. MetaTrader's expert writes
+ * "2026-11-23T10:00:00"; the MetaTrader5 Python package and the
+ * engine's own clock write "2026-11-23T10:00:00+00:00"; parts of the
+ * archive hold "2026-11-23 10:00:00". One bar, three names, so the
+ * forming bar came back as a brand new candle every time it was
+ * re-sent - and because " " < "T" < "+" the duplicates did not even
+ * land next to each other, which is what made the chart look shuffled
+ * rather than merely doubled.
+ *
+ * The engine now normalises at the source. This is the same rule on
+ * this side, because the desk also reads bars from its own cache and
+ * from an engine that may be older than it is.
+ */
+function barTime(value) {
+  let text = String(value == null ? "" : value).trim();
+  if (!text) return "";
+  /* Only the separator between the date and the time: a string this
+     cannot read comes out unchanged rather than half-rewritten. */
+  if (text.length > 10 && text[10] === " ") text = text.slice(0, 10) + "T" + text.slice(11);
+  text = text.replace(/\.\d+/, "");                  // fractional seconds
+  text = text.replace(/(Z|[+-]\d{2}:?\d{2})$/, "");   // a zone - these are all UTC
+  return text;
+}
+
 function chartTheme() {
   const rev = (typeof window !== "undefined" && window.__aurionThemeRev) || 0;
   if (__aurionChartTheme && __aurionChartThemeRev === rev) return __aurionChartTheme;
@@ -768,6 +802,7 @@ class CandleChart {
     if (lib && !lib.SERIES_TYPES.some((t) => t.id === type)) return this.type;
     this.type = type;
     this._series = null;
+    this._timeIdx = null;
     this.saveState();
     this.draw();
     return type;
@@ -814,6 +849,43 @@ class CandleChart {
   }
 
   /**
+   * Where a bar of this time sits in THIS chart's history.
+   *
+   * Reported: "signals are not shown on the newer candles - I have
+   * never seen one on the last candles". The marks were there; they
+   * were being drawn in the wrong place, which on a chart means on
+   * candles from another week.
+   *
+   * The engine analyses the window it was asked for and numbers the
+   * marks from the start of THAT array. The desk numbers its bars
+   * from the start of ITS OWN array, which is a different array the
+   * moment the trader drags older history in, or the engine's cache
+   * reaches back further than the window the desk asked for. Taking
+   * the engine's index as a position on this chart therefore slid
+   * every mark left by the difference - off the recent candles
+   * entirely, which is exactly what was being seen.
+   *
+   * A bar's time is the same fact on both sides, so that is what is
+   * matched on. The index survives only as a fallback for a mark too
+   * old to carry one.
+   */
+  barIndexOfTime(time) {
+    const key = barTime(time);
+    if (!key) return -1;
+    if (!this._timeIdx || this._timeIdxLen !== this.bars.length) {
+      const map = new Map();
+      for (let i = 0; i < this.bars.length; i += 1) {
+        const t = barTime(this.bars[i].time || this.bars[i].ts);
+        if (t) map.set(t, i);
+      }
+      this._timeIdx = map;
+      this._timeIdxLen = this.bars.length;
+    }
+    const at = this._timeIdx.get(key);
+    return at === undefined ? -1 : at;
+  }
+
+  /**
    * How much of the history the engine has marked so far.
    *
    * The marks are strategies replayed bar by bar, which takes real
@@ -827,59 +899,151 @@ class CandleChart {
     this.draw();
   }
 
-  /** Shade and label the stretch that has not been analysed yet. */
+  /**
+   * Which candles have been analysed, which have not, and which are
+   * being worked on right now.
+   *
+   * Reported: "that analysis square is half the screen with 'still
+   * analysing' written in it, and then the signals are shown OUTSIDE
+   * the square - show exactly which candles it is running on."
+   *
+   * The square was the UNANALYSED stretch and the label said
+   * "analysing", so it read as a claim about itself: this part is
+   * being worked on. It was the opposite - that part had not been
+   * looked at yet, and the marks outside it were the finished work.
+   * One mislabelled rectangle, and the picture said the reverse of
+   * what was true.
+   *
+   * Now there are two regions and they say what they are. The pale
+   * wash is the stretch nobody has analysed yet, labelled as such.
+   * The slab the engine is working through is outlined in its own
+   * colour with its own label, so "which candles is it on" has an
+   * answer that can be pointed at. And the boundary between analysed
+   * and not is drawn whether or not any setups have been found -
+   * before, a chart with no marks yet showed no boundary at all, so
+   * the emptiest chart, which is the one most likely to be misread,
+   * was the one that explained itself least.
+   */
   paintSignalCoverage(L) {
     const cov = this.signalCoverage;
     if (!cov || cov.complete || !this.showSignals) return;
-    if (!this.signals || !this.signals.length) return;
-    const edge = Number(cov.from) - L.start;
-    // Entirely off the left of the view: nothing unanalysed is visible.
-    if (!(edge > 0)) return;
-    const x = Math.min(L.plotR, Math.max(L.plotL, L.xOf(Math.min(edge, L.rows.length - 1))));
-    if (x <= L.plotL + 1) return;
     const ctx = this.ctx;
     const T = chartTheme();
-    ctx.save();
-    /* A wash, not a curtain. The candles underneath are real history
-       and must stay readable - the only thing being said here is that
-       no strategy has been asked about them yet. */
-    ctx.globalAlpha = 0.07;
-    ctx.fillStyle = T.muted;
-    ctx.fillRect(L.plotL, L.plotT, x - L.plotL, L.plotB - L.plotT);
-    ctx.globalAlpha = 1;
-    ctx.setLineDash([4, 4]);
-    ctx.strokeStyle = T.muted;
-    ctx.globalAlpha = 0.45;
-    ctx.lineWidth = 1;
-    ctx.beginPath();
-    ctx.moveTo(x + 0.5, L.plotT);
-    ctx.lineTo(x + 0.5, L.plotB);
-    ctx.stroke();
-    ctx.setLineDash([]);
-    /* Only worth saying if there is room to say it; a clipped word is
-       worse than the shading alone, which already reads as "different
-       from the rest". */
-    const text = this.i18n("chart.signals_analysing", "Still analysing");
-    ctx.font = "11px IBM Plex Mono, Vazirmatn, monospace";
-    const w = ctx.measureText(text).width;
-    if (x - L.plotL > w + 16) {
-      ctx.globalAlpha = 0.75;
-      ctx.fillStyle = T.muted;
-      ctx.textAlign = "right";
+    const lastIdx = Math.max(0, L.rows.length - 1);
+    /* Boundaries by TIME where the engine named one. Its indices
+       count from the start of the window it analysed, so using them
+       directly drew the "not analysed yet" edge on the wrong
+       candles - the same fault as the marks themselves. */
+    const at = (time, fallback) => {
+      const found = this.barIndexOfTime(time);
+      return found >= 0 ? found : Number(fallback);
+    };
+    // An index in the whole history, as an x on this view.
+    const xAt = (i) => {
+      const rel = Math.max(0, Math.min(lastIdx, i - L.start));
+      return Math.min(L.plotR, Math.max(L.plotL, L.xOf(rel)));
+    };
+
+    const label = (text, x, align) => {
+      ctx.font = "11px IBM Plex Mono, Vazirmatn, monospace";
+      const w = ctx.measureText(text).width;
+      if (w + 16 > Math.abs(L.plotR - L.plotL)) return;
+      ctx.globalAlpha = 0.8;
+      ctx.textAlign = align;
       ctx.textBaseline = "top";
-      ctx.fillText(text, x - 8, L.plotT + 6);
+      ctx.fillText(text, x, L.plotT + 6);
+      ctx.globalAlpha = 1;
+    };
+
+    ctx.save();
+
+    /* The stretch nobody has looked at yet. A wash, not a curtain:
+       the candles underneath are real history and must stay
+       readable - the only thing being said is that no strategy has
+       been asked about them. */
+    const from = at(cov.fromTime, cov.from);
+    const edge = from - L.start;
+    if (edge > 0) {
+      const x = xAt(from);
+      if (x > L.plotL + 1) {
+        ctx.globalAlpha = 0.07;
+        ctx.fillStyle = T.muted;
+        ctx.fillRect(L.plotL, L.plotT, x - L.plotL, L.plotB - L.plotT);
+        ctx.globalAlpha = 0.45;
+        ctx.setLineDash([4, 4]);
+        ctx.strokeStyle = T.muted;
+        ctx.lineWidth = 1;
+        ctx.beginPath();
+        ctx.moveTo(x + 0.5, L.plotT);
+        ctx.lineTo(x + 0.5, L.plotB);
+        ctx.stroke();
+        ctx.setLineDash([]);
+        ctx.fillStyle = T.muted;
+        if (x - L.plotL > 60) {
+          label(this.i18n("chart.signals_unanalysed", "Not analysed yet"), x - 8, "right");
+        }
+      }
     }
+
+    /* The slab being worked through on this pass. Only while the desk
+       says a request is actually in the air - an outline that stays
+       up between passes claims work is happening when nothing is. */
+    const nf = at(cov.nextFromTime, cov.nextFrom);
+    /* next_to is exclusive and next_to_time names the LAST bar in the
+       slab, so the bound is one past the bar that time resolves to. */
+    const ntAt = this.barIndexOfTime(cov.nextToTime);
+    const nt = ntAt >= 0 ? ntAt + 1 : Number(cov.nextTo);
+    if (cov.busy && Number.isFinite(nf) && Number.isFinite(nt) && nt > nf
+        && nt > L.start && nf < L.start + L.rows.length) {
+      const x0 = xAt(nf);
+      const x1 = xAt(nt);
+      if (x1 - x0 >= 2) {
+        ctx.globalAlpha = 0.13;
+        ctx.fillStyle = T.violet || T.muted;
+        ctx.fillRect(x0, L.plotT, x1 - x0, L.plotB - L.plotT);
+        ctx.globalAlpha = 0.9;
+        ctx.strokeStyle = T.violet || T.muted;
+        ctx.lineWidth = 1.5;
+        ctx.setLineDash([6, 3]);
+        ctx.beginPath();
+        ctx.rect(x0 + 0.5, L.plotT + 0.5, Math.max(2, x1 - x0 - 1), L.plotB - L.plotT - 1);
+        ctx.stroke();
+        ctx.setLineDash([]);
+        ctx.globalAlpha = 1;
+        ctx.fillStyle = T.violet || T.muted;
+        const n = Math.max(0, Math.round(nt - nf));
+        label(this.i18n("chart.signals_doing_now", "Analysing these {n} candles")
+          .replace("{n}", String(n)), (x0 + x1) / 2, "center");
+      }
+    }
+
     ctx.restore();
   }
 
   setLastBar(b) {
     if (!b) return;
     if (!this.bars.length) { this.setBars([b]); return; }
-    const t = String(b.time || b.ts || "");
+    const t = barTime(b.time || b.ts);
+    if (!t) return;
     const last = this.bars[this.bars.length - 1];
-    if (t && String(last.time || last.ts || "") === t) this.bars[this.bars.length - 1] = b;
-    else this.bars.push(b);
+    const lastT = barTime(last.time || last.ts);
+    if (t === lastT) {
+      this.bars[this.bars.length - 1] = b;
+    } else if (t > lastT) {
+      this.bars.push(b);
+    } else {
+      /* An older bar, arriving late. Appending it blindly left the
+         series out of order, and an out-of-order series is drawn as a
+         chart that jumps backwards and forwards - long wicks between
+         bars that do not belong next to each other. Replace it where
+         it belongs, or put it there. */
+      let at = this.bars.length - 1;
+      while (at >= 0 && barTime(this.bars[at].time || this.bars[at].ts) > t) at -= 1;
+      if (at >= 0 && barTime(this.bars[at].time || this.bars[at].ts) === t) this.bars[at] = b;
+      else this.bars.splice(at + 1, 0, b);
+    }
     this._series = null;
+    this._timeIdx = null;
     this.draw();
   }
 
@@ -888,14 +1052,19 @@ class CandleChart {
     const prevSpan = this.span;
     const prevOff = this.offset;
     const raw = Array.isArray(bars) ? bars.filter((b) => b && (b.close || b.c)) : [];
+    /* Keyed on the NORMALISED time, so the same bar under two
+       spellings is one bar - see barTime. The bar keeps the time it
+       arrived with for everything else; only the key and the sort are
+       normalised, which is all that was ever disagreeing. */
     const map = new Map();
     for (const b of raw) {
-      const t = String(b.time || b.ts || "");
+      const t = barTime(b.time || b.ts);
       if (!t) continue;
       map.set(t, b);
     }
-    this.bars = [...map.values()].sort((a, b) => String(a.time || a.ts || "").localeCompare(String(b.time || b.ts || "")));
+    this.bars = [...map.values()].sort((a, b) => barTime(a.time || a.ts).localeCompare(barTime(b.time || b.ts)));
     this._series = null;
+    this._timeIdx = null;
     if (!had && this._wantView) {
       /* Coming back to a chart that was already open once. The window
          it was left on is restored rather than reset - see saveView. */
@@ -2150,20 +2319,24 @@ class CandleChart {
     // Build map time->index for fast lookup, but also use index if available
     const timeMap = new Map();
     for (let i = 0; i < rows.length; i++) {
-      timeMap.set(rows[i].t, i);
+      timeMap.set(barTime(rows[i].t), i);
     }
     for (const sig of this.signals) {
+      /* The bar's own time decides where this goes. The engine's
+         index is numbered from the start of the window IT analysed,
+         which is not this chart's array - see barIndexOfTime. */
       let idx = -1;
-      if (Number.isFinite(sig.index)) {
-        // global index, convert to local slice
-        const globalIdx = Number(sig.index);
-        idx = globalIdx - L.start;
+      const when = barTime(sig.time);
+      if (when && timeMap.has(when)) {
+        idx = timeMap.get(when);
+      } else if (sig.time) {
+        const global = this.barIndexOfTime(sig.time);
+        if (global < 0) continue;     // that bar is not on this chart at all
+        idx = global - L.start;       // on the chart, scrolled out of view
+      } else if (Number.isFinite(sig.index)) {
+        idx = Number(sig.index) - L.start;
       }
-      if (idx < 0 || idx >= rows.length) {
-        if (sig.time && timeMap.has(sig.time)) {
-          idx = timeMap.get(sig.time);
-        } else continue;
-      }
+      if (idx < 0 || idx >= rows.length) continue;
       const row = rows[idx];
       if (!row) continue;
       const x = L.xOf(idx);
@@ -4662,6 +4835,6 @@ class CandleChart {
 
 if (typeof module !== "undefined" && module.exports) {
   module.exports = {
-    SHAPE_POINTS, SHAPE_LABELS, CandleChart,
+    SHAPE_POINTS, SHAPE_LABELS, CandleChart, barTime,
   };
 }

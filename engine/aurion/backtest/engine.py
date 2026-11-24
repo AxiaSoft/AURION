@@ -11,6 +11,7 @@ from typing import Any
 from ..ai.engine import AIEngine
 from ..ai.features import build_feature_frame
 from ..ai.models import LiveModels
+from ..runtime.sizing import auto_lot
 from ..runtime.stops import resolve_stop_r
 from ..strategy.base import StrategyContext
 from ..util.clock import utc_iso
@@ -529,7 +530,7 @@ class Backtester:
                 positions.append({
                     "symbol": symbol,
                     "type": action,
-                    "volume": self._entry_volume(payload, volume_mode, manual_volume),
+                    "volume": self._entry_volume(payload, volume_mode, manual_volume, equity),
                     "entry": price,
                     "sl": sl_px,
                     # The stop as it was placed. Break-even and trailing
@@ -819,14 +820,25 @@ class Backtester:
             return None
         return frame.iloc[[pos]]
 
-    def _entry_volume(self, payload: dict[str, Any], mode: str, manual: float) -> float:
+    def _entry_volume(
+        self,
+        payload: dict[str, Any],
+        mode: str,
+        manual: float,
+        equity: float = 0.0,
+    ) -> float:
         """The lot this entry would actually have been given.
 
-        Mirrors the live robot's rule (runtime/trader.py::_robot_volume):
-        manual mode pins every robot trade to the trader's fixed lot,
-        auto leaves the strategy's own volume alone. The replay used to
-        ignore the setting and fall back to a hard-coded 0.1, so a desk
-        set to trade 1.0 lots was shown the profit of a 0.1-lot run.
+        Mirrors the live robot's rule (runtime/trader.py::_robot_volume)
+        exactly, or the replay is a test of a robot nobody is running:
+        manual pins every entry to the trader's fixed lot; auto sizes it
+        from the signal's own confidence against the equity standing
+        behind it at that bar, which is why `equity` is the running
+        figure rather than the starting one - a replay that drew down
+        trades smaller afterwards, the same way the live desk would.
+
+        A signal carrying no confidence keeps the volume it asked for;
+        there is nothing to size it from.
         """
         if str(mode or "auto") == "manual":
             try:
@@ -835,6 +847,12 @@ class Backtester:
                 fixed = 0.0
             if fixed > 0:
                 return fixed
+        try:
+            conf = float(payload.get("confidence") or 0)
+        except (TypeError, ValueError):
+            conf = 0.0
+        if conf > 0:
+            return auto_lot(conf, equity)
         try:
             vol = float(payload.get("volume") or 0)
         except (TypeError, ValueError):

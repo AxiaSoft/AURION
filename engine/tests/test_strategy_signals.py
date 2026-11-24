@@ -116,11 +116,20 @@ def test_each_bar_sees_only_its_own_past():
     bars = series(400)
     strat = Always()
     replay(bars, [("always", strat)], "EURUSD", "M15")
-    # The strategy records len(candles) on every call. Those lengths must be
-    # strictly increasing and must never exceed the index being evaluated,
-    # which is what "no look-ahead" means in practice.
-    assert strat.seen == sorted(strat.seen)
-    assert strat.seen[-1] == len(bars)
+    # The strategy records len(candles) on every call.
+    #
+    # The replay now walks the slab from the NEWEST bar backwards, so
+    # that a pass which runs out of its time budget sacrifices the
+    # oldest bars rather than the ones at the right-hand edge - a
+    # trader can act on a mark on the last candle and cannot act on
+    # one from March. So these lengths descend instead of ascending.
+    #
+    # The property being protected is not the order, it is that no bar
+    # was ever shown the future: every call sees exactly i+1 bars for
+    # the bar i it is judging, each length appears once, and the
+    # largest is the whole series.
+    assert strat.seen == sorted(strat.seen, reverse=True)
+    assert strat.seen[0] == len(bars)
     assert len(set(strat.seen)) == len(strat.seen)
 
 

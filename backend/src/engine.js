@@ -66,9 +66,27 @@ async function proxy(method, path, body) {
   }
 }
 
+/* How long the engine is given to answer a health check.
+ *
+ * It was 2500ms, and that number is the single biggest cause of "the
+ * engine keeps going off and on in the desk". The engine is one
+ * Python process with one event loop: saving a few thousand candles,
+ * answering a snapshot and starting a backtest all happen on it, and
+ * any of them can hold the loop for longer than two and a half
+ * seconds on a busy machine. The desk then painted a dead engine over
+ * a perfectly working one, the EA stayed attached throughout, and the
+ * light went green again on the next poll.
+ *
+ * Five seconds is still far below the point where a real failure
+ * would go unnoticed - a dead engine refuses the TCP connection
+ * immediately and never waits for this at all. The timeout only
+ * matters for an engine that IS there and IS answering, slowly.
+ */
+const HEALTH_TIMEOUT_MS = 5000;
+
 async function healthy() {
   try {
-    const result = await request("GET", "/health", undefined, 2500);
+    const result = await request("GET", "/health", undefined, HEALTH_TIMEOUT_MS);
     return Boolean(result.data && result.data.ok);
   } catch {
     return false;
@@ -94,7 +112,7 @@ async function buildState() {
   let pid = 0;
   let startedAt = "";
   try {
-    const result = await request("GET", "/health", undefined, 2500);
+    const result = await request("GET", "/health", undefined, HEALTH_TIMEOUT_MS);
     const data = (result && result.data) || {};
     online = Boolean(data.ok);
     running = String(data.build_id || "");
@@ -145,4 +163,4 @@ async function buildState() {
   };
 }
 
-module.exports = { proxy, request, healthy, base, buildState };
+module.exports = { proxy, request, healthy, base, buildState, HEALTH_TIMEOUT_MS };

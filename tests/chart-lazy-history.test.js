@@ -98,7 +98,11 @@ check("the slab is bounded on every timeframe, including M1", () => {
 check("older bars are merged without duplicating the joint", () => {
   const box = { console };
   vm.createContext(box);
-  vm.runInContext(liftFn(APP, "mergeOlder") + "\nthis.mergeOlder = mergeOlder;", box);
+  /* barTime is charts.js's, and mergeOlder de-duplicates with it. */
+  const barTimeSrc = "function barTime(v){let t=String(v==null?'':v).trim();"
+    + "if(!t)return '';return t.replace(' ','T').replace(/\\.\\d+/,'')"
+    + ".replace(/(Z|[+-]\\d{2}:?\\d{2})$/,'');}";
+  vm.runInContext(barTimeSrc + "\n" + liftFn(APP, "mergeOlder") + "\nthis.mergeOlder = mergeOlder;", box);
   const have = [{ time: "b" }, { time: "c" }];
   const out = box.mergeOlder([{ time: "a" }, { time: "b" }], have);
   if (out.length !== 3) throw new Error("got " + out.length + " bars, expected 3");

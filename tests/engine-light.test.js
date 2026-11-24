@@ -96,6 +96,25 @@ function desk(fetchImpl) {
 
 const chipState = (win) => win.document.getElementById("st-engine").dataset.state;
 
+/* The light goes red on a CONFIRMED miss, not on the first one.
+ *
+ * Reported in the user's next round: "the engine's state in the desk
+ * keeps going off and on". It did, because one slow /api/health or
+ * one proxy socket that reconnected was enough to paint a dead engine
+ * over a working one - while the backend supervisor, the thing that
+ * would actually restart it, requires three misses before it even
+ * considers the engine gone. The light was stricter than the
+ * watchdog, so it announced deaths nobody else believed in.
+ *
+ * Green is still instant; only the bad news waits for a second
+ * opinion (ENGINE_DOWN_MISSES, two probes, under half a second). So
+ * every test below that wants a dead engine says so twice - which is
+ * the contract, stated. */
+function engineDied(T) {
+  T.noteEngine(false, "test");
+  T.noteEngine(false, "test");
+}
+
 /* ====================================================== 1. the chip ==== */
 
 check("a dead engine turns the light red even though the snapshot survives", () => {
@@ -109,6 +128,10 @@ check("a dead engine turns the light red even though the snapshot survives", () 
   /* The snapshot is deliberately left exactly where it was: the tables
      keep their last good reading, and the light still has to change. */
   T.noteEngine(false, "test");
+  if (chipState(win) !== "live") {
+    throw new Error("one missed answer turned the light red - this is the flapping");
+  }
+  T.noteEngine(false, "test");
   if (T.S.snap === null) throw new Error("the snapshot was thrown away - the tables would blank");
   if (chipState(win) !== "down") throw new Error("the engine died and the chip stayed green");
   return "snapshot kept, light honest";
@@ -119,7 +142,7 @@ check("the light repaints on the spot, not at the next render", () => {
   const T = win.__E;
   T.noteEngine(true, "test");
   const before = win.document.getElementById("st-engine").textContent;
-  T.noteEngine(false, "test");
+  engineDied(T);
   const after = win.document.getElementById("st-engine").textContent;
   if (before === after) throw new Error("the label did not change without another render pass");
   return "noteEngine paints";
@@ -128,7 +151,7 @@ check("the light repaints on the spot, not at the next render", () => {
 check("the chip says since when, in the trader's locale", () => {
   const win = desk();
   const T = win.__E;
-  T.noteEngine(false, "test");
+  engineDied(T);
   const title = win.document.getElementById("st-engine").title;
   if (!title || !/·/.test(title)) throw new Error("no 'since' on the chip: " + title);
   return title;
@@ -141,6 +164,7 @@ check("the socket's engine notice moves the light immediately", () => {
   const T = win.__E;
   T.noteEngine(true, "test");
   T.onLive({ type: "engine", data: { state: "offline" } });
+  T.onLive({ type: "engine", data: { state: "offline" } });
   if (chipState(win) !== "down") throw new Error("the backend said offline and nothing happened");
   T.onLive({ type: "engine", data: { state: "online" } });
   if (chipState(win) !== "live") throw new Error("the backend said online and nothing happened");
@@ -150,7 +174,7 @@ check("the socket's engine notice moves the light immediately", () => {
 check("any message relayed from the engine counts as proof of life", () => {
   const win = desk();
   const T = win.__E;
-  T.noteEngine(false, "test");
+  engineDied(T);
   T.onLive({ type: "tick", data: { symbol: "EURUSD", bid: 1, ask: 1 } });
   if (chipState(win) !== "live") throw new Error("a tick arrived from an engine said to be dead");
   return "a tick is an engine";
@@ -163,7 +187,7 @@ check("'ready' is the desk talking, not the engine", () => {
      all, which is precisely the machine this was reported from. */
   const win = desk();
   const T = win.__E;
-  T.noteEngine(false, "test");
+  engineDied(T);
   T.onLive({ type: "ready", user: {} });
   if (chipState(win) !== "down") throw new Error("the desk's own hello lit the engine chip");
   return "not counted";
@@ -178,6 +202,7 @@ check("a health probe that says offline turns the light red", async () => {
   const T = win.__E;
   T.noteEngine(true, "test");
   await T.probeEngine();
+  await T.probeEngine();   // confirmed, per ENGINE_DOWN_MISSES
   if (chipState(win) !== "down") throw new Error("/api/health said offline and the chip stayed green");
   return "offline";
 });
@@ -186,6 +211,7 @@ check("a desk that cannot be reached at all is not a live engine", async () => {
   const win = desk(() => Promise.reject(new Error("network")));
   const T = win.__E;
   T.noteEngine(true, "test");
+  await T.probeEngine();
   await T.probeEngine();
   if (chipState(win) !== "down") throw new Error("fetch threw and the chip stayed green");
   return "rejected fetch handled";
@@ -230,19 +256,30 @@ check("MT5 cannot be live through an engine that is gone", () => {
   T.S.snap = { mt5: { connected: true, account: {} } };
   T.noteEngine(true, "test");
   if (!T.mt5Live()) throw new Error("a connected terminal is not reported as connected");
-  T.noteEngine(false, "test");
+  engineDied(T);
+
+  /* Not immediately. Reported with the flapping: "it counts
+     MetaTrader as down with it, and the EA is attached". A momentary
+     gap in the engine's answers says nothing about the terminal, so
+     the MT5 light only follows after ENGINE_DOWN_GRACE_MS - long
+     enough that a blip never reaches it, short enough that a real
+     death still shows. */
+  if (!T.mt5Live()) throw new Error("a blip in the engine pulled the MT5 light down with it");
+
+  T.S._engineSince = Date.now() - 60000;   // the engine has really gone
   if (T.mt5Live()) throw new Error("two green lights over a dead desk");
+  T.headerState();
   if (win.document.getElementById("st-mt5").dataset.state !== "down") {
     throw new Error("the MT5 chip still claims a terminal it cannot reach");
   }
-  return "one red light, not two green";
+  return "one red light, not two green - and only once it is really dead";
 });
 
 check("the pull-down drawer agrees with the header", () => {
   const win = desk();
   const T = win.__E;
   T.S.snap = { mt5: { connected: true, account: {} } };
-  T.noteEngine(false, "test");
+  engineDied(T);
   const html = T.hdrDrawerHtml();
   if (/data-state="live"/.test(html.split("</span>")[0])) {
     throw new Error("the drawer's first chip disagrees with the header's");
@@ -254,17 +291,31 @@ check("the pull-down drawer agrees with the header", () => {
 
 check("the backend announces both directions on the socket", () => {
   const src = readRoot("backend/src/index.js");
-  const fn = src.slice(src.indexOf("function connectUpstream"), src.indexOf("function connectUpstream") + 2600);
-  if (!/upstream\.on\("open"[\s\S]{0,80}online/.test(fn)) {
+  const at = src.indexOf("function connectUpstream");
+  const fn = src.slice(at, at + 4200);
+  if (!/upstream\.on\("open"[\s\S]{0,120}online/.test(fn)) {
     throw new Error("recovery is never announced, so the light waits for the next poll");
   }
-  if (!/upstream\.on\("error"[\s\S]{0,120}offline/.test(fn)) {
-    throw new Error("a refused connection still closes the browser's socket in silence");
+
+  /* "offline" is now the END of a short fight, not the first blow.
+     A dropped upstream used to say offline and close the browser's
+     own socket on the spot, so an engine restart - or any hiccup at
+     all on this proxy - flashed the desk red, and the desk's own two
+     second reconnect flashed it green again. That cycle IS the
+     reported flapping. The proxy reconnects a few times first; the
+     browser keeps its socket and gets a fresh snapshot when the new
+     upstream opens, and only a refusal that will not go away is
+     reported as a dead engine. */
+  if (!/RETRIES/.test(fn) || !/setTimeout\(open/.test(fn)) {
+    throw new Error("a single dropped upstream is still reported as a dead engine");
   }
-  if (!/upstream\.on\("close"[\s\S]{0,160}offline/.test(fn)) {
-    throw new Error("a dropped engine is no longer reported");
+  if (!/tries >= RETRIES[\s\S]{0,160}offline/.test(fn)) {
+    throw new Error("an engine that truly will not answer is never reported offline");
   }
-  return "open, close and error all speak";
+  if (!/tries >= RETRIES[\s\S]{0,220}socket\.close\(\)/.test(fn)) {
+    throw new Error("the browser's socket is never released, so its own reconnect never runs");
+  }
+  return "open speaks at once; offline only after the retries";
 });
 
 /* ------------------------------------------------------------------ */
