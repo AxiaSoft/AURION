@@ -5355,7 +5355,17 @@ async function probeEngine() {
     const res = await fetch("/api/health", { credentials: "same-origin", cache: "no-store" });
     if (res.ok) {
       const j = await res.json();
-      up = Boolean(j && j.engine === "online");
+      /* "busy" counts as up.
+         An engine that answered seconds ago and is quiet right now -
+         saving candles, running a backtest, waiting on a MetaTrader
+         call that is taking its time - has not gone anywhere, and
+         painting it dead is what made the light flash on and off
+         while the terminal was reconnecting. A genuinely dead engine
+         refuses the connection instantly and keeps refusing it, and
+         after the grace the desk is told "offline" outright. */
+      const state = String((j && j.engine) || "");
+      up = state === "online" || state === "busy";
+      S._engineBusy = state === "busy";
       sup = (j && j.supervisor) || null;
     }
   } catch (e) { up = false; }
@@ -14485,50 +14495,91 @@ function drawEquityCurve(curve) {
   g.stroke();
   g.setLineDash([]);
 
-  /* One colour for the whole curve, chosen from where the run ended.
+  /* THE COLOUR SAYS WHICH SIDE OF THE LINE, AND NOTHING ELSE.
    *
-   * This was briefly drawn in two colours, green above the starting
-   * line and red below it. That was not what was asked for and it is
-   * not what this picture is: the curve answers "how did the run go",
-   * one run, one answer, and a line that changes colour four times on
-   * the way up reads as four verdicts. What had to be right was the
-   * number - a drawdown must be reported as the loss it was - and
-   * that is a question about the data, which is fixed where the data
-   * is thinned (engine/aurion/backtest/engine.py::_thin) and read off
-   * in the panel below. The colour is left alone. */
-  const ended = curve[curve.length - 1] >= base;
-  const colour = ended ? up : down;
+   * Asked for in those words: the curve's colour must not follow the
+   * profit or loss figure - it changes only where the curve is above
+   * or below the starting line. Green above, red below, switching at
+   * the crossing itself.
+   *
+   * It was previously one colour for the whole run, taken from where
+   * the run ended. That makes the picture argue with itself: a run
+   * that finished ahead was drawn green all the way through the month
+   * it spent underwater, so a stretch of real loss was painted in the
+   * colour of profit.
+   *
+   * The direction of the curve - the rises and the falls - is a
+   * different question and is answered by the NUMBERS, which is what
+   * a trader reads a drawdown off. See btPaintCurveTip.
+   *
+   * Clipping rather than cutting the line into pieces: the crossing
+   * lands exactly on the baseline with no interpolation arithmetic to
+   * get subtly wrong, and a curve that crosses forty times costs two
+   * strokes. */
+  const zeroY = y(base);
+  const soften = (colour) => (/^#[0-9a-f]{6}$/i.test(colour) ? colour + "3a" : "");
 
-  const fill = g.createLinearGradient(0, padT, 0, h - padB);
-  // A var() can resolve to anything; only a plain hex can take an alpha
-  // suffix. Anything else falls back to a flat global alpha below.
-  const soft = /^#[0-9a-f]{6}$/i.test(colour) ? colour + "3a" : "";
-  fill.addColorStop(0, soft || colour);
-  fill.addColorStop(1, "transparent");
-  g.beginPath();
-  g.moveTo(x(0), y(curve[0]));
-  for (let i = 1; i < curve.length; i++) g.lineTo(x(i), y(curve[i]));
-  g.lineTo(x(curve.length - 1), y(base));
-  g.lineTo(x(0), y(base));
-  g.closePath();
-  g.save();
-  if (!soft) g.globalAlpha = 0.22;
-  g.fillStyle = fill;
-  g.fill();
-  g.restore();
+  // The area between the curve and the starting line, as one path.
+  const areaPath = () => {
+    g.beginPath();
+    g.moveTo(x(0), y(curve[0]));
+    for (let i = 1; i < curve.length; i++) g.lineTo(x(i), y(curve[i]));
+    g.lineTo(x(curve.length - 1), zeroY);
+    g.lineTo(x(0), zeroY);
+    g.closePath();
+  };
+  const linePath = () => {
+    g.beginPath();
+    g.moveTo(x(0), y(curve[0]));
+    for (let i = 1; i < curve.length; i++) g.lineTo(x(i), y(curve[i]));
+  };
 
-  g.beginPath();
-  g.moveTo(x(0), y(curve[0]));
-  for (let i = 1; i < curve.length; i++) g.lineTo(x(i), y(curve[i]));
-  g.strokeStyle = colour;
-  g.lineWidth = 2;
-  g.lineJoin = "round";
-  g.stroke();
+  /* `side` is -1 for the half above the line (profit) and +1 below. */
+  const paintSide = (colour, top, bottom) => {
+    if (bottom - top < 0.5) return;        // nothing of this side on screen
+    const soft = soften(colour);
+    const fill = g.createLinearGradient(0, top, 0, bottom);
+    // A var() can resolve to anything; only a plain hex can take an
+    // alpha suffix. Anything else falls back to a flat global alpha.
+    fill.addColorStop(0, soft || colour);
+    fill.addColorStop(1, "transparent");
+    g.save();
+    g.beginPath();
+    g.rect(0, top, w, bottom - top);
+    g.clip();
+    areaPath();
+    if (!soft) g.globalAlpha = 0.22;
+    g.fillStyle = fill;
+    g.fill();
+    g.restore();
 
-  // Where it finished.
+    g.save();
+    g.beginPath();
+    g.rect(0, top, w, bottom - top);
+    g.clip();
+    linePath();
+    g.strokeStyle = colour;
+    g.lineWidth = 2;
+    g.lineJoin = "round";
+    g.stroke();
+    g.restore();
+  };
+  /* Only the sides the curve actually visits. A run that never went
+     below its starting equity has no red half, and setting up a clip
+     and a gradient for an empty band is work that draws nothing. */
+  const anyAbove = curve.some((v) => v > base);
+  const anyBelow = curve.some((v) => v < base);
+  // Above the line is drawn from the top of the plot DOWN to the line,
+  // so its gradient fades towards the baseline rather than away from
+  // it; below the line is the mirror of that.
+  if (anyAbove || !anyBelow) paintSide(up, padT, Math.min(zeroY, h - padB));
+  if (anyBelow) paintSide(down, Math.max(zeroY, padT), h - padB);
+
+  // Where it finished - the same rule, read at the last point.
+  const endColour = curve[curve.length - 1] >= base ? up : down;
   g.beginPath();
   g.arc(x(curve.length - 1), y(curve[curve.length - 1]), 3.5, 0, Math.PI * 2);
-  g.fillStyle = colour;
+  g.fillStyle = endColour;
   g.fill();
 
   /* The point being asked about: a rule down the chart and a dot on
@@ -14570,13 +14621,31 @@ function btCurveIndexAt(px) {
 }
 
 /**
- * Equity and profit at the point being pointed at.
+ * What the curve is worth at this point, and what it has just done.
  *
- * The curve could already be read as a shape - up good, down bad - and
- * that is all it could be read as. The two numbers a trader actually
- * wants off it, "how much did I have here" and "how far ahead or
- * behind was I here", were in the data the whole time and never on
- * screen.
+ * Reported: "even when the curve is above the line - in profit -
+ * there are falls, and those falls have to count as losses; I see it
+ * reporting a profit. The same must hold below the line."
+ *
+ * It was right that it reported a profit: the only figure here was
+ * the distance from the starting equity, which on a curve that has
+ * climbed to 1200 and then slid to 1100 is +100, a profit. It is
+ * also, and at the same time, a hundred lost from the peak - and
+ * that second fact is the one being pointed at when somebody puts
+ * their finger on a falling stretch of the line. Both are true; only
+ * one was on screen.
+ *
+ * So three figures, each answering its own question, each coloured by
+ * ITS OWN direction rather than by the overall verdict:
+ *
+ *   move      what this step did - down is a loss, above the line or
+ *             below it, and up is a gain even deep underwater.
+ *   from peak how far this point has fallen from the best the run
+ *             ever reached. Zero at a new high. Never positive.
+ *   vs start  the old figure: where this point stands against the
+ *             equity the run began with. This is the one the colour
+ *             of the LINE follows, because the line's colour answers
+ *             "which side of the starting line am I on".
  */
 function btPaintCurveTip(cv) {
   const host = cv && cv.parentElement;
@@ -14591,9 +14660,22 @@ function btPaintCurveTip(cv) {
   const v = c.curve[at];
   const pnl = v - c.base;
   const pct = c.base ? (pnl / Math.abs(c.base)) * 100 : 0;
+  /* The step into this point. At the very first point there is no
+     step - it is where the run started - and a fabricated 0 would
+     read as "flat here" rather than "nothing happened yet". */
+  const move = at > 0 ? v - c.curve[at - 1] : null;
+  /* The best the run had reached by this point. Measured up to HERE,
+     not over the whole run: a peak that has not happened yet cannot
+     be something this point has fallen from. */
+  let peak = c.curve[0];
+  for (let i = 1; i <= at; i++) if (c.curve[i] > peak) peak = c.curve[i];
+  const fromPeak = v - peak;
+  const signed = (n, d) => (n > 0 ? "+" : "") + fmt(n, d);
   el.innerHTML = `<div class="bt-tip-grid">
     <span>${I18N.t("bt.tip_equity")}</span><b class="mono">${fmt(v)}</b>
-    <span>${I18N.t("bt.tip_pnl")}</span><b class="mono ${clsPnl(pnl)}">${pnl > 0 ? "+" : ""}${fmt(pnl)} (${pnl > 0 ? "+" : ""}${fmt(pct, 2)}%)</b>
+    <span>${I18N.t("bt.tip_move")}</span><b class="mono ${move === null ? "" : clsPnl(move)}">${move === null ? "—" : signed(move)}</b>
+    <span>${I18N.t("bt.tip_frompeak")}</span><b class="mono ${fromPeak < 0 ? "down" : ""}">${fromPeak < 0 ? fmt(fromPeak) : "—"}</b>
+    <span>${I18N.t("bt.tip_pnl")}</span><b class="mono ${clsPnl(pnl)}">${signed(pnl)} (${signed(pct, 2)}%)</b>
     <span>${I18N.t("bt.tip_point")}</span><b class="mono">${fmt(at + 1, 0)} / ${fmt(c.curve.length, 0)}</b>
   </div>`;
   const iw = Math.max(1, c.w - c.padL - c.padR);
@@ -16615,17 +16697,62 @@ function markSignalsBusy(busy) {
 }
 
 /**
- * Ask again while the engine is still working backwards.
+ * Does the analysis reach the newest candle on the chart?
  *
- * Each call pushes the analysed region further back, so the chart
- * fills in over a few seconds instead of stopping wherever the first
- * request ran out of time. Stops as soon as the engine says it is
- * complete, and never stacks two timers.
+ * Reported: "it should be signalling all the way to the head of the
+ * chart, and it is not." The backward fill was working - what was
+ * missing is the other direction. The engine says `complete` when it
+ * has covered everything it was given, and from that moment the desk
+ * stopped asking. But the chart keeps GROWING: a bar closes every
+ * minute, is appended by the live stream, and nothing ever looked at
+ * it. An hour later the newest sixty candles carried no marks, and an
+ * unanalysed candle looks exactly like a candle with no setup on it.
+ *
+ * So "complete" is not a property of the analysis, it is a property
+ * of the analysis AGAINST A PARTICULAR RIGHT-HAND EDGE, and the edge
+ * moves. This is that comparison.
+ */
+function signalsReachHead() {
+  const cov = S.signalCoverage;
+  if (!cov) return false;
+  const bars = S.candles || [];
+  if (!bars.length) return true;              // nothing to be behind
+  const last = bars[bars.length - 1] || {};
+  const newest = barTime(last.time || last.ts);
+  if (!newest) return true;                   // cannot tell; do not spin
+  const covered = barTime(cov.toTime);
+  if (!covered) return false;                 // covered nothing nameable
+  if (covered >= newest) return true;
+  /* One pass per new bar, not one every 1.2s for ever. The desk can
+     legitimately hold a bar the engine's own window does not reach -
+     it asks for a bounded count - and without this the shortfall
+     would never close and the timer would reschedule itself all day. */
+  return S._signalHead === newest;
+}
+
+/**
+ * Ask again while there is anything left to analyse.
+ *
+ * Two different gaps bring us back here. Behind: the engine works
+ * backwards a slab per call, so the chart fills in over a few seconds
+ * instead of stopping wherever the first request ran out of time.
+ * Ahead: every bar that closes is a new bar nobody has analysed, and
+ * that one matters most - the mark on the newest candle is the only
+ * one still worth acting on.
+ *
+ * Catching up at the edge is cheap. The engine remembers what it has
+ * already analysed and re-reads only the new bars plus one of overlap,
+ * so a call made because a single M15 bar closed is two bars of work,
+ * not six months of it.
+ *
+ * Never stacks two timers, and never fires while a pass is already in
+ * the air.
  */
 function scheduleSignalFill(symbol, timeframe) {
   if (S._signalFill) { clearTimeout(S._signalFill); S._signalFill = null; }
   const cov = S.signalCoverage;
-  if (!cov || cov.complete) return;
+  if (!cov) return;
+  if (cov.complete && signalsReachHead()) return;
   if (!S.signalsEnabled || !S.showSignals) return;
   S._signalFill = setTimeout(() => {
     S._signalFill = null;
@@ -16633,6 +16760,9 @@ function scheduleSignalFill(symbol, timeframe) {
     // analysing a symbol nobody is looking at is work the machine
     // could be spending on the one they switched to.
     if (S.symbol !== symbol || S.timeframe !== timeframe) return;
+    // A pass is already running; it will schedule the next one itself
+    // when it lands. Firing now would queue a second replay behind it.
+    if (S.signalsLoading) { scheduleSignalFill(symbol, timeframe); return; }
     fetchChartSignals(symbol, timeframe);
   }, SIGNAL_FILL_DELAY_MS);
 }
@@ -16666,6 +16796,10 @@ async function fetchChartSignals(symbol, timeframe) {
        scrolled to, and that is exactly how many we hold. */
     const held = (S.candles || []).length;
     const count = Math.max(400, Math.min(barsForDays(timeframe, chartDays()), held || barsForDays(timeframe, chartDays())));
+    /* Which right-hand edge this pass is being run against - see
+       signalsReachHead. */
+    const headBar = held ? (S.candles[held - 1] || {}) : {};
+    S._signalHead = barTime(headBar.time || headBar.ts);
     const r = await API.get(`/api/chart/signals?symbol=${encodeURIComponent(symbol)}`
       + `&timeframe=${encodeURIComponent(timeframe)}`
       + `&count=${count}&strict=true`);
@@ -16888,6 +17022,16 @@ function onLive(msg) {
       else {
         S.candles.push(c);
         S.candles.sort((a, b) => barTime(a.time).localeCompare(barTime(b.time)));
+        /* A bar this chart has never seen: the previous one has just
+           CLOSED. That is the moment the analysis falls behind the
+           chart, and it was the moment nothing happened - the desk
+           stopped asking for marks once the engine said "complete",
+           so the candles that arrived afterwards were never analysed
+           and read as candles with no setup on them. Reported as "it
+           should be signalling all the way to the head of the chart".
+           Debounced by scheduleSignalFill, which clears its own
+           timer, so a burst of bars costs one pass. */
+        scheduleSignalFill(S.symbol, S.timeframe);
       }
       if (S.chart) {
         if (typeof S.chart.setLastBar === "function") S.chart.setLastBar(c);

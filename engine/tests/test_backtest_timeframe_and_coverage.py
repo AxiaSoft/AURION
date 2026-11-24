@@ -49,8 +49,8 @@ from aurion.mt5.bridge import MT5Bridge  # noqa: E402
 from aurion.runtime.trader import Trader  # noqa: E402
 
 
-def _bars(n: int, minutes: int = 5) -> list[dict[str, Any]]:
-    when = dt.datetime(2026, 4, 1)
+def _bars(n: int, minutes: int = 5, start: int = 0) -> list[dict[str, Any]]:
+    when = dt.datetime(2026, 4, 1) + dt.timedelta(minutes=minutes * start)
     out = []
     price = 1.1000
     for i in range(n):
@@ -270,6 +270,41 @@ def test_a_finished_chart_advertises_no_next_slab() -> None:
     assert out["analysing"] is False
     assert out["next_from"] is None and out["next_to"] is None
     assert out["next_from_time"] == "" and out["next_to_time"] == ""
+
+
+def test_a_bar_that_closes_is_analysed_without_redoing_the_history() -> None:
+    """Reported: "it should be signalling all the way to the head of
+    the chart, and it is not."
+
+    A finished chart does not stay finished - a bar closes every
+    minute and the right-hand edge moves away from the analysis. The
+    engine has to notice and catch up, and catching up has to be
+    CHEAP, or every closing bar would cost a full replay and the desk
+    could not afford to ask.
+    """
+    t = Trader()
+    bars = _bars(1000, minutes=15)
+    armed: list[Any] = []
+    key = t._chart_mark_key("EURUSD", "M15", armed)
+    # Where the trader was left: everything analysed, engine content.
+    t._marks_store()[key] = {
+        "from_time": bars[0]["time"], "to_time": bars[-1]["time"], "signals": [],
+    }
+    assert t._chart_mark_plan("EURUSD", "M15", armed, bars).get("complete") is True
+
+    # Two more bars close.
+    grown = bars + _bars(2, minutes=15, start=len(bars))
+    plan = t._chart_mark_plan("EURUSD", "M15", armed, grown)
+    assert plan.get("complete") is not True, "a chart that grew still calls itself finished"
+    assert plan["last"] == len(grown), "the newest bar is not in the slab to analyse"
+    assert plan["last"] - plan["first"] <= 3, \
+        f"re-analysed {plan['last'] - plan['first']} bars because two arrived"
+
+    res = {"signals": [], "covered_from": plan["first"], "covered_to": plan["last"]}
+    out = t._chart_marks_merge("EURUSD", "M15", armed, grown, plan, res)
+    assert out["covered_to"] == len(grown)
+    assert out["covered_to_time"] == grown[-1]["time"], "coverage does not reach the newest candle"
+    assert out["complete"] is True
 
 
 def test_the_span_only_ever_grows_towards_the_start() -> None:

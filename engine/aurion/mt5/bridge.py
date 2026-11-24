@@ -141,6 +141,11 @@ class MT5Bridge:
         # every order. Either source may fill it — the native terminal
         # directly, or an attached EA that reports its chart's symbol.
         self._specs: dict[str, dict[str, Any]] = {}
+        # When each symbol's spec was last re-read from the terminal,
+        # and which re-reads are in the air - see symbol_spec().
+        self._spec_checked: dict[str, float] = {}
+        self._spec_pending: set[str] = set()
+        self._spec_tasks: set[asyncio.Task[None]] = set()
         # Where downloaded bars are kept between runs, and where they are
         # read back from. Installed by the Trader, which owns the store;
         # the bridge must not know what a database is. Absent - a test
@@ -298,24 +303,50 @@ class MT5Bridge:
                 out.append(name)
         return out
 
+    #: How often one symbol's contract spec is re-read from the terminal.
+    #:
+    #: A spec is the lot step, the tick value, the digits. These change
+    #: when a broker changes them, which is to say almost never, so
+    #: re-reading one every time a price is formatted is pure cost -
+    #: and on a terminal that has gone away it is worse than cost, see
+    #: symbol_spec().
+    _SPEC_REFRESH_SECONDS = 30.0
+
     def symbol_spec(self, symbol: str) -> dict[str, Any]:
         """The contract spec for a symbol, or {} when nobody can say.
 
         An empty dict is a real answer and callers depend on it: without
         a tick value, money cannot be computed, and inventing one would
         put a confident wrong number on somebody's risk.
+
+        NEVER waits for the terminal.
+
+        Reported: "when MetaTrader disconnects, or I attach and detach
+        the expert, the engine keeps going off and on - it is not
+        stable." This was one of the ways. This method is synchronous
+        and it is called from inside request handlers, which means it
+        was called ON THE EVENT LOOP; it then called into the
+        MetaTrader5 package, which is a blocking IPC round trip to the
+        terminal. While the terminal is healthy that is a millisecond
+        and nobody notices. While the terminal is going away - closing,
+        logging out, or sitting with a dead pipe - it is however long
+        that call takes to give up, and for all of that time the engine
+        answers NOTHING. Not /health either. So the desk's health probe
+        times out, the light goes red, the call returns, the next probe
+        succeeds, the light goes green: an engine that was never down
+        flashing on and off in time with a terminal that was.
+
+        So the cache answers, always and immediately, and the terminal
+        is re-read in the background at most once every
+        _SPEC_REFRESH_SECONDS per symbol. The first ask for an unknown
+        symbol returns {} - which is already a defined answer here -
+        and the one after it, a moment later, has the spec.
         """
         name = self._norm_sym(symbol)
         if not name:
             return {}
         if self.native.connected:
-            try:
-                info = self.native.symbol_info(str(symbol))
-            except Exception:  # pragma: no cover - terminal misbehaving
-                log.exception("symbol_info failed for %s", symbol)
-                info = {}
-            if info:
-                self.remember_spec(symbol, info)
+            self._refresh_spec_later(str(symbol), name)
         cached = self._specs.get(name)
         if cached:
             return dict(cached)
@@ -325,6 +356,54 @@ class MT5Bridge:
             if self._sym_match(key, name):
                 return dict(value)
         return {}
+
+    def _refresh_spec_later(self, symbol: str, name: str) -> None:
+        """Re-read one symbol's spec off the event loop, rarely.
+
+        Off the loop because the call can block for as long as a dying
+        terminal takes to answer - see symbol_spec. Rarely because a
+        contract spec does not change between two ticks.
+
+        With no running loop - a synchronous caller, which is how the
+        tests and the tools use this - the call is made inline. There
+        is nothing to protect in that case: blocking a script is just
+        the script taking longer.
+        """
+        now = time.time()
+        due = self._spec_checked.get(name, 0.0)
+        if now - due < self._SPEC_REFRESH_SECONDS:
+            return
+        self._spec_checked[name] = now
+
+        def read() -> None:
+            try:
+                info = self.native.symbol_info(symbol)
+            except Exception:  # pragma: no cover - terminal misbehaving
+                log.exception("symbol_info failed for %s", symbol)
+                return
+            if info:
+                self.remember_spec(symbol, info)
+
+        try:
+            loop = asyncio.get_running_loop()
+        except RuntimeError:
+            read()
+            return
+        if name in self._spec_pending:
+            return
+        self._spec_pending.add(name)
+
+        async def run() -> None:
+            try:
+                await asyncio.to_thread(read)
+            finally:
+                self._spec_pending.discard(name)
+
+        task = loop.create_task(run(), name=f"aurion-spec-{name}")
+        # Held so the task is not garbage collected mid-flight, and
+        # dropped the moment it finishes.
+        self._spec_tasks.add(task)
+        task.add_done_callback(self._spec_tasks.discard)
 
     def on_event(self, handler: EventHandler) -> None:
         self._handlers.append(handler)
@@ -1178,7 +1257,10 @@ class MT5Bridge:
             writer.close()
             with contextlib.suppress(Exception):
                 await writer.wait_closed()
-        self.native.shutdown()
+        # Off the loop: mt5.shutdown() talks to the terminal and can
+        # take as long as a terminal that is already gone takes to
+        # admit it. See symbol_spec().
+        await asyncio.to_thread(self.native.shutdown)
         self.connected = False
         self.source = ""
         self._started = False
@@ -1232,7 +1314,7 @@ class MT5Bridge:
             with contextlib.suppress(asyncio.CancelledError):
                 await self._native_task
             self._native_task = None
-        self.native.shutdown()
+        await asyncio.to_thread(self.native.shutdown)   # see symbol_spec()
         live_store = self._tape_store("live")
         live_store["account"] = Account()
         live_store["positions"] = []

@@ -28,6 +28,7 @@ tests/engine-light.test.js and tests/waiting-and-scanning.test.cjs.
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import re
 import sys
 import time
@@ -489,3 +490,97 @@ def test_an_archive_written_before_the_fix_cleans_itself_up() -> None:
     held = [row["ts"] for row in reopened._conn.execute("SELECT ts FROM candles ORDER BY ts")]
     reopened.close()
     assert held == ["2026-11-23T10:00:00", "2026-11-23T11:00:00"], held
+
+
+# ================== the follow-up: "the engine keeps going off and on" =====
+
+"""Reported: "when MetaTrader disconnects, or I attach and detach the
+expert, the engine keeps going off and on - it is not stable."
+
+MT5Bridge.symbol_spec() is synchronous and is called from inside
+request handlers, which means it was called on the event loop; it then
+called into the MetaTrader5 package, which is a blocking IPC round
+trip to the terminal. While the terminal is healthy that is a
+millisecond. While it is going away it is however long that call takes
+to give up - and for all of that time the engine answers nothing at
+all, /health included. The desk's probe times out, the light goes red,
+the call returns, the next probe succeeds, the light goes green.
+"""
+
+
+class _SlowTerminal:
+    """A MetaTrader that has gone away but has not said so yet."""
+
+    def __init__(self, delay: float = 1.5) -> None:
+        self.connected = True
+        self.delay = delay
+        self.calls = 0
+
+    def symbol_info(self, symbol: str) -> dict[str, object]:
+        self.calls += 1
+        time.sleep(self.delay)
+        return {"name": symbol, "digits": 5, "trade_tick_value": 1.0,
+                "volume_step": 0.01, "trade_contract_size": 100000}
+
+
+def test_a_hung_terminal_does_not_stall_the_engine() -> None:
+    bridge, _ = _bridge()
+    bridge.native = _SlowTerminal(delay=1.5)
+
+    async def go() -> tuple[float, float]:
+        # The event loop's own responsiveness, measured while the
+        # terminal is hanging. This is what /health is competing with.
+        worst = {"lag": 0.0}
+
+        async def heartbeat() -> None:
+            while True:
+                mark = time.monotonic()
+                await asyncio.sleep(0.02)
+                worst["lag"] = max(worst["lag"], time.monotonic() - mark - 0.02)
+
+        beat = asyncio.create_task(heartbeat())
+        start = time.monotonic()
+        for _ in range(5):
+            bridge.symbol_spec("EURUSD")       # the call that used to block
+            await asyncio.sleep(0.05)
+        took = time.monotonic() - start
+        await asyncio.sleep(0.1)
+        beat.cancel()
+        with contextlib.suppress(asyncio.CancelledError):
+            await beat
+        return took, worst["lag"]
+
+    took, lag = asyncio.run(go())
+    assert took < 1.0, f"five spec reads took {took:.2f}s - the terminal is still being waited on"
+    assert lag < 0.5, f"the event loop was blocked for {lag * 1000:.0f}ms; /health cannot answer through that"
+
+
+def test_the_spec_still_arrives_and_is_read_once_per_symbol() -> None:
+    """Not waiting for the terminal must not mean never asking it."""
+    bridge, _ = _bridge()
+    bridge.native = _SlowTerminal(delay=0.05)
+
+    async def go() -> dict[str, object]:
+        first = bridge.symbol_spec("EURUSD")
+        assert first == {}, "a spec was invented before the terminal had been asked"
+        for _ in range(20):
+            await asyncio.sleep(0.02)
+            if bridge.symbol_spec("EURUSD"):
+                break
+        # Hammering it is the cost this is here to avoid.
+        for _ in range(10):
+            bridge.symbol_spec("EURUSD")
+        return bridge.symbol_spec("EURUSD")
+
+    spec = asyncio.run(go())
+    assert spec.get("digits") == 5, "the spec never arrived from the background read"
+    assert bridge.native.calls == 1, \
+        f"the terminal was asked {bridge.native.calls} times for one unchanged contract spec"
+
+
+def test_a_synchronous_caller_still_gets_an_answer_inline() -> None:
+    """Tools and tests call this with no loop running; there is nothing
+    to protect in that case, so the terminal is asked directly."""
+    bridge, _ = _bridge()
+    bridge.native = _SlowTerminal(delay=0.0)
+    assert bridge.symbol_spec("EURUSD").get("digits") == 5
