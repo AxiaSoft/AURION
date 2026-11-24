@@ -172,8 +172,20 @@ section("1c. a closed bar is announced on its own timeframe only");
     "only the FORMING bar is mirrored onto the desk's timeframe");
   ok(/SendCandleOn\(g_feed_tf, 1\);/.test(EA),
     "the desk timeframe's closed bar is still sent - by MaybeClosedBar, which counts its own bars");
-  ok(/#define AURION_EA_VERSION "1\.24"/.test(EA), "the expert's version moved with the change");
-  ok(/#property version   "1\.24"/.test(EA), "...in both places");
+  /* A floor, not a pin. What this file cares about is that the version
+     moved when the mirroring behaviour changed, and that it never goes
+     back below the release that changed it. Pinning the exact number
+     here would mean every later bump - for reasons that have nothing
+     to do with candles - fails a candle test.
+     The "bump only for behaviour the engine can see" gate lives in
+     tests/calendar-backtest-and-kill.test.js and is the one place that
+     is allowed to name the current number. */
+  const said = /#define AURION_EA_VERSION "(\d+)\.(\d+)"/.exec(EA);
+  ok(said, "the expert declares a version");
+  const asNum = Number(said[1]) * 1000 + Number(said[2]);
+  ok(asNum >= 1024, "the expert's version moved with the change: " + said[1] + "." + said[2]);
+  const prop = /#property version   "(\d+)\.(\d+)"/.exec(EA);
+  ok(prop && prop[1] === said[1] && prop[2] === said[2], "...in both places, and they agree");
 }
 
 /* ======================================================= 2. the sad face == */

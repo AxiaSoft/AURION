@@ -379,6 +379,7 @@ class _NoBridge:
 
     deals: list = []
     native = type("_NoNative", (), {"connected": False})()
+    account = type("_NoAccount", (), {"currency": ""})()
 
 
 def test_sync_position_book_writes_history() -> None:
@@ -387,6 +388,7 @@ def test_sync_position_book_writes_history() -> None:
     from collections import deque
     from pathlib import Path
 
+    from aurion.runtime import trader as trader_mod
     from aurion.runtime.store import Store
     from aurion.runtime.trader import Trader
 
@@ -421,7 +423,14 @@ def test_sync_position_book_writes_history() -> None:
     trader.bus = type("B", (), {"publish": dummy})()
     trader.strategy_meta = {}
     trader._sync_book_meta = lambda: None
+    # A position that is merely absent is not a position that closed: with no
+    # closing deal to point at, the book waits POSITION_MISSING_STRIKES
+    # consecutive snapshots before it writes an exit. One short snapshot used
+    # to be enough, and that is what invented the phantom SL and TP hits.
     asyncio.run(trader._sync_position_book([]))
+    assert not any(int(r.get("ticket") or 0) == 11 for r in trader.store.history())
+    for _ in range(trader_mod.POSITION_MISSING_STRIKES - 1):
+        asyncio.run(trader._sync_position_book([]))
     hist = trader.store.history()
     assert any(int(r.get("ticket") or 0) == 11 for r in hist)
     assert any(r.get("strategy") == "price_action" for r in hist)
@@ -651,6 +660,7 @@ def test_telegram_skips_bootstrap_then_notifies() -> None:
     from collections import deque
     from pathlib import Path
 
+    from aurion.runtime import trader as trader_mod
     from aurion.runtime.store import Store
     from aurion.runtime.trader import Trader
 
@@ -693,7 +703,9 @@ def test_telegram_skips_bootstrap_then_notifies() -> None:
     second = {**first, "ticket": 12, "profit": 0}
     asyncio.run(trader._sync_position_book([first, second]))
     assert ("open", 12) in notes
-    asyncio.run(trader._sync_position_book([second]))
+    # Same rule as above: absence alone has to repeat before it counts.
+    for _ in range(trader_mod.POSITION_MISSING_STRIKES):
+        asyncio.run(trader._sync_position_book([second]))
     assert any(n[0] == "close" and n[1] == 11 for n in notes)
     hist = trader.store.history()
     assert any(int(r.get("ticket") or 0) == 11 for r in hist)

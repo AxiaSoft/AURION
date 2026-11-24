@@ -518,8 +518,17 @@ check("the EA version moves for behaviour, and only for behaviour", () => {
      shift counted on one timeframe names a different bar on another,
      so an M15 chart feeding an H4 desk re-announced the previous H4
      bar as freshly closed four times an hour, and the desk rewrote a
-     finished candle each time. */
-  if (!/#define AURION_EA_VERSION "1\.24"/.test(ea)) {
+     finished candle each time.
+     1.25 stops failing over between 18765 and 8080. They are not two
+     routes: 8080 is the desk, which hands /v1/ea/ingest straight to
+     the engine on 18765, so a busy engine refused both and the expert
+     answered a four second stall by spending four more asking the
+     same process one hop further away. The terminal log was hours of
+     "status 1003 / recovered / switched to port ...", and every switch
+     read to the desk as the expert arriving on a new transport, which
+     is why an expert plainly attached in MetaTrader kept being drawn
+     as detached. The engine can see all of that, so the number moves. */
+  if (!/#define AURION_EA_VERSION "1\.25"/.test(ea)) {
     throw new Error("the version moved again; bump it only for a change the engine can see");
   }
   if (!/PumpHistory/.test(ea) || !/AURION_HIST_TRIES/.test(ea)) {

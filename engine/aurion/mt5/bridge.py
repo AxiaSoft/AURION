@@ -2214,15 +2214,52 @@ class MT5Bridge:
         return cmd
 
     async def _http_sweep_loop(self) -> None:
+        """Retire charts that have genuinely stopped talking.
+
+        Two faults were reported out of this one loop, and they have the
+        same shape: silence was being read as absence.
+
+        1. An expert that was plainly attached in MetaTrader kept being
+           drawn as detached. A chart speaks over three transports - the
+           socket, HTTP, and the file inbox - and this loop retired a
+           chart on HTTP silence ALONE. So a chart that posted over HTTP
+           once and then went back to the socket, or whose HTTP post was
+           refused while the file drop carried on feeding us perfectly,
+           was announced offline while its data was still arriving.
+           ``_agent_beat`` is the one clock every transport winds, so it
+           now has the final say: HTTP going quiet retires the HTTP
+           bookkeeping and nothing else.
+
+        2. Worse, and invisible until the engine logs were read beside
+           the terminal's: when the engine's own event loop stalls -
+           a news refresh, a retrain, a terminal that will not answer -
+           NOTHING is read for the length of the stall, so every chart
+           looks stale the instant the loop runs again, and the sweep
+           fired on all of them at once. The desk went dark, the experts
+           went grey, and the only thing that had actually happened was
+           that the engine was busy. A watchdog must not count time it
+           was not awake for: this pass measures how late it is and
+           forgives exactly that much.
+        """
+        asked = 4.0
+        last = time.time()
         while True:
-            await asyncio.sleep(4.0)
+            await asyncio.sleep(asked)
             now = time.time()
+            # Time this pass overshot by. If the loop was blocked for
+            # twelve seconds, every chart is twelve seconds quieter than
+            # it deserves, through no fault of its own.
+            overrun = max(0.0, (now - last) - asked)
+            last = now
+            grace = min(overrun, 120.0)
             for cid, seen in list(self._http_seen.items()):
-                if now - seen > 20.0:
+                if now - seen > 20.0 + grace:
+                    # HTTP has gone quiet for this chart. That is all it
+                    # means: drop the HTTP bookkeeping and let the beat
+                    # below decide whether anyone is still home.
                     self._http_seen.pop(cid, None)
-                    await self._mark_agent_offline(cid)
             for cid, beat in list(self._agent_beat.items()):
-                if now - beat > float(self.AGENT_LIVE_SEC) + 2.0 and cid in self.agents:
+                if now - beat > float(self.AGENT_LIVE_SEC) + 2.0 + grace and cid in self.agents:
                     await self._mark_agent_offline(cid)
 
     def _inbox_dirs(self) -> list[Path]:

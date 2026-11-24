@@ -585,11 +585,40 @@ html[dir="rtl"] .tv-flyout { transform: translateX(6px) }
   display: flex; flex-direction: column;
   align-items: center; justify-content: center; gap: 10px;
   padding: 16px;
-  background: var(--s1, rgba(12, 14, 20, .92));
+  /* rgb(), not var() on its own. The surface tokens in this product are
+     RAW CHANNEL TRIPLES - "--s1: 6 7 11" - so `background: var(--s1)`
+     resolves to the three numbers `6 7 11`, which is not a colour, so
+     the browser throws the whole declaration away and the veil ends up
+     with NO background at all. That is how a panel described two lines
+     above as "deliberately opaque" shipped fully transparent, and it is
+     the reported fault: the loading state and the half-drawn chart on
+     screen together, the candles sliding about behind the spinner. */
+  background: rgb(var(--s1, 12 14 20));
   color: var(--muted);
   font-size: 12.5px; line-height: 1.5; text-align: center;
 }
 .chart-veil[hidden] { display: none }
+
+/* While the veil is up, there is no chart. Not a dimmed chart, not a
+   chart behind a frosted sheet - no chart.
+ 
+   `is-waiting` was already being put on the box by paintVeil() and
+   taken off by clearVeil(), and nothing anywhere styled it, so the
+   class did nothing at all and the only thing standing between the
+   trader and a half-drawn chart was the veil's own background - which
+   was itself broken (see .chart-veil above). Two independent holes,
+   one symptom, and the request was plain: the chart must not be on
+   screen at the same time as the loading state.
+ 
+   Hiding the canvas rather than covering it is also the honest
+   version: a canvas carrying one timeframe's candles while the box is
+   announcing that it is fetching another one is a lie, however well
+   it is covered. Width and height are untouched, so nothing reflows
+   and the chart reappears exactly where it was. */
+.chart-box.is-waiting > canvas,
+.chart-box.is-waiting > .chart-overlay,
+.chart-box.is-waiting > .chart-marks,
+.chart-box.is-waiting > .chart-hud { visibility: hidden }
 .chart-veil-txt { max-width: 38ch }
 .chart-veil-spin {
   width: 22px; height: 22px; border-radius: 50%;
