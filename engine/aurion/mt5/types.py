@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import asdict, dataclass, field
+from datetime import datetime, timezone
 from typing import Any
 
 TIMEFRAMES: dict[str, int] = {
@@ -72,6 +73,58 @@ class Tick:
         return data
 
 
+#: The one way a bar's time is written, everywhere in AURION:
+#: "YYYY-MM-DDTHH:MM:SS", UTC, no offset, no fraction.
+#:
+#: This exists because the same bar was arriving under two different
+#: strings and nothing could tell they were the same bar. The expert
+#: sends "2026-11-23T10:00:00"; Python's isoformat(), which is what
+#: the MetaTrader5 package path and the engine's own clock produce,
+#: sends "2026-11-23T10:00:00+00:00"; parts of the archive hold
+#: "2026-11-23 10:00:00".
+#:
+#: Everything downstream compares bar times AS STRINGS - the buffer's
+#: duplicate check, the sort that keeps a series in order, the desk's
+#: own de-duplication, the index a signal is drawn at. So one bar
+#: became two: two candles in the same minute, drawn side by side,
+#: and because " " < "T" < "+" the duplicates did not even sort next
+#: to their twins. That is the "broken candles with huge wicks, a new
+#: one every time the price moves" the trader reported - every live
+#: bar that came back through the Python path was a brand new candle
+#: as far as the chart was concerned.
+#:
+#: Normalising at the point every candle is built is the only place
+#: that cannot be forgotten later.
+def bar_time(value: Any) -> str:
+    """A bar's time, in the one format the whole product uses."""
+    text = str(value or "").strip()
+    if not text:
+        return ""
+    # Only the separator between the date and the time, never any
+    # other space: a string this cannot read must come out unchanged,
+    # not half-rewritten.
+    if len(text) > 10 and text[10] == " ":
+        text = text[:10] + "T" + text[11:]
+    if text.endswith("Z"):
+        text = text[:-1] + "+00:00"
+    # A stamp that carries a zone is CONVERTED to UTC, not trimmed:
+    # trimming "+00:00" and trimming "-05:00" look alike and only one
+    # of them is harmless. Everything AURION handles is already UTC,
+    # so this is belt and braces around a source that is not.
+    try:
+        when = datetime.fromisoformat(text)
+    except ValueError:
+        when = None
+    if when is not None:
+        if when.tzinfo is not None:
+            when = when.astimezone(timezone.utc).replace(tzinfo=None)
+        return when.strftime("%Y-%m-%dT%H:%M:%S")
+    # Not a stamp this can read. Left as it came rather than mangled -
+    # an unrecognised format must not become a DIFFERENT unrecognised
+    # format, or the two halves of the product disagree all over again.
+    return text
+
+
 @dataclass
 class Candle:
     symbol: str
@@ -85,6 +138,13 @@ class Candle:
     volume: float
     spread: float = 0.0
     real_volume: float = 0.0
+
+    def __post_init__(self) -> None:
+        # Every candle in the engine passes through here - the expert's,
+        # the MetaTrader5 package's, the archive's, the backtester's -
+        # so this is the one place that can guarantee two sources
+        # describing the same bar produce the same string. See bar_time.
+        self.time = bar_time(self.time)
 
     def to_dict(self) -> dict[str, Any]:
         return asdict(self)

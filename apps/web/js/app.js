@@ -15902,8 +15902,11 @@ function mergeOlder(older, have) {
   const rows = Array.isArray(older) ? older : [];
   const kept = Array.isArray(have) ? have : [];
   if (!rows.length) return kept;
-  const seen = new Set(kept.map((b) => String(b && b.time)));
-  const add = rows.filter((b) => b && !seen.has(String(b.time)));
+  /* Normalised, for the same reason as everywhere else: an older
+     slab fetched through a different path must not re-add bars the
+     chart already holds under another spelling of the same time. */
+  const seen = new Set(kept.map((b) => barTime(b && b.time)));
+  const add = rows.filter((b) => b && !seen.has(barTime(b.time)));
   if (!add.length) return kept;
   return add.concat(kept);
 }
@@ -16872,11 +16875,19 @@ function onLive(msg) {
   if (msg.type === "candle") {
     const c = msg.data || msg;
     if (c.symbol === S.symbol && (!S.timeframe || c.timeframe === S.timeframe)) {
-      const i = S.candles.findIndex((b) => b && b.time === c.time);
+      /* Matched on the NORMALISED time. Reported as "every time the
+         price changes it draws a new broken candle": the forming bar
+         comes back several times a second, and when it came back
+         under a different spelling of the same minute - the expert
+         writes 2026-11-23T10:00:00, the MetaTrader5 package writes
+         2026-11-23T10:00:00+00:00 - this test failed and the bar was
+         appended instead of updated. One tick, one new candle. */
+      const when = barTime(c.time);
+      const i = S.candles.findIndex((b) => b && barTime(b.time) === when);
       if (i >= 0) S.candles[i] = c;
       else {
         S.candles.push(c);
-        S.candles.sort((a, b) => String(a.time || "").localeCompare(String(b.time || "")));
+        S.candles.sort((a, b) => barTime(a.time).localeCompare(barTime(b.time)));
       }
       if (S.chart) {
         if (typeof S.chart.setLastBar === "function") S.chart.setLastBar(c);

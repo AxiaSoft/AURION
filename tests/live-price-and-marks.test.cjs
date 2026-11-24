@@ -165,27 +165,36 @@ function priceKit(opts) {
 
 {
   /* A chart, with just enough of one to place a mark on. */
-  const Chart = new Function("__bars",
+  const { barTime: bt } = require(path.join(ROOT, "apps", "web", "js", "charts.js"));
+  const Chart = new Function("__bars", "barTime",
     "const bars = __bars;\n"
     + "const self = { bars, _timeIdx: null, _timeIdxLen: -1 };\n"
     + "self.barIndexOfTime = " + method(CHARTS, "barIndexOfTime").replace(/^\s*barIndexOfTime/, "function barIndexOfTime")
     + ";\nreturn self;");
 
-  const bars = Array.from({ length: 500 }, (_, i) => ({ time: "t" + i, close: 1 }));
-  const chart = Chart(bars);
-  ok(chart.barIndexOfTime.call(chart, "t499") === 499, "the newest bar is found by its own time");
-  ok(chart.barIndexOfTime.call(chart, "t0") === 0, "and so is the oldest");
-  ok(chart.barIndexOfTime.call(chart, "nope") === -1, "a bar this chart does not hold is refused, not guessed");
+  /* Times, not labels: barIndexOfTime normalises what it is given,
+     and a chart's bars are bars. */
+  const stamp = (i) => "2026-11-" + String(1 + Math.floor(i / 24)).padStart(2, "0")
+    + "T" + String(i % 24).padStart(2, "0") + ":00:00";
+  const bars = Array.from({ length: 500 }, (_, i) => ({ time: stamp(i), close: 1 }));
+  const chart = Chart(bars, bt);
+  ok(chart.barIndexOfTime.call(chart, stamp(499)) === 499, "the newest bar is found by its own time");
+  ok(chart.barIndexOfTime.call(chart, stamp(0)) === 0, "and so is the oldest");
+  ok(chart.barIndexOfTime.call(chart, "2020-01-01T00:00:00") === -1,
+    "a bar this chart does not hold is refused, not guessed");
+  ok(chart.barIndexOfTime.call(chart, stamp(499).replace("T", " ") + "+00:00") === 499,
+    "...and another spelling of a bar it DOES hold still finds it");
 
   /* The cache must not outlive the array it indexes - that would be
      the same class of bug one level down. */
-  chart.bars = bars.concat([{ time: "t500", close: 1 }]);
-  ok(chart.barIndexOfTime.call(chart, "t500") === 500, "deeper history re-indexes rather than answering from memory");
+  chart.bars = bars.concat([{ time: stamp(500), close: 1 }]);
+  ok(chart.barIndexOfTime.call(chart, stamp(500)) === 500,
+    "deeper history re-indexes rather than answering from memory");
 }
 
 {
   const paint = method(CHARTS, "paintSignals");
-  const timeAt = paint.indexOf("timeMap.has(sig.time)");
+  const timeAt = paint.indexOf("timeMap.has(when)");
   const idxAt = paint.indexOf("Number(sig.index)");
   ok(timeAt > 0 && idxAt > 0 && timeAt < idxAt,
     "a mark is placed by the bar's TIME first; the engine's index is only a fallback");
@@ -209,6 +218,76 @@ function priceKit(opts) {
     "deeper history re-asks for the marks that belong to it");
   ok(/paintHistoryEdge\(\)/.test(handler),
     "and the download line stays up while the rest arrives");
+}
+
+/* ============================ the follow-up: "the candles print broken" === */
+
+/* Reported after the round above shipped:
+ *
+ *   "The chart in the app is printing its candles broken - lots of
+ *    long shadows one after another, and every time the price
+ *    changes it draws a new candle. One tick, one new broken candle."
+ *
+ * They were new candles. Every bar comparison on this side is a
+ * string comparison, and the same bar arrived under three spellings:
+ * the expert's "2026-11-23T10:00:00", the MetaTrader5 package's
+ * "2026-11-23T10:00:00+00:00", and the archive's
+ * "2026-11-23 10:00:00". So the forming bar came back as a brand new
+ * candle whenever it came back by a different route, and since
+ * " " < "T" < "+" the duplicates did not even sort beside their
+ * twins - which is why the chart looked shuffled rather than just
+ * doubled.
+ */
+{
+  const { barTime, CandleChart } = require(path.join(ROOT, "apps", "web", "js", "charts.js"));
+
+  const spellings = ["2026-11-23T10:00:00", "2026-11-23T10:00:00+00:00",
+    "2026-11-23 10:00:00", "2026-11-23T10:00:00Z", "2026-11-23T10:00:00.750+00:00"];
+  const one = new Set(spellings.map(barTime));
+  ok(one.size === 1 && one.has("2026-11-23T10:00:00"),
+    "one bar has one name, whichever route it arrived by: " + [...one].join(" | "));
+  ok(barTime("not a time") === "not a time",
+    "a string this cannot read comes out unchanged, not half-rewritten");
+
+  /* setBars: the same bar twice is one candle, not two. */
+  const chart = Object.create(CandleChart.prototype);
+  chart.bars = [];
+  chart.span = 120; chart.offset = 0; chart.scale = { auto: true, mn: null, mx: null };
+  chart.draw = () => {};
+  chart.clampOffset = () => {};
+  chart.saveView = () => {};
+  chart.rows = () => chart.bars;
+  chart.setBars([
+    { time: "2026-11-23T09:00:00", open: 1, high: 2, low: 0.5, close: 1.5 },
+    { time: "2026-11-23T10:00:00", open: 1, high: 2, low: 0.5, close: 1.5 },
+    { time: "2026-11-23T10:00:00+00:00", open: 1, high: 9, low: 0.1, close: 1.9 },
+  ]);
+  ok(chart.bars.length === 2, "two spellings of one bar are one candle, not two: " + chart.bars.length);
+
+  /* setLastBar: the forming bar updates in place, however it is spelled. */
+  chart.setLastBar({ time: "2026-11-23T10:00:00+00:00", open: 1, high: 3, low: 0.4, close: 2.0 });
+  ok(chart.bars.length === 2, "the forming bar was appended instead of updated");
+  ok(Number(chart.bars[1].close) === 2.0, "...and its new price never landed");
+
+  /* A bar that arrives late must not leave the series out of order -
+     an out-of-order series is drawn as exactly the long wicks that
+     were reported. */
+  chart.setLastBar({ time: "2026-11-23T08:00:00", open: 1, high: 2, low: 0.5, close: 1.1 });
+  const times = chart.bars.map((b) => barTime(b.time));
+  ok(times.length === 3 && times.join(",") === times.slice().sort().join(","),
+    "a late bar left the series out of order: " + times.join(" "));
+}
+
+{
+  /* And the desk's own socket handler, which keeps S.candles. */
+  const handler = APP.slice(APP.indexOf('if (msg.type === "candle")'),
+    APP.indexOf('if (msg.type === "hist_progress")'));
+  ok(/barTime\(c\.time\)/.test(handler) && /barTime\(b\.time\)/.test(handler),
+    "the forming bar is still matched on the raw string, so one tick makes one new candle");
+  ok(/barTime\(a\.time\)\.localeCompare\(barTime\(b\.time\)\)/.test(handler),
+    "the series is sorted on the raw string, which puts the spellings in separate blocks");
+  const merge = grab(APP, "mergeOlder");
+  ok(/barTime\(/.test(merge), "an older slab can still re-add bars the chart already holds");
 }
 
 console.log(fails ? "\nlive-price-and-marks: " + fails + " check(s) failed" : "\nall good");

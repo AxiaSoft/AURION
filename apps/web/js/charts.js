@@ -3,6 +3,40 @@
 // light/dark theme. Safe to call in non-DOM environments (falls back to dark).
 let __aurionChartTheme = null;
 let __aurionChartThemeRev = -1;
+/* ── one spelling for a bar's time ──────────────────────────────────
+ *
+ * Reported: "the candles are printing broken - lots of long shadows
+ * one after another, and every time the price changes it draws a new
+ * broken candle."
+ *
+ * They were new candles. The same bar was arriving under two
+ * different strings, and every comparison in the chart is a string
+ * comparison: the de-duplication in setBars, the "is this the bar we
+ * already have" test in setLastBar, the sort that keeps the series in
+ * order, the lookup that places a signal. MetaTrader's expert writes
+ * "2026-11-23T10:00:00"; the MetaTrader5 Python package and the
+ * engine's own clock write "2026-11-23T10:00:00+00:00"; parts of the
+ * archive hold "2026-11-23 10:00:00". One bar, three names, so the
+ * forming bar came back as a brand new candle every time it was
+ * re-sent - and because " " < "T" < "+" the duplicates did not even
+ * land next to each other, which is what made the chart look shuffled
+ * rather than merely doubled.
+ *
+ * The engine now normalises at the source. This is the same rule on
+ * this side, because the desk also reads bars from its own cache and
+ * from an engine that may be older than it is.
+ */
+function barTime(value) {
+  let text = String(value == null ? "" : value).trim();
+  if (!text) return "";
+  /* Only the separator between the date and the time: a string this
+     cannot read comes out unchanged rather than half-rewritten. */
+  if (text.length > 10 && text[10] === " ") text = text.slice(0, 10) + "T" + text.slice(11);
+  text = text.replace(/\.\d+/, "");                  // fractional seconds
+  text = text.replace(/(Z|[+-]\d{2}:?\d{2})$/, "");   // a zone - these are all UTC
+  return text;
+}
+
 function chartTheme() {
   const rev = (typeof window !== "undefined" && window.__aurionThemeRev) || 0;
   if (__aurionChartTheme && __aurionChartThemeRev === rev) return __aurionChartTheme;
@@ -836,12 +870,12 @@ class CandleChart {
    * old to carry one.
    */
   barIndexOfTime(time) {
-    const key = String(time || "");
+    const key = barTime(time);
     if (!key) return -1;
     if (!this._timeIdx || this._timeIdxLen !== this.bars.length) {
       const map = new Map();
       for (let i = 0; i < this.bars.length; i += 1) {
-        const t = String(this.bars[i].time || this.bars[i].ts || "");
+        const t = barTime(this.bars[i].time || this.bars[i].ts);
         if (t) map.set(t, i);
       }
       this._timeIdx = map;
@@ -989,10 +1023,25 @@ class CandleChart {
   setLastBar(b) {
     if (!b) return;
     if (!this.bars.length) { this.setBars([b]); return; }
-    const t = String(b.time || b.ts || "");
+    const t = barTime(b.time || b.ts);
+    if (!t) return;
     const last = this.bars[this.bars.length - 1];
-    if (t && String(last.time || last.ts || "") === t) this.bars[this.bars.length - 1] = b;
-    else this.bars.push(b);
+    const lastT = barTime(last.time || last.ts);
+    if (t === lastT) {
+      this.bars[this.bars.length - 1] = b;
+    } else if (t > lastT) {
+      this.bars.push(b);
+    } else {
+      /* An older bar, arriving late. Appending it blindly left the
+         series out of order, and an out-of-order series is drawn as a
+         chart that jumps backwards and forwards - long wicks between
+         bars that do not belong next to each other. Replace it where
+         it belongs, or put it there. */
+      let at = this.bars.length - 1;
+      while (at >= 0 && barTime(this.bars[at].time || this.bars[at].ts) > t) at -= 1;
+      if (at >= 0 && barTime(this.bars[at].time || this.bars[at].ts) === t) this.bars[at] = b;
+      else this.bars.splice(at + 1, 0, b);
+    }
     this._series = null;
     this._timeIdx = null;
     this.draw();
@@ -1003,13 +1052,17 @@ class CandleChart {
     const prevSpan = this.span;
     const prevOff = this.offset;
     const raw = Array.isArray(bars) ? bars.filter((b) => b && (b.close || b.c)) : [];
+    /* Keyed on the NORMALISED time, so the same bar under two
+       spellings is one bar - see barTime. The bar keeps the time it
+       arrived with for everything else; only the key and the sort are
+       normalised, which is all that was ever disagreeing. */
     const map = new Map();
     for (const b of raw) {
-      const t = String(b.time || b.ts || "");
+      const t = barTime(b.time || b.ts);
       if (!t) continue;
       map.set(t, b);
     }
-    this.bars = [...map.values()].sort((a, b) => String(a.time || a.ts || "").localeCompare(String(b.time || b.ts || "")));
+    this.bars = [...map.values()].sort((a, b) => barTime(a.time || a.ts).localeCompare(barTime(b.time || b.ts)));
     this._series = null;
     this._timeIdx = null;
     if (!had && this._wantView) {
@@ -2266,15 +2319,16 @@ class CandleChart {
     // Build map time->index for fast lookup, but also use index if available
     const timeMap = new Map();
     for (let i = 0; i < rows.length; i++) {
-      timeMap.set(rows[i].t, i);
+      timeMap.set(barTime(rows[i].t), i);
     }
     for (const sig of this.signals) {
       /* The bar's own time decides where this goes. The engine's
          index is numbered from the start of the window IT analysed,
          which is not this chart's array - see barIndexOfTime. */
       let idx = -1;
-      if (sig.time && timeMap.has(sig.time)) {
-        idx = timeMap.get(sig.time);
+      const when = barTime(sig.time);
+      if (when && timeMap.has(when)) {
+        idx = timeMap.get(when);
       } else if (sig.time) {
         const global = this.barIndexOfTime(sig.time);
         if (global < 0) continue;     // that bar is not on this chart at all
@@ -4781,6 +4835,6 @@ class CandleChart {
 
 if (typeof module !== "undefined" && module.exports) {
   module.exports = {
-    SHAPE_POINTS, SHAPE_LABELS, CandleChart,
+    SHAPE_POINTS, SHAPE_LABELS, CandleChart, barTime,
   };
 }

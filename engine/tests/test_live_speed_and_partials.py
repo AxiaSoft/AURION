@@ -132,7 +132,8 @@ def test_a_bar_arriving_twice_still_replaces_the_one_held() -> None:
     bridge._put_candle(mk("2026-01-01 00:00:00", 1.5), "live")
 
     held = bridge._candles_for("EURUSD", "M15")
-    assert [c.time for c in held] == ["2026-01-01 00:00:00", "2026-01-01 00:15:00"]
+    # Stored in the one canonical spelling, whatever they came in as.
+    assert [c.time for c in held] == ["2026-01-01T00:00:00", "2026-01-01T00:15:00"]
     assert [c.close for c in held] == [1.5, 2.5]
 
 
@@ -391,3 +392,100 @@ def test_the_stream_survives_a_frame_it_cannot_read() -> None:
 @pytest.mark.parametrize("name", ["tick", "analysis", "status"])
 def test_what_may_be_dropped_is_stated_rather_than_guessed(name: str) -> None:
     assert name in DROPPABLE
+
+
+# ========================= the follow-up: "the candles print broken" ========
+
+"""Reported after the round above shipped, in these words:
+
+    "The chart in the app is printing its candles broken - lots of
+     long shadows one after another, and every time the price changes
+     it draws a new candle. One tick, one new broken candle."
+
+They really were new candles. A bar's time is compared as a STRING
+everywhere it matters - the buffer's duplicate check, the sort that
+keeps a series in order, the desk's own de-duplication, the archive's
+primary key - and the same bar was arriving under three spellings:
+
+    the expert           2026-11-23T10:00:00
+    the MetaTrader5 API  2026-11-23T10:00:00+00:00
+    parts of the archive 2026-11-23 10:00:00
+
+So the forming bar, re-sent several times a second, was a brand new
+candle every time it came back by a different route - and because
+" " < "T" < "+" the duplicates did not even sort beside their twins,
+which is why the chart looked shuffled rather than merely doubled.
+Faster ticks made an existing fault impossible to miss.
+"""
+
+
+def test_one_bar_has_one_spelling() -> None:
+    from aurion.mt5.types import bar_time
+
+    same = {
+        bar_time("2026-11-23T10:00:00"),
+        bar_time("2026-11-23T10:00:00+00:00"),
+        bar_time("2026-11-23 10:00:00"),
+        bar_time("2026-11-23T10:00:00Z"),
+        bar_time("2026-11-23T10:00:00.750+00:00"),
+    }
+    assert same == {"2026-11-23T10:00:00"}, f"still more than one name for one bar: {same}"
+
+
+def test_a_zone_is_converted_rather_than_chopped_off() -> None:
+    """Trimming "+00:00" and trimming "-05:00" look alike; only one is safe."""
+    from aurion.mt5.types import bar_time
+
+    assert bar_time("2026-11-23T15:00:00-05:00") == "2026-11-23T20:00:00"
+    # Something this cannot read is left alone rather than mangled into
+    # a different unreadable string.
+    assert bar_time("not a time") == "not a time"
+
+
+def test_the_forming_bar_updates_instead_of_multiplying() -> None:
+    """The reported symptom, reproduced and then refused."""
+    bridge, _ = _bridge()
+
+    async def go() -> list[str]:
+        history = [{"time": f"2026-11-23T{h:02d}:00:00", "open": 1, "high": 1.1,
+                    "low": 0.9, "close": 1.05, "volume": 5} for h in range(10)]
+        await bridge._on_ea_message(None, {
+            "type": "candles", "chart_id": 1, "symbol": "EURUSD", "timeframe": "H1",
+            "bars": history, "replace": True, "final": True})
+        # The same forming bar, arriving by both routes, as it does on a
+        # machine where the MetaTrader5 package is installed beside the
+        # expert - which is every Windows desk.
+        for i in range(12):
+            when = "2026-11-23T09:00:00" if i % 2 else "2026-11-23T09:00:00+00:00"
+            await bridge._on_ea_message(None, {
+                "type": "candle", "chart_id": 1, "symbol": "EURUSD", "timeframe": 60,
+                "timeframe_name": "H1", "time": when, "open": 1.0,
+                "high": 1.2 + i / 100, "low": 0.8, "close": 1.0 + i / 100, "volume": 9})
+        return [c.time for c in bridge._candles_for("EURUSD", "M15")]
+
+    times = asyncio.run(go())
+    assert len(times) == len(set(times)), "the same bar is on the chart twice"
+    assert len(times) == 10, f"twelve price updates added {len(times) - 10} candles"
+    assert times == sorted(times), "the series is out of order, which draws as long wicks"
+
+
+def test_an_archive_written_before_the_fix_cleans_itself_up() -> None:
+    """Six months of duplicated bars will not fix themselves."""
+    import tempfile
+    from pathlib import Path as _Path
+
+    from aurion.runtime.store import Store
+
+    tmp = _Path(tempfile.mkdtemp()) / "t.db"
+    store = Store(tmp)
+    for when in ("2026-11-23T10:00:00", "2026-11-23T10:00:00+00:00", "2026-11-23 11:00:00"):
+        store.execute(
+            "INSERT INTO candles(symbol,timeframe,ts,open,high,low,close,volume,spread)"
+            " VALUES(?,?,?,?,?,?,?,?,?)",
+            ("EURUSD", "H1", when, 1, 2, 0.5, 1.5, 10, 0))
+    store.close()
+
+    reopened = Store(tmp)
+    held = [row["ts"] for row in reopened._conn.execute("SELECT ts FROM candles ORDER BY ts")]
+    reopened.close()
+    assert held == ["2026-11-23T10:00:00", "2026-11-23T11:00:00"], held

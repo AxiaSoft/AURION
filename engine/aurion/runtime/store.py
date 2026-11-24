@@ -9,7 +9,11 @@ from pathlib import Path
 from typing import Any
 
 from ..config import DATA_DIR, ROOT, load
+from ..mt5.types import bar_time
 from ..strategy.loader import BUILTIN_NAMES, LEGACY_BUILTINS
+from ..util.log import get
+
+log = get("store")
 from ..util.clock import utc_iso
 from ..util.history import at_least_window
 
@@ -182,6 +186,46 @@ class Store:
         if "entry" not in cols:
             self._conn.execute("ALTER TABLE trades ADD COLUMN entry TEXT")
         self._conn.execute("CREATE INDEX IF NOT EXISTS idx_trades_ticket ON trades(ticket)")
+        self._normalise_candle_times()
+
+    def _normalise_candle_times(self) -> None:
+        """One spelling per bar in the archive, once.
+
+        The same bar used to be stored under two timestamps - the
+        expert's "2026-11-23T10:00:00" and the MetaTrader5 package's
+        "2026-11-23T10:00:00+00:00" - and since the timestamp is part
+        of the primary key, they were two rows. Reading them back gave
+        the desk two candles for one minute: the duplicated, "broken"
+        candles with long shadows that were reported.
+
+        New writes are normalised at the source (mt5.types.bar_time).
+        This is for the archive an installation already has, which can
+        be six months deep and is not going to fix itself. Rows that
+        collide with a row already holding the canonical spelling are
+        dropped - they are the same bar, and the canonical one is kept.
+        """
+        rows = self._conn.execute(
+            "SELECT rowid, symbol, timeframe, ts FROM candles "
+            "WHERE ts LIKE '%+%' OR ts LIKE '% %' OR ts LIKE '%Z' OR ts LIKE '%.%'"
+        ).fetchall()
+        if not rows:
+            return
+        fixed = dropped = 0
+        for row in rows:
+            want = bar_time(row["ts"])
+            if not want or want == row["ts"]:
+                continue
+            try:
+                self._conn.execute(
+                    "UPDATE candles SET ts=? WHERE rowid=?", (want, row["rowid"]))
+                fixed += 1
+            except sqlite3.IntegrityError:
+                # The canonical row is already there; this is its twin.
+                self._conn.execute("DELETE FROM candles WHERE rowid=?", (row["rowid"],))
+                dropped += 1
+        if fixed or dropped:
+            self._conn.commit()
+            log.info("archive: %d bar times normalised, %d duplicate bars removed", fixed, dropped)
 
     def close(self) -> None:
         with self._lock:
@@ -253,7 +297,9 @@ class Store:
             (
                 c.get("symbol"),
                 c.get("timeframe"),
-                c.get("time"),
+                # See save_candles: one spelling per bar, or the
+                # primary key makes two rows out of one candle.
+                bar_time(c.get("time")),
                 c.get("open"),
                 c.get("high"),
                 c.get("low"),
@@ -289,13 +335,18 @@ class Store:
             data = row if isinstance(row, dict) else getattr(row, "to_dict", lambda: None)()
             if not isinstance(data, dict):
                 continue
-            ts = data.get("time") or data.get("ts")
+            # Canonical spelling, whatever shape the row arrived in.
+            # The timestamp is part of the primary key, so a bar
+            # written as "...T10:00:00+00:00" by one path and
+            # "...T10:00:00" by another was two rows for one bar - and
+            # two candles on the chart. See mt5.types.bar_time.
+            ts = bar_time(data.get("time") or data.get("ts"))
             if not ts:
                 continue
             payload.append((
                 str(data.get("symbol") or series_sym),
                 str(data.get("timeframe") or series_tf),
-                str(ts),
+                ts,
                 data.get("open"),
                 data.get("high"),
                 data.get("low"),

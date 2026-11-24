@@ -213,6 +213,7 @@ class MT5Bridge:
             return []
         held = self._candles_for(symbol, timeframe)
         fresh = [c for c in (self._candle_from_row(symbol, timeframe, r) for r in rows) if c]
+        fresh = self._one_bar_per_time(fresh)
         if not fresh or self._reaches_further(held, fresh):
             return held
         bucket = self._tape_store("live")["candles"][(symbol, timeframe)]
@@ -220,6 +221,26 @@ class MT5Bridge:
         bucket.extend(fresh)
         log.info("warmed %s %s with %d stored bars", symbol, timeframe, len(fresh))
         return list(bucket)
+
+    @staticmethod
+    def _one_bar_per_time(rows: list[Candle]) -> list[Candle]:
+        """One candle per bar time, in time order.
+
+        The archive on an installation that ran before bar times were
+        normalised holds the same bar under two spellings -
+        "...T10:00:00" from the expert and "...T10:00:00+00:00" from
+        the MetaTrader5 package - because they were two different
+        primary keys. Reading them back now produces two Candles with
+        the same time, which is a duplicate candle on the chart: the
+        exact fault that normalising was meant to end, resurrected
+        from disk. The later row wins, since that is the one written
+        most recently.
+        """
+        by_time: dict[str, Candle] = {}
+        for row in rows:
+            if row.time:
+                by_time[row.time] = row
+        return sorted(by_time.values(), key=lambda c: (c.time, int(c.time_msc or 0)))
 
     @staticmethod
     def _candle_from_row(symbol: str, timeframe: str, row: Any) -> Candle | None:

@@ -115,8 +115,13 @@ def test_rows_are_taken_in_every_shape_they_arrive_in(store: Store) -> None:
         Candle("EURUSD", "H1", "2026-11-01T02:00:00Z", 0, 1, 2, 0, 1.5, 3),
     ])
     rows = store.candles("EURUSD", "H1", 50)
+    # Read back in the one canonical spelling. A bar's time is part of
+    # the primary key here and is compared as a string everywhere
+    # else, so a bar written "...T02:00:00Z" by one path and
+    # "...T02:00:00" by another used to be two rows - and two candles
+    # on the chart. See mt5.types.bar_time.
     assert [r["ts"] for r in rows] == [
-        "2026-11-01T00:00:00Z", "2026-11-01T01:00:00Z", "2026-11-01T02:00:00Z",
+        "2026-11-01T00:00:00", "2026-11-01T01:00:00", "2026-11-01T02:00:00",
     ]
 
 
@@ -167,7 +172,7 @@ def test_a_fresh_bridge_warms_from_disk_instead_of_downloading(store: Store) -> 
     assert len(bridge.candles_of("EURUSD", "M15")) == 400
     first = bridge.candles_of("EURUSD", "M15")[0]
     assert first.symbol == "EURUSD" and first.timeframe == "M15"
-    assert first.time == "2026-11-01T00:00:00Z"
+    assert first.time == "2026-11-01T00:00:00"      # canonical, see bar_time
     assert first.close == pytest.approx(1.2)
 
 
