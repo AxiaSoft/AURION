@@ -16615,17 +16615,62 @@ function markSignalsBusy(busy) {
 }
 
 /**
- * Ask again while the engine is still working backwards.
+ * Does the analysis reach the newest candle on the chart?
  *
- * Each call pushes the analysed region further back, so the chart
- * fills in over a few seconds instead of stopping wherever the first
- * request ran out of time. Stops as soon as the engine says it is
- * complete, and never stacks two timers.
+ * Reported: "it should be signalling all the way to the head of the
+ * chart, and it is not." The backward fill was working - what was
+ * missing is the other direction. The engine says `complete` when it
+ * has covered everything it was given, and from that moment the desk
+ * stopped asking. But the chart keeps GROWING: a bar closes every
+ * minute, is appended by the live stream, and nothing ever looked at
+ * it. An hour later the newest sixty candles carried no marks, and an
+ * unanalysed candle looks exactly like a candle with no setup on it.
+ *
+ * So "complete" is not a property of the analysis, it is a property
+ * of the analysis AGAINST A PARTICULAR RIGHT-HAND EDGE, and the edge
+ * moves. This is that comparison.
+ */
+function signalsReachHead() {
+  const cov = S.signalCoverage;
+  if (!cov) return false;
+  const bars = S.candles || [];
+  if (!bars.length) return true;              // nothing to be behind
+  const last = bars[bars.length - 1] || {};
+  const newest = barTime(last.time || last.ts);
+  if (!newest) return true;                   // cannot tell; do not spin
+  const covered = barTime(cov.toTime);
+  if (!covered) return false;                 // covered nothing nameable
+  if (covered >= newest) return true;
+  /* One pass per new bar, not one every 1.2s for ever. The desk can
+     legitimately hold a bar the engine's own window does not reach -
+     it asks for a bounded count - and without this the shortfall
+     would never close and the timer would reschedule itself all day. */
+  return S._signalHead === newest;
+}
+
+/**
+ * Ask again while there is anything left to analyse.
+ *
+ * Two different gaps bring us back here. Behind: the engine works
+ * backwards a slab per call, so the chart fills in over a few seconds
+ * instead of stopping wherever the first request ran out of time.
+ * Ahead: every bar that closes is a new bar nobody has analysed, and
+ * that one matters most - the mark on the newest candle is the only
+ * one still worth acting on.
+ *
+ * Catching up at the edge is cheap. The engine remembers what it has
+ * already analysed and re-reads only the new bars plus one of overlap,
+ * so a call made because a single M15 bar closed is two bars of work,
+ * not six months of it.
+ *
+ * Never stacks two timers, and never fires while a pass is already in
+ * the air.
  */
 function scheduleSignalFill(symbol, timeframe) {
   if (S._signalFill) { clearTimeout(S._signalFill); S._signalFill = null; }
   const cov = S.signalCoverage;
-  if (!cov || cov.complete) return;
+  if (!cov) return;
+  if (cov.complete && signalsReachHead()) return;
   if (!S.signalsEnabled || !S.showSignals) return;
   S._signalFill = setTimeout(() => {
     S._signalFill = null;
@@ -16633,6 +16678,9 @@ function scheduleSignalFill(symbol, timeframe) {
     // analysing a symbol nobody is looking at is work the machine
     // could be spending on the one they switched to.
     if (S.symbol !== symbol || S.timeframe !== timeframe) return;
+    // A pass is already running; it will schedule the next one itself
+    // when it lands. Firing now would queue a second replay behind it.
+    if (S.signalsLoading) { scheduleSignalFill(symbol, timeframe); return; }
     fetchChartSignals(symbol, timeframe);
   }, SIGNAL_FILL_DELAY_MS);
 }
@@ -16666,6 +16714,10 @@ async function fetchChartSignals(symbol, timeframe) {
        scrolled to, and that is exactly how many we hold. */
     const held = (S.candles || []).length;
     const count = Math.max(400, Math.min(barsForDays(timeframe, chartDays()), held || barsForDays(timeframe, chartDays())));
+    /* Which right-hand edge this pass is being run against - see
+       signalsReachHead. */
+    const headBar = held ? (S.candles[held - 1] || {}) : {};
+    S._signalHead = barTime(headBar.time || headBar.ts);
     const r = await API.get(`/api/chart/signals?symbol=${encodeURIComponent(symbol)}`
       + `&timeframe=${encodeURIComponent(timeframe)}`
       + `&count=${count}&strict=true`);
@@ -16888,6 +16940,16 @@ function onLive(msg) {
       else {
         S.candles.push(c);
         S.candles.sort((a, b) => barTime(a.time).localeCompare(barTime(b.time)));
+        /* A bar this chart has never seen: the previous one has just
+           CLOSED. That is the moment the analysis falls behind the
+           chart, and it was the moment nothing happened - the desk
+           stopped asking for marks once the engine said "complete",
+           so the candles that arrived afterwards were never analysed
+           and read as candles with no setup on them. Reported as "it
+           should be signalling all the way to the head of the chart".
+           Debounced by scheduleSignalFill, which clears its own
+           timer, so a burst of bars costs one pass. */
+        scheduleSignalFill(S.symbol, S.timeframe);
       }
       if (S.chart) {
         if (typeof S.chart.setLastBar === "function") S.chart.setLastBar(c);

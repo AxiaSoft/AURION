@@ -425,8 +425,16 @@ check("every upd.* and sup.* key the code reads is in the packs", () => {
 });
 
 check("the browser is made to fetch the files that changed", () => {
+  /* A floor, not an equality - see the same check in
+     theme-controls.test.js. Pinning the exact number makes every
+     later bump fail here, and the number only ever records that the
+     file HAD to change by then. */
   for (const want of ["js/app.js?v=desk275", "css/app.css?v=desk263", "js/demo.js?v=desk240"]) {
-    must(HTML.includes(want), "index.html still points at the old " + want);
+    const [file, floor] = want.split("?v=desk");
+    const m = new RegExp(file.replace(/[.\/]/g, "\\$&") + "\\?v=desk(\\d+)").exec(HTML);
+    must(m, "index.html does not load " + file + " with a version at all");
+    must(Number(m[1]) >= Number(floor),
+      file + " is still at desk" + m[1] + "; it changed at desk" + floor);
   }
   const token = /js\/i18n\.js\?v=(lang[0-9a-f]+)/.exec(HTML);
   must(token, "the language token is gone from index.html");

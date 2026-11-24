@@ -747,7 +747,27 @@ check("the browser is forced to pick up every file that changed", () => {
        desk139 while everything around it moved - a cached copy would
        be a calendar with no reminder in it at all. */
     "js/calendar.js?v=desk239"];
-  want.forEach((w) => { if (!html.includes(w)) throw new Error("index.html is missing " + w); });
+  /* A FLOOR, not an equality.
+     These were exact matches, and an exact match turns every future
+     cache-buster bump into a failing test in an unrelated suite -
+     which is exactly what happened: a round that bumped app.js left
+     this red, and the number recorded here is only ever a statement
+     about what has ALREADY changed. So the rule is "this file's
+     version is at or past the point where it had to move", which
+     still catches the real fault (a file that changed and kept its
+     old version, so a cached browser never fetches it). */
+  const versionOf = (src, file) => {
+    const m = new RegExp(file.replace(/[.\/]/g, "\\$&") + "\\?v=desk(\\d+)").exec(src);
+    return m ? Number(m[1]) : null;
+  };
+  want.forEach((w) => {
+    const [file, floor] = w.split("?v=desk");
+    const got = versionOf(html, file);
+    if (got === null) throw new Error("index.html does not load " + file + " with a version at all");
+    if (got < Number(floor)) {
+      throw new Error(file + " is still at desk" + got + "; it changed at desk" + floor);
+    }
+  });
   if (!read("sw.js").includes("aurion-shell-v243")) throw new Error("the service worker cache was not bumped");
 });
 
