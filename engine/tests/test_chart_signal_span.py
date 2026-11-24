@@ -1,23 +1,39 @@
-"""Chart marks across the whole history, not just the right-hand edge.
+"""Chart marks: a real span, over a bounded and recent window.
 
-Reported: "the signals are only drawn at the right edge of the chart -
-draw them across all the months." They were. ``replay`` covered
+This file has been through two opposite instructions, and both are
+preserved here because the second one only makes sense against the
+first.
+
+**Originally:** "the signals are only drawn at the right edge of the
+chart - draw them across all the months." They were. ``replay`` covered
 ``DEFAULT_WINDOW`` = 240 bars and nothing before it, so a trader
 scrolling back found arrows bunched at the right and months of
 apparently empty chart behind them. An absent mark does not read as
 "not analysed", it reads as "no setup here", which is a much more
-dangerous thing to believe.
-
-Two reasons it was capped, and what replaces each:
+dangerous thing to believe. Two things were wrong and both were fixed,
+and both fixes still stand and are still tested below:
 
 * **It was quadratic.** Every bar was handed ``bars[:i+1]``, so bar
   10 000 got 10 000 bars. A strategy that declares ``history_window``
   has already said how far back it reads, so it is handed that much
   and a pass becomes linear.
-* **It is still not instant.** smart_money costs about 11 ms a bar, so
-  six months of M15 is three minutes however it is sliced. The caller
-  now analyses a slab at a time and remembers the result, so coverage
-  walks backwards across refreshes and the chart fills in.
+* **Thinning kept only the newest sixty marks**, so widening the
+  analysis would have changed nothing visible.
+
+**Then:** covering all the months was done by walking backwards 1500
+bars per refresh, for ever, on every chart at once - and with the
+expert attached to real charts that is an engine that never returns to
+idle. Reported as the engine flapping and the desk dying whenever the
+EA was on, with the instruction: do not analyse the whole chart, one
+day is what is being looked at.
+
+So the marked region is now the last ``MARK_DAYS`` and the work ENDS.
+The tests that asserted coverage walks backwards across the whole
+series have been replaced by tests that it covers the window and then
+stops; see test_chart_load_is_bounded.py. What has NOT changed is that
+marks must span the region they claim to cover, must be thinned evenly
+rather than trimmed to the newest, and must follow their bar when the
+history scrolls - so those tests are untouched.
 
 Run:
     python3 -m pytest engine/tests/test_chart_signal_span.py -q
@@ -34,14 +50,15 @@ from typing import Any
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from aurion.runtime.trader import (  # noqa: E402
-    CHART_MARK_FIRST_PASS,
-    CHART_MARK_STEP_BACK,
-    Trader,
-)
+from aurion.runtime.trader import MARK_DAYS, Trader  # noqa: E402
 from aurion.signals import strategy_signals as ss  # noqa: E402
 from aurion.strategy.builtin.ema_rsi import EmaRsi  # noqa: E402
 from aurion.strategy.builtin.smart_money import SmartMoney  # noqa: E402
+
+
+#: Bars of M15 inside the marked window - what the planner will ask
+#: for on a settled chart. 96 bars to the day.
+MARKED_M15 = MARK_DAYS * 24 * 60 // 15
 
 
 def _bars(n: int, shift: int = 0) -> list[dict[str, Any]]:
@@ -264,57 +281,65 @@ def test_running_out_of_time_says_where_it_stopped() -> None:
     assert ss.WARMUP_BARS < res["covered_from"] < len(bars)
 
 
-def test_coverage_walks_backwards_over_successive_calls() -> None:
-    """The behaviour that makes six months of marks possible at all.
+def test_coverage_reaches_the_window_and_then_stops() -> None:
+    """The replacement for "walks backwards for ever".
 
-    Each call does the newest bars first, then pushes the covered
-    region further back. The marks returned are every mark found so
-    far, not just this slab's - otherwise each refresh would wipe the
-    chart and redraw a fragment of it.
+    This test used to assert that each refresh reached another 1500
+    bars into the past until the whole series was covered. That is the
+    behaviour that stopped the engine ever going idle with the expert
+    attached. What must be true now is the opposite and much stronger:
+    the covered region reaches the marked window and the planner then
+    reports there is nothing left to do - on the FIRST pass, because
+    one day is a single pass's worth of work.
     """
     trader = Trader.__new__(Trader)
     armed = [("ema_rsi", EmaRsi())]
     bars = _bars(5000)
 
-    covers: list[tuple[int, int]] = []
-    counts: list[int] = []
-    res: dict[str, Any] = {}
-    for _ in range(12):
-        plan = trader._chart_mark_plan("EURUSD", "M15", armed, bars)
-        if plan.get("complete"):
-            break
-        out = ss.replay(bars, armed, "EURUSD", "M15", budget_seconds=600,
-                        first=plan["first"], last=plan["last"])
-        res = trader._chart_marks_merge("EURUSD", "M15", armed, bars, plan, out)
-        covers.append((res["covered_from"], res["covered_to"]))
-        counts.append(res["count"])
-        if res["complete"]:
-            break
+    plan = trader._chart_mark_plan("EURUSD", "M15", armed, bars)
+    assert plan["last"] - plan["first"] == MARKED_M15, (
+        "the first pass is not one day of bars"
+    )
+    out = ss.replay(bars, armed, "EURUSD", "M15", budget_seconds=600,
+                    first=plan["first"], last=plan["last"])
+    res = trader._chart_marks_merge("EURUSD", "M15", armed, bars, plan, out)
 
-    assert covers, "no pass ever ran"
-    # The first pass is the right-hand edge and nothing else.
-    assert covers[0][1] == len(bars)
-    assert covers[0][0] == len(bars) - CHART_MARK_FIRST_PASS
-    # Every later pass reaches further back and never loses ground.
-    for (lo, hi), (plo, phi) in zip(covers[1:], covers):
-        assert lo < plo, f"coverage stopped reaching back: {plo} -> {lo}"
-        assert hi >= phi, "coverage went backwards at the right-hand edge"
-    # Marks only ever accumulate.
-    assert counts == sorted(counts)
-    assert res["complete"] is True
-    assert res["covered_from"] <= ss.WARMUP_BARS
-    # And the step is the declared one, not a number that happens to work.
-    assert covers[0][0] - covers[1][0] == CHART_MARK_STEP_BACK
+    assert res["covered_to"] == len(bars), "the newest bar must always be covered"
+    assert res["covered_from"] == len(bars) - MARKED_M15
+    assert res["complete"] is True, "one day of bars took more than one pass"
+
+    # And it stays done: a refresh with no new bars is no work at all.
+    assert trader._chart_mark_plan("EURUSD", "M15", armed, bars).get("complete") is True
 
 
-def test_a_caught_up_chart_still_reaches_back_rather_than_spinning() -> None:
-    """The off-by-one that quietly disabled the whole mechanism.
+def test_the_work_is_bounded_however_long_the_history_is() -> None:
+    """Ten times the history must not be ten times the work.
+
+    The property that was missing before: the cost of marking a chart
+    is a function of the WINDOW, not of how much history the broker
+    handed over. Six months of M1 used to be 259 200 bars of eventual
+    analysis per chart.
+    """
+    trader = Trader.__new__(Trader)
+    armed = [("ema_rsi", EmaRsi())]
+    for total in (500, 5000, 50_000):
+        trader._marks_store().clear()
+        plan = trader._chart_mark_plan("EURUSD", "M15", armed, _bars(total))
+        todo = plan["last"] - plan["first"]
+        assert todo <= MARKED_M15, (
+            f"{total} bars of history asked for {todo} bars of analysis"
+        )
+
+
+def test_a_caught_up_chart_does_no_work_at_all() -> None:
+    """The off-by-one that used to disable the mechanism, inverted.
 
     `to_time` records the LAST bar analysed, so the exclusive bound is
     one past it. Read back as the bound itself, the newest covered bar
-    looks uncovered, so every refresh re-analyses that one bar, decides
-    it is not caught up, and never reaches backwards at all - marks
-    stay bunched at the right edge exactly as before.
+    looks uncovered - and every refresh then re-analyses that bar for
+    ever. That was a waste when the planner walked backwards; now that
+    the window is finite it would be the difference between a chart
+    that settles and a chart that never stops working.
     """
     trader = Trader.__new__(Trader)
     armed = [("ema_rsi", EmaRsi())]
@@ -326,10 +351,8 @@ def test_a_caught_up_chart_still_reaches_back_rather_than_spinning() -> None:
     trader._chart_marks_merge("EURUSD", "M15", armed, bars, plan, out)
 
     second = trader._chart_mark_plan("EURUSD", "M15", armed, bars)
-    assert second["last"] <= plan["first"] + 1, (
-        "the second pass went forward again instead of reaching back"
-    )
-    assert second["first"] < plan["first"]
+    assert second.get("complete") is True, "a settled chart asked for more work"
+    assert second["last"] - second["first"] == 0
 
 
 def test_new_bars_are_marked_before_coverage_reaches_further_back() -> None:
@@ -406,8 +429,11 @@ def test_the_desk_is_told_whether_more_is_coming() -> None:
     out = ss.replay(bars, armed, "EURUSD", "M15", budget_seconds=600,
                     first=plan["first"], last=plan["last"])
     res = trader._chart_marks_merge("EURUSD", "M15", armed, bars, plan, out)
-    assert res["complete"] is False
-    assert res["analysing"] is True
+    # One day of M15 is one pass, so a chart is complete as soon as it
+    # has been looked at - and the desk must be told, or it holds its
+    # "still analysing" wash over the chart for ever.
+    assert res["complete"] is True
+    assert res["analysing"] is False
 
 
 # ------------------------------------------------------------- speed

@@ -216,7 +216,7 @@
       <ol>
         <li>MT5 روی همان ماشین (نه Strategy Tester).</li>
         <li><code>AurionBridge.mq5</code> را با F7 کامپایل کنید — نسخه باید <b>۱.۱۹</b> باشد. از چارت بردارید و دوباره بچسبانید.</li>
-        <li>در تب Experts باید <code>hello delivered v1.25</code> یا <code>file inbox writing</code> بیاید. فایل مشترک حتی بدون WebRequest میز را تغذیه می‌کند.</li>
+        <li>در تب Experts باید <code>hello delivered v1.26</code> یا <code>file inbox writing</code> بیاید. فایل مشترک حتی بدون WebRequest میز را تغذیه می‌کند.</li>
         <li>WebRequest اختیاری است. اگر می‌خواهید: Allow algorithmic trading + URLهای <code>127.0.0.1</code> ، <code>http://127.0.0.1</code> ، <code>http://127.0.0.1:18765</code>.</li>
         <li>AutoTrading ترمینال و چارت روشن باشد وگرنه سفارش ربات در EA رد می‌شود.</li>
       </ol>
@@ -411,7 +411,7 @@
       <ol>
         <li><b>Python engine</b> on <code>18765</code> — AI, strategies, prop. Legacy EA socket on <code>18766</code>.</li>
         <li><b>Node desk</b> on <code>http://127.0.0.1:8080</code>.</li>
-        <li><b>AurionBridge.mq5 1.25</b> on a desktop MT5 chart. Two pipes: the MT5 Common Files drop (no WebRequest) and HTTP to <code>18765</code>.</li>
+        <li><b>AurionBridge.mq5 1.26</b> on a desktop MT5 chart. Two pipes: the MT5 Common Files drop (no WebRequest) and HTTP to <code>18765</code>.</li>
       </ol>
       <div class="card warn">Official MT5 mobile cannot host EAs. AURION is Windows-only. Execution is on this PC or a Windows VPS.</div>
 
@@ -517,11 +517,11 @@
         <li>Stop with <code>stop-aurion.cmd</code>.</li>
       </ol>
 
-      <h2 id="en-11">11. MetaTrader + EA 1.25</h2>
+      <h2 id="en-11">11. MetaTrader + EA 1.26</h2>
       <ol>
         <li>Same machine, not Strategy Tester.</li>
-        <li>Compile <code>AurionBridge.mq5</code> with F7 — version <b>1.25</b>. Remove and reattach.</li>
-        <li>Experts must show <code>hello delivered v1.25</code> or <code>file inbox writing</code>. The file drop feeds the desk without WebRequest.</li>
+        <li>Compile <code>AurionBridge.mq5</code> with F7 — version <b>1.26</b>. Remove and reattach.</li>
+        <li>Experts must show <code>hello delivered v1.26</code> or <code>file inbox writing</code>. The file drop feeds the desk without WebRequest.</li>
         <li>WebRequest is optional. If you want it: allow algo trading and <code>127.0.0.1</code>, <code>http://127.0.0.1</code>, <code>http://127.0.0.1:18765</code>.</li>
         <li>Terminal and chart AutoTrading must be ON or the EA rejects the robot order.</li>
       </ol>
@@ -549,19 +549,19 @@
       <h2 id="en-14">14. Robot troubleshooting</h2>
       <table>
         <tr><th>Symptom</th><th>Fix</th></tr>
-        <tr><td>Gate says Nobody</td><td>Compile and reattach EA 1.25. Read Experts.</td></tr>
+        <tr><td>Gate says Nobody</td><td>Compile and reattach EA 1.26. Read Experts.</td></tr>
         <tr><td>Gate says You — manual</td><td>Enable a strategy, arm auto, check kill/prop.</td></tr>
         <tr><td>observe only</td><td>Arm auto-trade.</td></tr>
         <tr><td>hold every bar</td><td>No setup on that TF. Change style or strategy.</td></tr>
         <tr><td>Prop blocked</td><td>UTC hours, lot, daily cap or gap.</td></tr>
         <tr><td>EA did not confirm</td><td>Turn AutoTrading ON on the terminal and the chart.</td></tr>
-        <tr><td>No chart on the desk</td><td>Must be 1.25. stop then start, Ctrl+Shift+R.</td></tr>
+        <tr><td>No chart on the desk</td><td>Must be 1.26. stop then start, Ctrl+Shift+R.</td></tr>
       </table>
 
       <h2 id="en-15">15. First robot-trade checklist</h2>
       <ol>
         <li><code>start-aurion.cmd</code> → sign in.</li>
-        <li>AurionBridge 1.25 on a live chart (Normal: e.g. XAUUSD M15 — Scalp: M1/M5).</li>
+        <li>AurionBridge 1.26 on a live chart (Normal: e.g. XAUUSD M15 — Scalp: M1/M5).</li>
         <li>EA Charts shows the agent online.</li>
         <li>Enable one or more strategies.</li>
         <li>Pick Normal or Scalping.</li>
@@ -722,7 +722,7 @@
       <div class="card ok">ما لم يُسلَّح الآلي وتُفعَّل استراتيجية واحدة على الأقل، لن يرسل الروبوت شيئاً.</div>
 
       <h2 id="ar-2">٢. مسار الروبوت</h2>
-      <p>لا يطلق على كل تيك. الاستراتيجيات المدمجة تُقيَّم فقط على شمعة <b>مغلقة</b> من الرسم الذي عليه AurionBridge 1.25.</p>
+      <p>لا يطلق على كل تيك. الاستراتيجيات المدمجة تُقيَّم فقط على شمعة <b>مغلقة</b> من الرسم الذي عليه AurionBridge 1.26.</p>
       <ol>
         <li>المستشار على رسم حي. بلا مستشار لا رمز قابل للتداول.</li>
         <li>تصل شمعة مغلقة. يستنتج الذكاء على ذلك الشريط الحقيقي.</li>
@@ -770,14 +770,14 @@
       <h2 id="ar-7">٧. التثبيت والميتاتريدر</h2>
       <ol>
         <li>انسخ إلى <code>D:\\aurion</code>، ثبّت Python 3.10-3.12 وNode.js 18+ يدوياً، ثم يومياً <code>start-aurion.cmd</code>.</li>
-        <li>جمّع AurionBridge <b>1.25</b> بـ F7. Experts: <code>hello delivered v1.25</code> أو كتابة الملف المشترك. WebRequest اختياري.</li>
+        <li>جمّع AurionBridge <b>1.26</b> بـ F7. Experts: <code>hello delivered v1.26</code> أو كتابة الملف المشترك. WebRequest اختياري.</li>
         <li>AutoTrading على المنصة والرسم يجب أن يكون شغّالاً.</li>
       </ol>
 
       <h2 id="ar-8">٨. قائمة أول صفقة روبوت</h2>
       <ol>
         <li>شغّل المكدس وادخل.</li>
-        <li>المستشار 1.25 على رسم حي.</li>
+        <li>المستشار 1.26 على رسم حي.</li>
         <li>فعّل استراتيجية. اختر نمطاً. اضبط البروب.</li>
         <li>سلّح الآلي. البطاقة تقول <b>الروبوت</b>.</li>
         <li>انتظر شمعة مغلقة. لا شيء يُختلق.</li>
@@ -914,7 +914,7 @@
 
     </article>
 
-    <footer>AURION 1.0 · live tape only · magic 908173 · robot guide 2026-08-20 · EA 1.25</footer>
+    <footer>AURION 1.0 · live tape only · magic 908173 · robot guide 2026-08-20 · EA 1.26</footer>
   </div>
   <script>
     const toc = {

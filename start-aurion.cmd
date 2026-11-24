@@ -184,7 +184,7 @@ REM old process keeps answering /health - so the launcher below would
 REM see 200, report success, and leave the installation running code
 REM that is no longer on disk.
 "%PS%" -NoProfile -ExecutionPolicy Bypass -File "%~dp0scripts\stop-engine.ps1" -Root "%CD%" >>"%TRAIL%" 2>&1
-if errorlevel 1 goto :PORTHELD
+if errorlevel 1 call :PORTHELD
 
 "%CSCRIPT%" //nologo "%~dp0scripts\hidden.vbs" "%CD%" "%CD%\data\logs\engine.log" %PYCMD% engine\main.py --host 127.0.0.1 --port 18765
 
@@ -237,16 +237,25 @@ REM A port is still held by a process we could not stop. Say so, loudly,
 REM because every other symptom of this state is misleading: the desk
 REM comes up, the engine answers, and the only thing wrong is that the
 REM engine is the previous build.
+REM
+REM This used to "exit /b 1" and start nothing, to stop a stale engine
+REM serving unnoticed behind a fresh desk. It cured the wrong thing: a
+REM trader whose launcher exits here has no desk, no engine and no
+REM window, and no way to be told why. It is now a warning and the
+REM launch continues - safely, because the engine claims its port
+REM before it starts anything and a duplicate declines in milliseconds,
+REM and because the desk puts a build mismatch on screen rather than
+REM leaving it to be guessed at.
 echo.
 echo   An earlier AURION process is still holding its port and could not
-echo   be stopped. Starting another engine would change nothing - it
-echo   cannot take the port, so the old one keeps serving.
+echo   be stopped. The engine already running will keep serving, and it
+echo   may be the previous build - the desk will say so if it is.
 echo.
 echo   Details: %CD%\data\logs\setup.log
-echo   Close AURION completely, or restart Windows, then start again.
+echo   If the desk reports a mismatch, close AURION completely and start
+echo   it again.
 echo.
-if not defined AURION_NO_BROWSER pause
-exit /b 1
+goto :eof
 
 :NOTREADY
 echo.

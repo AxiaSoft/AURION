@@ -180,6 +180,11 @@ internal sealed class AppWindow : Form
             return;
         }
 
+        // Whatever happens below, this window is closing, so the desk is
+        // not to be revived behind it. Stopped before the branch rather
+        // than inside it: every path from here ends with AURION down.
+        try { _deskWatch?.Stop(); } catch { /* nothing to stop */ }
+
         var forced = _sessionEnding
             || e.CloseReason == CloseReason.WindowsShutDown
             || e.CloseReason == CloseReason.TaskManagerClosing;
@@ -451,6 +456,94 @@ internal sealed class AppWindow : Form
         _splash.Status = "Loading the desk…";
         _splash.Progress = 0.92f;
         await ShowDeskAsync();
+        StartDeskWatch();
+    }
+
+    /// <summary>How often the window checks that the desk is still there.</summary>
+    private static readonly TimeSpan DeskWatchEvery = TimeSpan.FromSeconds(10);
+
+    /// <summary>
+    /// Consecutive silent checks before the desk is treated as gone.
+    ///
+    /// Six, at ten seconds apart, is a full minute. Deliberately patient:
+    /// the cost of waiting another half minute is a stale screen, and the
+    /// cost of being hasty is launching a second desk over a healthy one.
+    /// </summary>
+    private const int DeskWatchMisses = 6;
+
+    private System.Windows.Forms.Timer? _deskWatch;
+    private int _deskMisses;
+    private bool _deskReviving;
+
+    /// <summary>
+    /// Keep the desk alive for as long as this window is open.
+    ///
+    /// The missing half of the product's recovery story. The desk watches
+    /// the engine, and the desk watches this window (AURION_OWNER_PID), but
+    /// nothing watched the desk. So when the desk went - killed with the
+    /// engine's ports during a restart, or stopped by a restart script that
+    /// then refused to start anything - the window stayed open in front of a
+    /// WebView pointed at a server that no longer existed. Refreshing could
+    /// not help: there was nothing to refresh. That is the reported "I
+    /// restart it and then nothing works at all", and nothing short of
+    /// closing and reopening the product could get out of it.
+    ///
+    /// Now the window does what an owner should: notices, says so, starts
+    /// the desk again, and reloads itself when it answers.
+    /// </summary>
+    private void StartDeskWatch()
+    {
+        if (_deskWatch is not null || _setupOnly) return;
+        _deskWatch = new System.Windows.Forms.Timer { Interval = (int)DeskWatchEvery.TotalMilliseconds };
+        _deskWatch.Tick += async (_, _) => await DeskWatchTickAsync();
+        _deskWatch.Start();
+    }
+
+    private async Task DeskWatchTickAsync()
+    {
+        // A shutdown is a desk that is SUPPOSED to stop answering.
+        // Reviving it here would fight the trader's own instruction.
+        if (_stopping || _stopped || _sessionEnding || _deskReviving) return;
+
+        if (await DeskIsAnsweringAsync())
+        {
+            _deskMisses = 0;
+            return;
+        }
+
+        _deskMisses++;
+        if (_deskMisses < DeskWatchMisses) return;
+
+        _deskReviving = true;
+        try
+        {
+            TellDeskWeAreStopping("reviving");   // harmless if nothing is listening
+            var launcher = StartDesk();
+            if (launcher is null) return;
+
+            var clock = Stopwatch.StartNew();
+            while (clock.Elapsed < StartupBudget)
+            {
+                await Task.Delay(1000);
+                if (await DeskIsAnsweringAsync())
+                {
+                    _deskMisses = 0;
+                    // The page in front of the trader is the dead one. It has
+                    // to be fetched again, not merely re-rendered.
+                    try { _view.CoreWebView2?.Navigate(DeskUrl); } catch { /* the reload can be manual */ }
+                    return;
+                }
+            }
+        }
+        catch
+        {
+            // Never let the watchdog take the window down: a failed revival
+            // leaves exactly what was there before, and it tries again.
+        }
+        finally
+        {
+            _deskReviving = false;
+        }
     }
 
     /// <summary>

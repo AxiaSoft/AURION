@@ -1870,7 +1870,26 @@ class MT5Bridge:
             final = True if "final" not in message else bool(message.get("final"))
             if replace:
                 bucket.clear()
-            for row in message.get("bars") or []:
+            # Let the loop breathe during a long history.
+            #
+            # A six-month M5 reply is several thousand bars in a single
+            # message, and this used to build and file every one of them
+            # without once yielding. Nothing else could run in the
+            # meantime: not the health check the desk uses to decide
+            # whether the engine is alive, not the EA's ingest posts,
+            # not the tick stream. Measured at ~190 ms for 8640 bars on
+            # a developer machine, and four charts ask at once on a
+            # trader's.
+            #
+            # That is not fatal on its own, but it is one of the things
+            # that pushes a health answer past the desk's timeout, and
+            # that used to be enough to have a perfectly healthy engine
+            # declared dead and "restarted". Yielding every 500 bars
+            # costs nothing measurable and takes the whole class of
+            # problem away.
+            for index, row in enumerate(message.get("bars") or []):
+                if index and index % 500 == 0:
+                    await asyncio.sleep(0)
                 self._put_candle(
                     Candle(
                         symbol=symbol,
@@ -2096,10 +2115,33 @@ class MT5Bridge:
         return "".join(ch for ch in str(symbol or "").upper() if ch.isalnum())
 
     def _sym_match(self, a: str, b: str) -> bool:
+        """Are these two spellings the same instrument?
+
+        Prefix matching exists for broker suffixes: the same gold is
+        XAUUSD here, XAUUSD.m there, XAUUSDm, XAUUSD-ECN, XAUUSD_i. A
+        trader whose broker adds one of those must not be told the
+        expert is attached to something else.
+
+        But a prefix is only a suffix away from a DIFFERENT
+        instrument, and the extra part starting with a digit is how
+        you tell: US30 and US3000 are two indices, NAS100 and NAS1000
+        are two indices, and matching them crosses two markets'
+        candles into one series. A broker suffix is never a number -
+        it names an account type, not a contract size.
+
+        That is the one case ruled out here, deliberately and no
+        more. Tightening further - insisting the remainder be one of
+        a known list - would break brokers nobody here has seen.
+        """
         na, nb = self._norm_sym(a), self._norm_sym(b)
         if not na or not nb:
             return False
-        return na == nb or na.startswith(nb) or nb.startswith(na)
+        if na == nb:
+            return True
+        longer, shorter = (na, nb) if len(na) > len(nb) else (nb, na)
+        if not longer.startswith(shorter):
+            return False
+        return not longer[len(shorter)].isdigit()
 
     async def _mark_agent_offline(self, chart_id: int) -> None:
         agent = self.agents.get(int(chart_id))

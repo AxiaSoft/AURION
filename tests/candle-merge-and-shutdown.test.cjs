@@ -145,7 +145,13 @@ section("1b. a live bar for another timeframe is not merged into this chart");
 {
   const at = APP.indexOf('if (msg.type === "candle")');
   ok(at > 0, "the live candle branch is still there");
-  const branch = APP.slice(at, at + 3200);
+  /* Sliced to the NEXT branch, not to a byte count. A fixed 3200
+     here silently stopped covering the end of the block the first
+     time a comment was added above it, and the assertions below
+     then failed for a reason that had nothing to do with them. */
+  const branchEnd = APP.indexOf('if (msg.type === "live_signal")', at);
+  ok(branchEnd > at, "the candle branch no longer ends where it used to");
+  const branch = APP.slice(at, branchEnd);
   ok(/const sameTf = Boolean\(S\.timeframe\) && String\(c\.timeframe \|\| ""\) === String\(S\.timeframe\)/.test(branch),
     "the timeframe has to match, not merely not disagree");
   ok(!/if \(c\.symbol === S\.symbol && \(!S\.timeframe/.test(branch),

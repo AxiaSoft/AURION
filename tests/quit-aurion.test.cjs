@@ -233,8 +233,14 @@ ok(/prefers-reduced-motion[\s\S]{0,160}sd-bar i\{animation:none/.test(CSS),
 section("7. the browser is told to fetch the new files");
 
 const HTML = read("apps/web/index.html");
-ok(/js\/app\.js\?v=desk282/.test(HTML), "app.js cache-buster bumped");
-ok(/css\/app\.css\?v=desk264/.test(HTML), "app.css cache-buster bumped");
+/* A floor, not a pin. These assert that the buster was bumped past
+   the version that shipped this change - pinning the exact number
+   means every later change to app.js fails an unrelated test about
+   quitting, which has happened repeatedly. */
+const jsBust = Number((HTML.match(/js\/app\.js\?v=desk(\d+)/) || [])[1] || 0);
+const cssBust = Number((HTML.match(/css\/app\.css\?v=desk(\d+)/) || [])[1] || 0);
+ok(jsBust >= 282, `app.js cache-buster bumped (desk${jsBust})`);
+ok(cssBust >= 264, `app.css cache-buster bumped (desk${cssBust})`);
 
 console.log(`\n${pass} ok, ${fail} failed`);
 process.exit(fail ? 1 : 0);

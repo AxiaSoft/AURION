@@ -82,8 +82,16 @@ const CHARTCSS = read("apps", "web", "css", "chart.css");
   ok(/g_http_q\[i\]\s*=\s*g_http_q\[i\s*\+\s*drop\]/.test(queue),
     "a full queue sheds its OLDEST entries, so the newest price survives");
 
-  ok(/#define AURION_EA_VERSION "1\.25"/.test(EA), "the expert is 1.25");
-  ok(/#property version\s+"1\.25"/.test(EA), "and says so to MetaTrader too");
+  /* The two declarations must AGREE - #property is what MetaTrader
+     shows in the terminal, AURION_EA_VERSION is what travels to the
+     engine, and a copy where they disagree is a copy whose reported
+     version cannot be trusted. Compared to each other rather than
+     both pinned to a literal, which is how they came to disagree:
+     one got bumped and the other did not. */
+  const wire = (/#define AURION_EA_VERSION "([0-9.]+)"/.exec(EA) || [])[1];
+  const prop = (/#property version\s+"([0-9.]+)"/.exec(EA) || [])[1];
+  ok(parseFloat(wire) >= 1.26, "the expert is at least 1.26, and is v" + wire);
+  ok(wire === prop, `and says so to MetaTrader too (${wire} vs ${prop})`);
 }
 
 /* ======================= 2. silence is not absence =================== */
@@ -304,11 +312,24 @@ const CHARTCSS = read("apps", "web", "css", "chart.css");
   ok(/if \(other && Array\.isArray\(other\.bars\)\)/.test(live),
     "and only when that series is already held, so it cannot invent one");
 
-  /* Switching back to a warm symbol must not go behind the veil. */
-  const pick = APP.slice(APP.indexOf("async function pickMarket("),
-                         APP.indexOf("async function pickMarket(") + 4200);
-  ok(/const warm = cachedCandlesFor\(symbol, timeframe\)/.test(pick),
-    "pickMarket looks in the cache before it asks the engine");
+  /* Switching back to a warm symbol must not go behind the veil.
+     Sliced to the next function rather than by a byte count, which
+     stops covering the end of the body as soon as a comment is
+     added above it. */
+  const pickAt = APP.indexOf("async function pickMarket(");
+  const pick = APP.slice(pickAt, APP.indexOf("\nfunction typing()", pickAt));
+  /* The cache lookup now lives inside focusSeries, which does the
+     whole move: adopt the series, take its bars if they are held,
+     drop another series' bars if they are not, and repaint the
+     veils. What matters here is unchanged - the cache is consulted
+     before the engine is asked - so this follows the call rather
+     than insisting the lookup be written out in place. */
+  ok(/focusSeries\(symbol, timeframe\)/.test(pick),
+    "pickMarket adopts the series before it asks the engine");
+  const focus = APP.slice(APP.indexOf("function focusSeries("),
+                          APP.indexOf("function bindChartDesk("));
+  ok(/cachedCandlesFor\(symbol, timeframe\)/.test(focus),
+    "...and adopting it looks in the cache first");
   ok(/rememberSeries\(symbol, timeframe, S\.candles\)/.test(pick),
     "and puts what it downloads back in");
 }
