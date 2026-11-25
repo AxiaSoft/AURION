@@ -474,6 +474,16 @@ const Calendar = {
       stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="${d}"/></svg>`;
   },
 
+  /* The same cross the rest of the desk uses, drawn here because
+     calendar.js has no access to app.js's icon(). Two lines rather
+     than a glyph, for the reason the chevron above is drawn: a
+     character would depend on whichever font the theme engine
+     selected. */
+  _cross() {
+    return `<svg aria-hidden="true" focusable="false" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+      stroke-width="1.8" stroke-linecap="round"><line x1="6" y1="6" x2="18" y2="18"/><line x1="18" y1="6" x2="6" y2="18"/></svg>`;
+  },
+
   /** Anything about this month worth saying, or nothing at all.
    *
    * Two chips were dropped from here, for two different reasons.
@@ -1222,8 +1232,17 @@ const Calendar = {
       node.setAttribute("aria-label", I18N.t("calendar.title"));
       /* The scroller is a child, not the popover itself: the day's
          heading stays put while a long list of releases moves under
-         it, which is what makes a busy day readable at all. */
-      node.innerHTML = '<div class="cal-pop-in">' + this._dayPanel(key) + "</div>";
+         it, which is what makes a busy day readable at all.
+         
+         The cross is a sibling of that scroller rather than part of
+         _dayPanel, because _dayPanel is drawn twice: here, and in the
+         card beside the month. That card is not dismissable - it is
+         the page - so a close button belongs to this copy only. */
+      node.innerHTML =
+        '<button type="button" class="cal-pop-x" aria-label="'
+        + esc(I18N.t("common.close")) + '" title="' + esc(I18N.t("common.close")) + '">'
+        + this._cross() + "</button>"
+        + '<div class="cal-pop-in">' + this._dayPanel(key) + "</div>";
       document.body.appendChild(node);
       popKey = key;
       popPinned = Boolean(pinned);
@@ -1238,6 +1257,22 @@ const Calendar = {
         if (live && popCell) placePop(live, popCell);
       });
       node.addEventListener("click", goChart);
+      /* The popover is appended to document.body, not to the grid, so
+         this click cannot reach the day-select handler on #cal-pane -
+         the cross cannot choose a day by accident today.
+         
+         The call to stopPropagation is kept anyway, and deliberately:
+         goChart is bound to this same node, document-level handlers
+         watch for clicks away, and "it is safe because of where the
+         element happens to be mounted" is exactly the kind of
+         reasoning that stops being true after a refactor nobody
+         connects to this line. It costs nothing. */
+      node.addEventListener("click", (e) => {
+        if (!e.target.closest || !e.target.closest(".cal-pop-x")) return;
+        e.preventDefault();
+        e.stopPropagation();
+        closePop();
+      });
       node.addEventListener("mouseenter", () => { inPop = true; clearTimers(); });
       node.addEventListener("mouseleave", () => { inPop = false; shutSoon(); });
       node.addEventListener("wheel", clearTimers, { passive: true });

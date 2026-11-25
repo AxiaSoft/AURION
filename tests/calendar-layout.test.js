@@ -551,6 +551,64 @@ async function boot(viewport, hover) {
   k.doc.body.dispatchEvent(new k.win.MouseEvent("pointerdown", { bubbles: true }));
   ok(!k.doc.getElementById("cal-pop"), "clicking outside closes it");
   ok(k.Cal.selected === pinned, "...and still without choosing a day", k.Cal.selected);
+
+  /* Reopen one for the next group: the click above shut it. */
+  over.dispatchEvent(new k.win.MouseEvent("mouseover", { bubbles: true }));
+  await new Promise((r) => setTimeout(r, 260));
+  pop = k.doc.getElementById("cal-pop");
+
+  /* ---- and there is a cross on it ----
+     Asked for in these words: the windows that open on hovering or
+     clicking a calendar number need a close button so they are easier
+     to get rid of. Escape, a click outside and moving the pointer away
+     all worked already, but none of them is discoverable and the last
+     two are no use on a touch screen, where a tap PINS the card open
+     and the only way out was to find somewhere harmless to tap. */
+  {
+    const x = pop.querySelector(".cal-pop-x");
+    ok(!!x, "the day window carries a close button");
+    ok(x.getAttribute("aria-label") && x.getAttribute("title"),
+      "...labelled for a screen reader and on hover",
+      x.getAttribute("aria-label"));
+    ok(!!x.querySelector("svg"), "...drawn, not typed - a glyph would depend on the theme's font");
+    ok(x.closest(".cal-pop-in") === null,
+      "...outside the scroller, so a long list of releases slides under it");
+    /* It must not exist on the card beside the month: that panel is
+       the page, not a popover, and _dayPanel draws both. */
+    ok(!k.doc.querySelector("#cal-day .cal-pop-x"),
+      "...and only on the popover, never on the day card beside the month");
+
+    const dayBefore = k.Cal.selected;
+    x.dispatchEvent(new k.win.MouseEvent("click", { bubbles: true }));
+    ok(!k.doc.getElementById("cal-pop"), "pressing it closes the window");
+    /* Pressing the cross must not also choose the day. That is true
+       today because the popover hangs off document.body rather than
+       off the grid, so this does not discriminate the stopPropagation
+       call in closePop's handler - it pins the behaviour a reader
+       cares about, not the mechanism that currently delivers it. */
+    ok(k.Cal.selected === dayBefore,
+      "...without the click falling through and choosing a day", k.Cal.selected);
+    ok(!k.doc.querySelector(".cal-cell.is-peek"),
+      "...and the day it belonged to is no longer marked");
+
+    /* A pinned window is the case that needed this most, so it is the
+       case that is checked rather than assumed. */
+    const cell2 = [...k.doc.querySelectorAll(".cal-cell")].find((c) => c.dataset.day) ;
+    cell2.dispatchEvent(new k.win.MouseEvent("click", { bubbles: true }));
+    const pinnedPop = k.doc.getElementById("cal-pop");
+    ok(!!pinnedPop, "a tap pins a window open");
+    pinnedPop.querySelector(".cal-pop-x")
+      .dispatchEvent(new k.win.MouseEvent("click", { bubbles: true }));
+    ok(!k.doc.getElementById("cal-pop"), "and the cross closes a pinned one too");
+
+    /* Reopening has to keep working: closePop clears the key it
+       de-duplicates on, and getting that wrong would make the same day
+       refuse to open a second time. */
+    cell2.dispatchEvent(new k.win.MouseEvent("click", { bubbles: true }));
+    ok(!!k.doc.getElementById("cal-pop"), "the same day opens again after being closed");
+    k.doc.body.dispatchEvent(new k.win.MouseEvent("pointerdown", { bubbles: true }));
+  }
+
   ok(k.doc.querySelectorAll(".cal-legend li").length === 4, "the impact legend still has all four levels");
   ok(/15/.test(k.doc.querySelector(".cal-fine").textContent), "the blackout note still states the window",
     k.doc.querySelector(".cal-fine").textContent.trim());
