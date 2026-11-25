@@ -114,7 +114,17 @@ def test_the_backtest_decides_by_date_as_well_as_by_count() -> None:
     assert "too_recent" in body, "the fetch is still decided by a count alone"
     assert "asked_from < oldest_held" in body, \
         "nothing compares the requested start against the oldest bar held"
-    assert "need_from=asked_from" in body, \
+    # The fetch itself now happens a function along: a backtest
+    # assembles its window one month at a time, because the expert
+    # will not serve more than that per request. What must still be
+    # true is that the date the run needs reaches the bridge, so
+    # that is followed rather than assumed.
+    assert "_pull_history_in_steps(" in body, \
+        "the run no longer goes through the stepped fetch"
+    assert "asked_from" in body.split("_pull_history_in_steps(")[1][:200], \
+        "the day the run must reach is not handed to the fetch"
+    stepped = _fn(TRADER, "_pull_history_in_steps")
+    assert "need_from=asked_from" in stepped, \
         "the depth the run needs is not passed down to the bridge"
 
 

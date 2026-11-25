@@ -69,8 +69,20 @@ const mergeBlock = TRADER.slice(
   TRADER.indexOf("def _chart_marks_merge"),
   TRADER.indexOf("async def chart_signals"),
 );
-ok(/complete = covered_lo <= self\._mark_floor\(/.test(mergeBlock),
-  "a chart is complete when its marked window is covered");
+/* "Complete" is now the START of the window the desk asked for, not
+   the end of the first day's pass.
+
+   Those were the same number, and that was the next complaint after
+   this file was written: everything older than a day carried no
+   marks, for ever, because the planner reached its floor on the
+   first pass and declared the chart finished. The first pass is
+   still one day - that is what gets today's candles marked straight
+   away - but the destination is further back, reached one bounded
+   slab per refresh. */
+ok(/complete = covered_lo <= self\._mark_target_floor\(/.test(mergeBlock),
+  "a chart is complete when the window the desk asked for is covered");
+ok(/_mark_floor\(/.test(TRADER) && /MARK_EXTEND_BARS/.test(TRADER),
+  "...and it still starts at the live edge and walks back in bounded steps");
 ok(!/complete = covered_lo <= WARMUP_BARS/.test(mergeBlock),
   "...not when it has reached the first bar of six months of history");
 

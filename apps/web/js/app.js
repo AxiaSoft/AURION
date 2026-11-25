@@ -16005,6 +16005,34 @@ function forgetSeries() { S.series = {}; }
  *
  * Returns the bars now held, which is either this series' own or none.
  */
+function barsSaySeries(bars, symbol) {
+  /* Do these bars agree they are this symbol's?
+
+     The desk used to stamp whatever arrived with the name it had
+     ASKED for. That is the hole the wrong-price candles came
+     through: the engine answered a request for one symbol with
+     another symbol's rows, the desk labelled them with the
+     requested name, and from then on every guard downstream was
+     comparing a label the data had never earned.
+
+     A bar carries the symbol it was cut from, so the claim can be
+     checked instead of assumed. Only the ends are read - a slab
+     that drifted mid-stream is the case worth catching, and
+     walking 259 200 rows on every merge is not free.
+
+     Bars with no symbol field at all pass: older engines and the
+     backtester send bare OHLC, and refusing those would empty
+     every chart rather than fix one. */
+  const list = Array.isArray(bars) ? bars : [];
+  if (!list.length || !symbol) return true;
+  const mine = String(symbol).toUpperCase();
+  for (const b of [list[0], list[list.length - 1]]) {
+    const sym = String((b && b.symbol) || "").toUpperCase();
+    if (sym && sym !== mine) return false;
+  }
+  return true;
+}
+
 function focusSeries(symbol, timeframe) {
   S.symbol = symbol;
   S.timeframe = timeframe;
@@ -16406,6 +16434,13 @@ async function loadMoreHistory(opts) {
       + `&timeframe=${encodeURIComponent(f.timeframe)}&count=${want}`);
     noteHistoryDepth(f.symbol, f.timeframe, c && c.depth);
     const bars = (c && c.data) || [];
+    if (bars.length > have && !barsSaySeries(bars, f.symbol)) {
+      /* The answer is not this series'. Dropped rather than drawn:
+         a chart of the wrong instrument is worse than no chart. */
+      console.warn("AURION: dropped history that belongs to", (bars[0] || {}).symbol,
+        "while asking for", f.symbol);
+      return 0;
+    }
     if (bars.length > have) {
       S.candles = bars;
       /* The key travels with the bars. It is the only record of what
@@ -16459,6 +16494,15 @@ async function loadOlderSlab(f, before, count, key) {
     noteHistoryDepth(f.symbol, f.timeframe, c && c.depth);
     const older = (c && c.data) || [];
     if (!older.length) {
+      S._histDone = { key, at: Date.now() };
+      return 0;
+    }
+    if (!barsSaySeries(older, f.symbol)) {
+      /* Older bars from another instrument would merge in BEHIND
+         the view, so nothing on screen moves until the trader drags
+         back - and then the whole history is somebody else's. */
+      console.warn("AURION: dropped older history that belongs to", (older[0] || {}).symbol,
+        "while asking for", f.symbol);
       S._histDone = { key, at: Date.now() };
       return 0;
     }
@@ -17597,7 +17641,11 @@ function onLive(msg) {
       const held = (S.candles || []).length;
       const deeper = !same || !held || incoming.length >= held
         || String((incoming[0] || {}).time || "") < String((S.candles[0] || {}).time || "");
-      if (deeper) {
+      if (deeper && !barsSaySeries(incoming, d.symbol || S.symbol)) {
+        /* Same check on the socket path: the broadcast names a
+           series, and bars that disown that name are not it. */
+        console.warn("AURION: ignored a broadcast whose bars are not", d.symbol || S.symbol);
+      } else if (deeper) {
         if (d.symbol) S.symbol = d.symbol;
         if (d.timeframe) S.timeframe = d.timeframe;
         S.candles = incoming;

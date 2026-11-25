@@ -537,8 +537,15 @@ check("the EA version moves for behaviour, and only for behaviour", () => {
      as detached. The engine can see all of that, so the number moves.
      1.26 lowers AURION_HIST_MAX from 300 000 to exactly six months of
      M1. That is a change to how much history the expert will hand
-     over, which the engine can certainly see, so the number moves. */
-  if (!/#define AURION_EA_VERSION "1\.26"/.test(ea)) {
+     over, which the engine can certainly see, so the number moves.
+     1.27 changes how much history arrives per request: at most one
+     month beyond what the terminal already holds, instead of the
+     whole remaining window in one stream. The engine sees a
+     different number of messages and has to ask again for the next
+     month, and OnDeinit now abandons a stream in progress rather
+     than flushing its tail after the expert is gone - so the number
+     moves. */
+  if (!/#define AURION_EA_VERSION "1\.27"/.test(ea)) {
     throw new Error("the version moved again; bump it only for a change the engine can see");
   }
   if (!/PumpHistory/.test(ea) || !/AURION_HIST_TRIES/.test(ea)) {

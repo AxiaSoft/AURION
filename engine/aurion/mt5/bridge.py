@@ -4,6 +4,7 @@ import asyncio
 import contextlib
 import json
 import os
+import re
 import socket
 import time
 from collections import defaultdict, deque
@@ -967,7 +968,10 @@ class MT5Bridge:
             return
         changed = False
         for pos in self.positions:
-            if not self._sym_match(pos.symbol, tick.symbol):
+            # Strict: this marks a position's live profit. Pricing
+            # EURUSD from EURUSDT's tick is a money error, not a
+            # cosmetic one.
+            if not self._same_series(pos.symbol, tick.symbol):
                 continue
             px = tick.bid if pos.type == "buy" else tick.ask
             if not px:
@@ -1021,14 +1025,53 @@ class MT5Bridge:
         return aliases.get(t, t)
 
     def _candles_for(self, symbol: str, timeframe: str) -> list[Candle]:
+        """The bars held for this series, and never another's.
+
+        The fallback below used to run on _sym_match, which answers a
+        deliberately generous question. That made this lookup return
+        EURUSDT's rows for EURUSD, and XAUUSD's for XAU - and because
+        the caller asked for one symbol and got an answer, nothing
+        downstream had any reason to doubt it. The desk then stamped
+        those bars with the name it had asked for and drew them. One
+        candle at the real price among a thousand from somewhere
+        else, which is exactly the fault that was reported.
+
+        Two things stop that here. The fallback is strict, so only a
+        broker's account-type suffix is folded away. And the rows are
+        checked against their OWN symbol before they are handed over,
+        so a wrongly-keyed entry cannot escape through this door
+        either.
+        """
         tf = self._norm_tf(timeframe)
         exact = self.candles_of(symbol, tf)
         if exact:
             return exact
         for (sym, t), rows in self.candles.items():
-            if self._norm_tf(t) == tf and self._sym_match(sym, symbol) and rows:
-                return list(rows)
+            if self._norm_tf(t) != tf or not rows:
+                continue
+            if not self._same_series(sym, symbol):
+                continue
+            if not self._rows_belong_to(rows, symbol):
+                continue
+            return list(rows)
         return []
+
+    def _rows_belong_to(self, rows: list[Candle], symbol: str) -> bool:
+        """Do these candles say they are this symbol's?
+
+        A candle carries the symbol it was cut from, so a mis-keyed
+        slab is detectable rather than merely unlikely. Checked at
+        both ends of the list: a slab that drifted mid-stream is the
+        case worth catching, and checking every row of 259 200 on
+        every lookup would cost more than it saves.
+        """
+        if not rows:
+            return False
+        for row in (rows[0], rows[-1]):
+            sym = getattr(row, "symbol", "") or ""
+            if sym and not self._same_series(sym, symbol):
+                return False
+        return True
 
     #: Below this fraction of what was asked for, the cache counts as
     #: short and the expert is asked. Not an equality test: MetaTrader
@@ -1218,7 +1261,10 @@ class MT5Bridge:
         if found:
             return dict(found)
         for (sym, t), info in self._hist_depth.items():
-            if self._norm_tf(t) == tf and self._sym_match(sym, symbol):
+            # Strict: "how deep is this chart" answered from another
+            # instrument's chart is how a short series passes for a
+            # full one.
+            if self._norm_tf(t) == tf and self._same_series(sym, symbol):
                 return dict(info)
         return {}
 
@@ -1246,7 +1292,10 @@ class MT5Bridge:
             return
         payload = [c.to_dict() for c in rows]
         for key in list(self._hist_waiters.keys()):
-            if self._norm_tf(key[1]) == tf and self._sym_match(key[0], symbol):
+            # Strict: this is the delivery itself. A generous match
+            # here resolves one symbol's request with another
+            # symbol's bars.
+            if self._norm_tf(key[1]) == tf and self._same_series(key[0], symbol):
                 waiters = self._hist_waiters.pop(key, [])
                 for fut in waiters:
                     if not fut.done():
@@ -2114,6 +2163,49 @@ class MT5Bridge:
     def _norm_sym(symbol: str) -> str:
         return "".join(ch for ch in str(symbol or "").upper() if ch.isalnum())
 
+    #: A broker's account-type suffix, written as its own token: the
+    #: ".m" of XAUUSD.m, the "-ECN", the "_i", the ".raw", the ".cash".
+    #: Letters only and at most four of them, because that is what
+    #: distinguishes an account type from part of a contract's name -
+    #: "CL.F25" is a dated future, not crude oil with a suffix, and
+    #: the digits are what say so.
+    _SUFFIX_RE = re.compile(r"[._\-\s][A-Za-z]{1,4}$")
+
+    @classmethod
+    def _series_key(cls, symbol: str) -> str:
+        """The identity of a series, for deciding whose candles these are.
+
+        Deliberately stricter than _sym_match. That one answers a
+        cosmetic question - is an expert attached to roughly this
+        market, so should the card light up - and being generous
+        there costs nothing. This one decides whose PRICES these
+        are, and being generous here puts one instrument's candles
+        on another instrument's chart.
+
+        So only a separator-delimited account-type suffix is folded
+        away: XAUUSD.m, XAUUSD-ECN and XAUUSD_i are all XAUUSD. A
+        glued suffix is NOT folded, because nothing in the text
+        distinguishes the "m" of XAUUSDm from the "T" of EURUSDT,
+        and those are two different instruments. That costs only a
+        cross-spelling substitution that was never needed - the desk
+        asks with the name the expert itself advertised - and it
+        buys the guarantee that a lookup never answers with somebody
+        else's prices.
+        """
+        s = str(symbol or "").strip().upper()
+        if not s:
+            return ""
+        m = cls._SUFFIX_RE.search(s)
+        if m and m.start() >= 3:
+            s = s[: m.start()]
+        return "".join(ch for ch in s if ch.isalnum())
+
+    @classmethod
+    def _same_series(cls, a: str, b: str) -> bool:
+        """Are these two spellings the same series, strictly?"""
+        ka, kb = cls._series_key(a), cls._series_key(b)
+        return bool(ka) and ka == kb
+
     def _sym_match(self, a: str, b: str) -> bool:
         """Are these two spellings the same instrument?
 
@@ -2381,6 +2473,11 @@ class MT5Bridge:
             count += 1
         return count
 
+    #: A leftover file backlog bigger than this, with no expert
+    #: online, is treated as the tail of a download whose terminal
+    #: has gone away rather than as data to catch up on.
+    _INBOX_STALE_BYTES = 32_000
+
     async def _consume_inbox_file(self, path: Path) -> int:
         key = str(path)
         try:
@@ -2401,6 +2498,26 @@ class MT5Bridge:
             off = 0
         chunk = data[off:]
         if not chunk.strip():
+            return 0
+        # A big backlog with nobody left to have written it.
+        #
+        # The expert writes to this file as well as to the socket, so
+        # a download that was in flight when MetaTrader closed leaves
+        # its remainder sitting on disk. The engine then went on
+        # ingesting it - for as long as it took - which is why the
+        # desk kept reporting a download running after the terminal
+        # had been shut and the expert removed.
+        #
+        # Those bars are not wanted by anyone: the chart they were
+        # for is gone, and whatever attaches next asks for itself.
+        # Skipped to the end, and said out loud, because silently
+        # discarding data has to be findable in a log.
+        if len(chunk) > self._INBOX_STALE_BYTES and not self.online_agents():
+            self._file_off[key] = len(data)
+            log.info(
+                "EA file inbox %s: skipped %s bytes left behind by a terminal that is gone",
+                path.name, len(chunk),
+            )
             return 0
         n = await self._ingest_raw_blob(chunk)
         self._file_off[key] = len(data)

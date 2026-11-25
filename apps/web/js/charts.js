@@ -979,6 +979,46 @@ class CandleChart {
   }
 
   /**
+   * The bar a moment falls INSIDE, not the bar that starts on it.
+   *
+   * barIndexOfTime is an exact match, which is right for anything
+   * that was stamped with a bar's own opening time. A signal need
+   * not be: an entry found at 10:37 on a 15-minute chart belongs to
+   * the candle that opened at 10:30, and asking for 10:37 exactly
+   * matches nothing at all. Those marks were therefore dropped -
+   * silently, by a `continue` - and the ones that survived were the
+   * ones already stamped on a boundary. That is both halves of what
+   * was reported: marks that sit at the wrong place along a candle,
+   * and today's candles showing none at all, today's being exactly
+   * the ones timed by the clock rather than by the replay.
+   *
+   * So: the last bar that opened at or before this moment. Bars are
+   * held in time order, so this is a binary search rather than a
+   * scan - it runs for every mark on every repaint.
+   *
+   * A moment before the first bar belongs to no candle on this
+   * chart and is refused; one after the last bar belongs to the bar
+   * in progress, which is the live edge and is where a forming mark
+   * should sit.
+   */
+  barIndexCovering(time) {
+    const key = barTime(time);
+    if (!key) return -1;
+    const exact = this.barIndexOfTime(key);
+    if (exact >= 0) return exact;
+    const bars = this.bars || [];
+    if (!bars.length) return -1;
+    const timeAt = (i) => barTime(bars[i].time || bars[i].ts);
+    if (key < timeAt(0)) return -1;
+    let lo = 0, hi = bars.length - 1, found = -1;
+    while (lo <= hi) {
+      const mid = (lo + hi) >> 1;
+      if (timeAt(mid) <= key) { found = mid; lo = mid + 1; } else { hi = mid - 1; }
+    }
+    return found;
+  }
+
+  /**
    * How much of the history the engine has marked so far.
    *
    * The marks are strategies replayed bar by bar, which takes real
@@ -1190,13 +1230,27 @@ class CandleChart {
   /* ================================================================ data == */
 
   norm(b) {
+    /* `+b.open || +b.o` read a legitimate price of zero as absent
+       and fell through to the short spelling, which is usually
+       undefined - so the bar came back with NaN, and one NaN in the
+       price range makes Math.min return NaN and the whole chart
+       blank. Zero is a real number here; "not given" is what the
+       fallback is for. */
+    const num = (...vals) => {
+      for (const v of vals) {
+        if (v === undefined || v === null || v === "") continue;
+        const n = Number(v);
+        if (Number.isFinite(n)) return n;
+      }
+      return NaN;
+    };
     return {
       t: b.time || b.ts || "",
-      o: +b.open || +b.o,
-      h: +b.high || +b.h,
-      l: +b.low || +b.l,
-      c: +b.close || +b.c,
-      v: +b.volume || +b.v || 0,
+      o: num(b.open, b.o),
+      h: num(b.high, b.h),
+      l: num(b.low, b.l),
+      c: num(b.close, b.c),
+      v: num(b.volume, b.v, 0) || 0,
     };
   }
 
@@ -1356,8 +1410,53 @@ class CandleChart {
     const mainB = padT + usable - panesH - (subs.length ? gap : 0);
 
     /* ---- price range --------------------------------------------------- */
-    let mn = Math.min(...rows.map((r) => r.l));
-    let mx = Math.max(...rows.map((r) => r.h));
+    /* Taken over the bars that can actually be priced, and not over
+       any bar that disagrees with the rest of the chart by orders of
+       magnitude.
+
+       Straight Math.min over every low had no guard of either kind,
+       and both cost the trader the chart. One unparseable bar made
+       the range NaN and drew nothing. One bar at another
+       instrument's price - 1.07 among candles at 3000 - stretched
+       the range from 1 to 3002, so every real candle was crushed
+       into a sliver along the top edge and the intruder hung alone
+       at the bottom. That is the reported picture exactly.
+
+       The intruder is dealt with upstream now, in the engine and on
+       the way in. This is the last line: the chart will not let one
+       impossible bar decide what the other thousand look like. The
+       band is deliberately enormous - a factor of twenty around the
+       median close - because real markets do move violently and
+       nothing legitimate comes close to it, while a foreign
+       instrument is out by hundreds or thousands of times. */
+    const priced = rows.filter((r) => Number.isFinite(r.l) && Number.isFinite(r.h));
+    let scaleRows = priced;
+    if (priced.length > 4) {
+      const closes = priced
+        .map((r) => (Number.isFinite(r.c) ? r.c : (r.l + r.h) / 2))
+        .filter((n) => Number.isFinite(n) && n > 0)
+        .sort((a, b) => a - b);
+      const mid = closes.length ? closes[Math.floor(closes.length / 2)] : 0;
+      if (mid > 0) {
+        const kept = priced.filter((r) => {
+          const lo = Math.min(r.l, r.h), hi = Math.max(r.l, r.h);
+          if (!(hi > 0)) return false;
+          return hi <= mid * 20 && lo >= mid / 20;
+        });
+        /* Only if what is left is still the chart. If most bars fail
+           this, the median is the odd one out and the bars are fine. */
+        if (kept.length >= Math.max(3, Math.floor(priced.length * 0.6))) scaleRows = kept;
+      }
+    }
+    if (!scaleRows.length) scaleRows = priced.length ? priced : rows;
+    let mn = Math.min(...scaleRows.map((r) => r.l));
+    let mx = Math.max(...scaleRows.map((r) => r.h));
+    if (!Number.isFinite(mn) || !Number.isFinite(mx)) {
+      /* Nothing on this view can be priced at all. A flat unit range
+         keeps the axes, the grid and the crosshair working instead
+         of propagating NaN into every coordinate on the canvas. */
+      mn = 0; mx = 1;
+    }
     for (const lv of this.levels || []) {
       for (const k of ["sl", "tp", "price_open", "price_current"]) {
         const n = Number(lv[k]);
@@ -2443,7 +2542,9 @@ class CandleChart {
       if (when && timeMap.has(when)) {
         idx = timeMap.get(when);
       } else if (sig.time) {
-        const global = this.barIndexOfTime(sig.time);
+        /* Covering, not exact: a mark timed part-way through a
+           candle belongs to that candle. See barIndexCovering. */
+        const global = this.barIndexCovering(sig.time);
         if (global < 0) continue;     // that bar is not on this chart at all
         idx = global - L.start;       // on the chart, scrolled out of view
       } else if (Number.isFinite(sig.index)) {
@@ -2570,7 +2671,13 @@ class CandleChart {
     const x = L.xOf(lastIdx);
     let rank = 0;
     for (const sig of live) {
-      if (barTime(sig.time) !== headTime) continue;   // rule 1
+      /* Rule 1: it must belong to the bar still forming. Compared
+         by which bar the mark FALLS IN rather than by an exact
+         string, because a forming mark is timed when the strategy
+         saw the setup - part-way through the candle - and an exact
+         test dropped every one of them. */
+      if (barTime(sig.time) !== headTime
+          && this.barIndexCovering(sig.time) !== bars.length - 1) continue;
       const isBuy = sig.side === "buy" || sig.type === "buy";
       const col = isBuy ? T.up : T.down;
       const price = Number(sig.price || 0) || (isBuy ? lastRow.l : lastRow.h);

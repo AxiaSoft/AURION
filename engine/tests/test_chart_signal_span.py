@@ -50,7 +50,7 @@ from typing import Any
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from aurion.runtime.trader import MARK_DAYS, Trader  # noqa: E402
+from aurion.runtime.trader import MARK_DAYS, MARK_EXTEND_BARS, Trader  # noqa: E402
 from aurion.signals import strategy_signals as ss  # noqa: E402
 from aurion.strategy.builtin.ema_rsi import EmaRsi  # noqa: E402
 from aurion.strategy.builtin.smart_money import SmartMoney  # noqa: E402
@@ -285,12 +285,18 @@ def test_coverage_reaches_the_window_and_then_stops() -> None:
     """The replacement for "walks backwards for ever".
 
     This test used to assert that each refresh reached another 1500
-    bars into the past until the whole series was covered. That is the
-    behaviour that stopped the engine ever going idle with the expert
-    attached. What must be true now is the opposite and much stronger:
-    the covered region reaches the marked window and the planner then
-    reports there is nothing left to do - on the FIRST pass, because
-    one day is a single pass's worth of work.
+    bars into the past until the whole series was covered, with no
+    destination at all - the behaviour that stopped the engine ever
+    going idle with the expert attached. It was then rewritten to
+    expect completion on the first pass, which fixed the engine and
+    created the next complaint: everything older than a day carried
+    no marks, for ever, because the planner had declared victory a
+    day in.
+
+    What must be true is both at once. The first pass covers one
+    day, so today's candles are marked immediately. Each later pass
+    reaches a BOUNDED distance further back. And the walk arrives,
+    after which there is nothing left to do.
     """
     trader = Trader.__new__(Trader)
     armed = [("ema_rsi", EmaRsi())]
@@ -306,7 +312,24 @@ def test_coverage_reaches_the_window_and_then_stops() -> None:
 
     assert res["covered_to"] == len(bars), "the newest bar must always be covered"
     assert res["covered_from"] == len(bars) - MARKED_M15
-    assert res["complete"] is True, "one day of bars took more than one pass"
+
+    # Then it walks back, one bounded slab at a time, and stops.
+    passes = 0
+    while not trader._chart_mark_plan("EURUSD", "M15", armed, bars).get("complete"):
+        nxt = trader._chart_mark_plan("EURUSD", "M15", armed, bars)
+        slab = nxt["last"] - nxt["first"]
+        assert 0 < slab <= MARK_EXTEND_BARS + 1, f"one refresh took {slab} bars"
+        more = ss.replay(bars, armed, "EURUSD", "M15", budget_seconds=600,
+                         first=nxt["first"], last=nxt["last"])
+        res = trader._chart_marks_merge("EURUSD", "M15", armed, bars, nxt, more)
+        passes += 1
+        assert passes < 50, "the walk back never finished"
+
+    assert passes >= 1, "the chart was finished with most of it unanalysed"
+    assert res["covered_from"] <= trader._mark_target_floor(len(bars)), (
+        "coverage stopped short of the start of the window"
+    )
+    assert res["complete"] is True
 
     # And it stays done: a refresh with no new bars is no work at all.
     assert trader._chart_mark_plan("EURUSD", "M15", armed, bars).get("complete") is True
@@ -345,10 +368,14 @@ def test_a_caught_up_chart_does_no_work_at_all() -> None:
     armed = [("ema_rsi", EmaRsi())]
     bars = _bars(4000)
 
-    plan = trader._chart_mark_plan("EURUSD", "M15", armed, bars)
-    out = ss.replay(bars, armed, "EURUSD", "M15", budget_seconds=600,
-                    first=plan["first"], last=plan["last"])
-    trader._chart_marks_merge("EURUSD", "M15", armed, bars, plan, out)
+    # Marked all the way back first, so "caught up" means caught up.
+    for _ in range(50):
+        plan = trader._chart_mark_plan("EURUSD", "M15", armed, bars)
+        if plan.get("complete"):
+            break
+        out = ss.replay(bars, armed, "EURUSD", "M15", budget_seconds=600,
+                        first=plan["first"], last=plan["last"])
+        trader._chart_marks_merge("EURUSD", "M15", armed, bars, plan, out)
 
     second = trader._chart_mark_plan("EURUSD", "M15", armed, bars)
     assert second.get("complete") is True, "a settled chart asked for more work"
@@ -425,13 +452,25 @@ def test_the_desk_is_told_whether_more_is_coming() -> None:
     trader = Trader.__new__(Trader)
     armed = [("ema_rsi", EmaRsi())]
     bars = _bars(3000)
+    # First pass: the newest day is marked, and there is more to come -
+    # the desk must be told so, or it stops polling with most of the
+    # chart unexamined.
     plan = trader._chart_mark_plan("EURUSD", "M15", armed, bars)
     out = ss.replay(bars, armed, "EURUSD", "M15", budget_seconds=600,
                     first=plan["first"], last=plan["last"])
     res = trader._chart_marks_merge("EURUSD", "M15", armed, bars, plan, out)
-    # One day of M15 is one pass, so a chart is complete as soon as it
-    # has been looked at - and the desk must be told, or it holds its
-    # "still analysing" wash over the chart for ever.
+    assert res["complete"] is False, "the desk was told to stop after one day"
+    assert res["analysing"] is True
+
+    # Once the walk arrives, the opposite: the wash must come off, or
+    # it sits over a finished chart for ever.
+    for _ in range(50):
+        nxt = trader._chart_mark_plan("EURUSD", "M15", armed, bars)
+        if nxt.get("complete"):
+            break
+        more = ss.replay(bars, armed, "EURUSD", "M15", budget_seconds=600,
+                         first=nxt["first"], last=nxt["last"])
+        res = trader._chart_marks_merge("EURUSD", "M15", armed, bars, nxt, more)
     assert res["complete"] is True
     assert res["analysing"] is False
 
