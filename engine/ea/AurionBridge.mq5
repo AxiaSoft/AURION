@@ -2,6 +2,16 @@
 //| AurionBridge.mq5                                                 |
 //| Live chart agent for the AURION engine.                          |
 //|                                                                  |
+//| v1.28 — the lot ladder survives the wire. The contract spec was |
+//|   sent with volume_min, volume_step and volume_max written to   |
+//|   two decimals, while the tick fields beside them used eight.   |
+//|   On a book that trades in 0.001 lots that is the literal text  |
+//|   "volume_step":0.00 — the ladder destroyed at the source. The  |
+//|   engine then fell back to 0.01, so the broker's real step was  |
+//|   unreachable, and volume_min of 0.00 meant the "below the      |
+//|   broker's minimum" guard never fired at all. Eight decimals,   |
+//|   like the tick values directly above them.                     |
+//|                                                                  |
 //| v1.27 — history a month at a time, and stop when told to stop.  |
 //|   Attaching used to fetch the whole six months at once: one     |
 //|   CopyRates over the period, then every bar of it streamed 250  |
@@ -131,8 +141,8 @@
 // nobody could tell. AURION_EA_VERSION is the value sent to the engine;
 // engine/tests/test_ea_version.py fails the build if the #property below
 // drifts from it, because #property will not take a macro.
-#define AURION_EA_VERSION "1.27"
-#property version   "1.27"
+#define AURION_EA_VERSION "1.28"
+#property version   "1.28"
 #property strict
 #property description "AURION live bridge 1.25 — one engine, one port; the file inbox is the only fallback"
 
@@ -1266,10 +1276,10 @@ void SendSpec()
    json += "\"tick_size\":" + DoubleToString(SymbolInfoDouble(_Symbol, SYMBOL_TRADE_TICK_SIZE), 8) + ",";
    json += "\"tick_value\":" + DoubleToString(SymbolInfoDouble(_Symbol, SYMBOL_TRADE_TICK_VALUE), 8) + ",";
    json += "\"tick_value_loss\":" + DoubleToString(SymbolInfoDouble(_Symbol, SYMBOL_TRADE_TICK_VALUE_LOSS), 8) + ",";
-   json += "\"contract_size\":" + DoubleToString(SymbolInfoDouble(_Symbol, SYMBOL_TRADE_CONTRACT_SIZE), 2) + ",";
-   json += "\"volume_min\":" + DoubleToString(SymbolInfoDouble(_Symbol, SYMBOL_VOLUME_MIN), 2) + ",";
-   json += "\"volume_step\":" + DoubleToString(SymbolInfoDouble(_Symbol, SYMBOL_VOLUME_STEP), 2) + ",";
-   json += "\"volume_max\":" + DoubleToString(SymbolInfoDouble(_Symbol, SYMBOL_VOLUME_MAX), 2) + ",";
+   json += "\"contract_size\":" + DoubleToString(SymbolInfoDouble(_Symbol, SYMBOL_TRADE_CONTRACT_SIZE), 8) + ",";
+   json += "\"volume_min\":" + DoubleToString(SymbolInfoDouble(_Symbol, SYMBOL_VOLUME_MIN), 8) + ",";
+   json += "\"volume_step\":" + DoubleToString(SymbolInfoDouble(_Symbol, SYMBOL_VOLUME_STEP), 8) + ",";
+   json += "\"volume_max\":" + DoubleToString(SymbolInfoDouble(_Symbol, SYMBOL_VOLUME_MAX), 8) + ",";
    json += "\"stops_level\":" + IntegerToString((int)SymbolInfoInteger(_Symbol, SYMBOL_TRADE_STOPS_LEVEL)) + ",";
    json += "\"currency\":\"" + JsonEsc(SymbolInfoString(_Symbol, SYMBOL_CURRENCY_PROFIT)) + "\",";
    json += TapeTag();

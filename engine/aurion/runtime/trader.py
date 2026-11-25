@@ -2415,6 +2415,10 @@ class Trader:
                 "currency": spec.currency,
                 "volume_min": spec.volume_min,
                 "volume_step": spec.volume_step,
+                # The ceiling as well as the floor. round_volume honours
+                # it, so a desk that does not know about it can offer a
+                # size the engine will silently bring back down.
+                "volume_max": spec.volume_max,
                 "contract_size": spec.contract_size,
             }
         return out

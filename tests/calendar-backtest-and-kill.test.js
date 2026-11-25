@@ -544,9 +544,31 @@ check("the EA version moves for behaviour, and only for behaviour", () => {
      different number of messages and has to ask again for the next
      month, and OnDeinit now abandons a stream in progress rather
      than flushing its tail after the expert is gone - so the number
-     moves. */
-  if (!/#define AURION_EA_VERSION "1\.27"/.test(ea)) {
+     moves.
+     1.28 sends the contract specification's volume fields with eight
+     decimals instead of two. On a book that trades in 0.001 lots the
+     old line produced the literal text "volume_step":0.00, so the
+     engine parsed a zero step, fell back to 0.01, and could never
+     reach the broker's real ladder; volume_min of 0.00 also left the
+     "below the broker's minimum" guard with nothing to guard. The
+     engine sees different numbers in the same message, which is as
+     visible as a change gets, so the number moves. */
+  if (!/#define AURION_EA_VERSION "1\.28"/.test(ea)) {
     throw new Error("the version moved again; bump it only for a change the engine can see");
+  }
+  /* 1.28, asserted rather than described: every field whose value is a
+     lot size or a price scale is written with enough decimals to say
+     what it means. Two is not enough for any of them. */
+  for (const field of ["SYMBOL_VOLUME_MIN", "SYMBOL_VOLUME_STEP", "SYMBOL_VOLUME_MAX",
+    "SYMBOL_TRADE_CONTRACT_SIZE"]) {
+    const m = new RegExp(
+      "DoubleToString\\(SymbolInfoDouble\\(_Symbol,\\s*" + field + "\\)\\s*,\\s*(\\d+)\\)",
+    ).exec(ea);
+    if (!m) throw new Error(field + " is no longer sent in the spec message");
+    if (Number(m[1]) < 8) {
+      throw new Error(field + " is serialised to " + m[1]
+        + " decimals; a 0.001 lot step becomes \"0.00\" on the wire");
+    }
   }
   if (!/PumpHistory/.test(ea) || !/AURION_HIST_TRIES/.test(ea)) {
     throw new Error("1.22 claims a retry the expert does not have");

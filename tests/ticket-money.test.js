@@ -113,6 +113,10 @@ function moneyBox(snapMoney, fields) {
   const names = ["symbolSeriesKey", "sameSeriesSymbol",
     "specFor", "priceMoney", "fmtNum", "fmtMoney", "riskPhrase",
     "moneyRefLot", "moneyScope", "moneyUnit", "moneyScopeNote",
+    // moneyAtLot writes the lot to the broker's own precision, so it
+    // needs the ladder: a 0.005 size on a 0.001 book printed to two
+    // decimals reads as "0.01", twice what is being sent.
+    "lotDp", "lotBounds",
     "fmtLot", "liveMoney", "moneyAtLot"];
   const src = names.map((n) => liftFn(APP, n)).join("\n") +
     "\nwindow.X = {" + names.join(",") + "};";

@@ -5736,6 +5736,10 @@ function chartTicketHtml() {
   const t = S.ticket || S.manual || {};
   const who = operatorName();
   const sym = (S.chartFocus && S.chartFocus.symbol) || S.symbol;
+  /* The lot field steps the way this broker's book does, not the way
+     0.01 books do. Re-applied on every repaint too, because the
+     specification can arrive after the ticket has been drawn. */
+  const ctLots = lotBounds(sym);
   const tick = (S.snap && S.snap.ticks && S.snap.ticks[sym]) || {};
   /* This instrument's step, not the desk's. EURUSD's fields step by
      0.0001 and gold's by 0.01, because a field that steps by a digit
@@ -5752,7 +5756,7 @@ function chartTicketHtml() {
         <span class="ct-lab">${I18N.t("exec.volume")}</span>
         <div class="ct-step">
           <button type="button" class="ct-pm" data-vol="-1" aria-label="-">${icon("minus")}</button>
-          <input id="ct-vol" type="number" step="0.01" min="0.01" inputmode="decimal"
+          <input id="ct-vol" type="number" step="${ctLots.step}" min="${ctLots.min}"${ctLots.max > 0 ? ` max="${ctLots.max}"` : ""} inputmode="decimal"
                  aria-label="${esc(I18N.t("exec.volume"))}"
                  value="${esc(String(ticketLot()))}" />
           <button type="button" class="ct-pm" data-vol="1" aria-label="+">${icon("plus")}</button>
@@ -6152,6 +6156,11 @@ function paintTicketRisk() {
   const host = $("ct-risk");
   if (!host) return;
   const symbol = (S.chartFocus && S.chartFocus.symbol) || S.symbol || "";
+  /* The broker's lot ladder, re-applied here because this runs on every
+     repaint and the specification often arrives after the field was
+     drawn. Cheap, idempotent, and it keeps the +/- buttons honest -
+     they read step/min/max straight off the input. */
+  applyLotBounds(symbol);
   const volume = Number($("ct-vol")?.value || 0);
   const type = String($("ct-type")?.value || "market");
   const kind = type === "limit" || type === "stop" ? type : "";
@@ -7348,6 +7357,9 @@ function switchRow(o) {
  */
 function robotPanelHtml() {
   const st = S.snap?.strategy || {};
+  /* The desk's default lot, stepped on the active instrument's own
+     ladder - that is the book this size will be sent to. */
+  const stLots = lotBounds((S.chartFocus && S.chartFocus.symbol) || S.symbol);
   const style = st.trade_style || S.snap?.trade_style || "normal";
   const L = (S.snap && S.snap.license) || S.license || {};
   const locTag = I18N.lang === "fa" ? "fa-IR-u-ca-persian" : I18N.lang === "ar" ? "ar-SA-u-ca-islamic-umalqura" : "en-GB-u-ca-gregory";
@@ -7457,7 +7469,7 @@ function robotPanelHtml() {
           <div class="ct-step lot-step">
             <button type="button" class="ct-pm" data-lot-step="-1" data-lot-for="st-vol"
                     aria-label="${esc(I18N.t("exec.lot_down"))}">${icon("minus")}</button>
-            <input id="st-vol" type="number" step="0.01" min="0.01" max="1000" inputmode="decimal"
+            <input id="st-vol" type="number" step="${stLots.step}" min="${stLots.min}" max="${stLots.max > 0 ? stLots.max : 1000}" inputmode="decimal"
                    aria-labelledby="st-vol-label" value="${st.manual_volume ?? 0.10}" />
             <button type="button" class="ct-pm" data-lot-step="1" data-lot-for="st-vol"
                     aria-label="${esc(I18N.t("exec.lot_up"))}">${icon("plus")}</button>
@@ -7733,9 +7745,74 @@ function moneyScopeNote(money) {
     : I18N.t("money.scope_trade_note");
 }
 
-/** A lot size written the way a trader writes it: 0.01, 0.10, 1.00. */
-function fmtLot(v) {
-  return fmtNum(Number(v) || 0, 2);
+/**
+ * How many decimals the broker's own volume step is written with.
+ *
+ * 0.01 -> 2, 0.001 -> 3, 1.0 -> 0, 0.25 -> 2. Mirrors the engine's
+ * _step_dp, and it has to: a lot shown to fewer decimals than the
+ * broker trades in is a lie about the size being sent. On a 0.001 book
+ * a 0.005 lot written to two decimals reads as "0.01", twice the size.
+ */
+function lotDp(step) {
+  const s = Number(step) || 0.01;
+  for (let dp = 0; dp <= 8; dp += 1) {
+    const scaled = s * 10 ** dp;
+    if (Math.abs(scaled - Math.round(scaled)) < 1e-9) return dp;
+  }
+  return 8;
+}
+
+/**
+ * The broker's own lot ladder for a symbol: step, floor and ceiling.
+ *
+ * The engine already publishes volume_step / volume_min / volume_max in
+ * the symbol specification - the desk simply was not reading them, and
+ * hardcoded step="0.01" min="0.01" into the lot fields instead. On a
+ * book that steps in whole lots the desk offered 0.01, which the broker
+ * refuses; on one that steps in 0.001 it could not offer 0.005 at all.
+ *
+ * 0.01 remains the fallback, because it is the step on nearly every
+ * retail forex book and because a desk with no specification yet has to
+ * put something in the field.
+ */
+function lotBounds(symbol) {
+  const spec = typeof specFor === "function" ? specFor(symbol) : null;
+  const step = Number(spec && spec.volume_step) > 0 ? Number(spec.volume_step) : 0.01;
+  const min = Number(spec && spec.volume_min) > 0 ? Number(spec.volume_min) : step;
+  const max = Number(spec && spec.volume_max) > 0 ? Number(spec.volume_max) : 0;
+  return { step, min, max, dp: lotDp(step) };
+}
+
+/**
+ * Put the broker's ladder onto the lot fields that are on screen.
+ *
+ * The specification can arrive after the field has been drawn, so this
+ * is run again whenever the ticket repaints rather than only at render
+ * time. The +/- buttons read step/min/max straight off the input, so
+ * fixing the attributes fixes the steppers with them.
+ */
+function applyLotBounds(symbol) {
+  const b = lotBounds(symbol);
+  ["ct-vol", "st-vol"].forEach((id) => {
+    const el = $(id);
+    if (!el) return;
+    el.step = String(b.step);
+    el.min = String(b.min);
+    if (b.max > 0) el.max = String(b.max);
+  });
+  return b;
+}
+
+/**
+ * A lot size written the way a trader writes it: 0.01, 0.10, 1.00.
+ *
+ * The step is optional and every caller that knows the instrument
+ * should pass it - without one the lot is written to two decimals,
+ * which is right on almost every book and wrong on the ones that trade
+ * finer than that.
+ */
+function fmtLot(v, step) {
+  return fmtNum(Number(v) || 0, step === undefined ? 2 : lotDp(step));
 }
 
 /**
@@ -7805,7 +7882,13 @@ function moneyAtLot(money) {
   // Per trade the answer is the cap, flat. Showing cap x lot/ref here
   // while the engine caps per trade is how a preview becomes a lie.
   const at = moneyScope(money) === "lot" ? cap * (lot / ref) : cap;
-  const common = { lot: fmtLot(lot), money: fmtMoney(at, money.currency) };
+  /* Written to the broker's own lot precision: on a book that trades
+     in 0.001 lots, a 0.005 size printed to two decimals reads as
+     "0.01" - twice the size actually being sent. */
+  const common = {
+    lot: fmtLot(lot, lotBounds(money.symbol).step),
+    money: fmtMoney(at, money.currency),
+  };
   if (!money.priced || money.max_stop_points == null) {
     return I18N.t("money.at_lot_unpriced", common);
   }
