@@ -1,0 +1,36 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!-- ==========================================================================
+       Aurion.Core  —  the native desk's logic, with no UI in it at all.
+
+       Phase one of the port. Deliberately a class library and deliberately
+       first: the API surface, the language packs and the money rules can all
+       be proven correct by `dotnet test` on any machine, whereas a window
+       cannot be proven by anything but a pair of eyes. Building the provable
+       half first means the shell is assembled on top of something already
+       known to be right.
+
+       It references no UI framework, and it must not grow one.
+       ========================================================================== -->
+
+  <PropertyGroup>
+    <TargetFramework>net8.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <LangVersion>latest</LangVersion>
+    <RootNamespace>Aurion.Core</RootNamespace>
+    <AssemblyName>Aurion.Core</AssemblyName>
+    <GenerateDocumentationFile>true</GenerateDocumentationFile>
+
+    <!-- Deliberately NOT invariant, for the same reason installer/window
+         is not: the desk formats numbers and dates in fa-IR and ar-SA,
+         and invariant globalization trims the ICU data those need. -->
+    <InvariantGlobalization>false</InvariantGlobalization>
+
+    <!-- Warnings are errors here. This project is the one place where
+         three languages have to agree on arithmetic, and a nullability
+         warning in that code is not noise. -->
+    <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
+  </PropertyGroup>
+
+</Project>
