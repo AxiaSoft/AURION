@@ -84,10 +84,3 @@ engine/models/
 apps/android/build/
 *.keystore
 *.jks
-
-# The native desk's build output. Per-project rather than a bare
-# bin/ obj/ pair, matching how installer/window is already ignored -
-# a global rule would also swallow any directory a future tool
-# happens to call obj.
-apps/native/*/bin/
-apps/native/*/obj/
