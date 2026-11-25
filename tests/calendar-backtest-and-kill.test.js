@@ -563,9 +563,41 @@ check("the EA version moves for behaviour, and only for behaviour", () => {
      modified. All three came back as bare retcodes. Margin is asked
      of the terminal with OrderCalcMargin rather than read from
      SYMBOL_MARGIN_INITIAL, which is 0 on most forex books. Three new
-     fields in the message the engine parses, so the number moves. */
-  if (!/#define AURION_EA_VERSION "1\.29"/.test(ea)) {
+     fields in the message the engine parses, so the number moves.
+     1.30 moves every millisecond clock from GetTickCount() to
+     GetTickCount64(). The short one is a uint and returns to zero
+     every 49.7 days, and the retry deadlines were compared against it
+     absolutely - `if(now < g_next_try) return;` - rather than as
+     elapsed times. A flush that failed in the last moments before a
+     wrap therefore left OnTimer returning on its second line for the
+     next seven weeks: no heartbeat, no prices, no history, no orders,
+     and nothing logged. "The engine can see it" is an understatement
+     here; what the engine saw was the expert disappearing from a
+     terminal that was plainly still running. MetaTrader is routinely
+     left up for months, which is exactly the uptime that reaches 49.7
+     days, so the number moves. */
+  if (!/#define AURION_EA_VERSION "1\.30"/.test(ea)) {
     throw new Error("the version moved again; bump it only for a change the engine can see");
+  }
+  /* 1.30, asserted rather than described. The elapsed-time form
+     (now - g_last_beat) is wrap-safe on its own and is not the
+     concern; the absolute deadlines are, and a 64-bit clock
+     truncated back into a uint would reintroduce the whole bug with
+     nothing in the diff that looks wrong. Fully covered by
+     engine/tests/test_ea_clock_wrap.py. */
+  {
+    /* Comments stripped first: the expert explains this bug at length
+       and names the old call while doing so, and a grep over the prose
+       would fail on the very documentation that records the fix. */
+    const code = ea
+      .replace(/\/\*[\s\S]*?\*\//g, "")
+      .replace(/\/\/.*$/gm, "");
+    if (/\bGetTickCount\s*\(/.test(code.replace(/\bGetTickCount64\s*\(/g, "_tc64_("))) {
+      throw new Error("1.30 must not read the 32-bit clock; it wraps every 49.7 days");
+    }
+    if (/\buint\s+now\s*=/.test(code)) {
+      throw new Error("a 64-bit clock truncated into a uint wraps exactly as before");
+    }
   }
   /* 1.29, asserted rather than described. */
   for (const [field, source] of [

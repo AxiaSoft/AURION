@@ -2,6 +2,15 @@
 //| AurionBridge.mq5                                                 |
 //| Live chart agent for the AURION engine.                          |
 //|                                                                  |
+//| v1.30 — the 49.7-day clock wrap that froze the bridge in place. |
+//|   GetTickCount() restarts at zero every 49.7 days. The retry    |
+//|   and history deadlines were absolute comparisons against it,   |
+//|   so a flush that failed in the last moments before a wrap left |
+//|   OnTimer returning on its second line for the next seven       |
+//|   weeks: no heartbeat, no prices, no trades, no error. Every    |
+//|   millisecond clock is now GetTickCount64(). See the block      |
+//|   above g_last_beat.                                            |
+//|                                                                 |
 //| v1.29 — three ceilings the broker declares and nobody read.     |
 //|   SYMBOL_TRADE_FREEZE_LEVEL, SYMBOL_VOLUME_LIMIT and the margin |
 //|   one lot costs were all available from the terminal and none   |
@@ -153,8 +162,8 @@
 // nobody could tell. AURION_EA_VERSION is the value sent to the engine;
 // engine/tests/test_ea_version.py fails the build if the #property below
 // drifts from it, because #property will not take a macro.
-#define AURION_EA_VERSION "1.29"
-#property version   "1.29"
+#define AURION_EA_VERSION "1.30"
+#property version   "1.30"
 #property strict
 #property description "AURION live bridge 1.25 — one engine, one port; the file inbox is the only fallback"
 
@@ -247,11 +256,43 @@ datetime g_last_bar = 0;
 ENUM_TIMEFRAMES g_feed_tf = PERIOD_CURRENT;
 datetime g_feed_bar = 0;
 datetime g_deals_from = 0;
-uint     g_last_beat = 0;
-uint     g_last_quote = 0;
-uint     g_last_spec      = 0;
-uint     g_up_since = 0;
-uint     g_next_try = 0;
+/* Every millisecond clock here is the 64-bit counter, and that is not
+   tidiness.
+
+   GetTickCount() is a uint of milliseconds since the machine booted, so
+   it wraps to zero every 49.7 days. The deadlines below are compared
+   two different ways, and only one of them survives that wrap:
+
+     now - g_last_beat >= InpHeartbeatMs     an ELAPSED time. Unsigned
+                                             subtraction wraps the same
+                                             way the clock does, so this
+                                             form is already safe.
+
+     if(now < g_next_try) return;            an ABSOLUTE deadline. This
+                                             one is not.
+
+   The absolute form is the whole bug. A failed flush sets
+   g_next_try = now + 600. If that happens inside the last second before
+   the wrap, g_next_try holds a value near 2^32 while the clock restarts
+   at zero - and OnTimer's first two lines then return, every time, for
+   the next 49.7 days. The expert does not crash and does not log: it
+   simply stops. No heartbeat, no prices, no history, and no trade can
+   be sent, on a terminal the trader can see is running. The same shape
+   sits in OnTick (g_next_try) and in PumpHistory (g_hist_next).
+
+   The window is narrow - a flush has to fail in the few hundred
+   milliseconds before a wrap - but MetaTrader is left running for
+   months at a time, which is exactly the uptime that reaches 49.7 days,
+   and the failure is silent and lasts seven weeks.
+
+   GetTickCount64() is a ulong of the same milliseconds and wraps after
+   roughly 584 million years, so the absolute comparisons simply become
+   true. Nothing else about the timing changes. */
+ulong     g_last_beat = 0;
+ulong     g_last_quote = 0;
+ulong     g_last_spec      = 0;
+ulong     g_up_since = 0;
+ulong     g_next_try = 0;
 int      g_phase = 0;
 bool     g_hello_ok = false;
 bool     g_logged_http = false;
@@ -262,7 +303,7 @@ int      g_hist_pos = -1;
 int      g_hist_count = 0;
 int      g_hist_want = 0;
 int      g_hist_tries = 0;
-uint     g_hist_next = 0;
+ulong     g_hist_next = 0;
 ENUM_TIMEFRAMES g_hist_tf = PERIOD_CURRENT;
 MqlRates g_hist_rates[];
 // Which half of the answer is in flight: 0 = the bars this terminal
@@ -401,7 +442,7 @@ void MaybeClosedBar()
 void OnTick()
   {
    MaybeClosedBar();
-   if(!g_hello_ok && GetTickCount() >= g_next_try)
+   if(!g_hello_ok && GetTickCount64() >= g_next_try)
      {
       BurstConnect();
       return;
@@ -409,8 +450,8 @@ void OnTick()
    // The price, as the market makes it. See InpTickMs.
    if(g_hello_ok && InpTickMs > 0)
      {
-      uint now = GetTickCount();
-      if(now - g_last_quote >= (uint)InpTickMs && now >= g_next_try)
+      ulong now = GetTickCount64();
+      if(now - g_last_quote >= (ulong)InpTickMs && now >= g_next_try)
         {
          g_last_quote = now;
          SendTick();
@@ -422,7 +463,7 @@ void OnTick()
 
 void OnTimer()
   {
-   uint now = GetTickCount();
+   ulong now = GetTickCount64();
    if(now < g_next_try)
       return;
    if(!g_hello_ok)
@@ -446,7 +487,7 @@ void OnTimer()
          PumpHistory();
       EventSetMillisecondTimer(25);
      }
-   if(now - g_last_beat >= (uint)InpHeartbeatMs)
+   if(now - g_last_beat >= (ulong)InpHeartbeatMs)
      {
       g_last_beat = now;
       g_last_quote = now;
@@ -470,7 +511,7 @@ void BurstConnect()
   {
    ArrayResize(g_http_q, 0);
    SendHello();
-   uint now = GetTickCount();
+   ulong now = GetTickCount64();
    if(!FlushOut())
      {
       g_next_try = now + 700;
@@ -524,7 +565,7 @@ void OnTradeTransaction(const MqlTradeTransaction &trans,
       && trans.type != TRADE_TRANSACTION_ORDER_DELETE
       && trans.type != TRADE_TRANSACTION_HISTORY_ADD)
       return;
-   g_last_beat = GetTickCount();
+   g_last_beat = GetTickCount64();
    SendAccount();
    SendPositions();
    SendOrders();
@@ -1084,7 +1125,7 @@ void PumpHistory()
   {
    if(g_hist_pos < 0)
       return;
-   if(g_hist_count <= 0 && g_hist_next > 0 && GetTickCount() < g_hist_next)
+   if(g_hist_count <= 0 && g_hist_next > 0 && GetTickCount64() < g_hist_next)
       return;   // waiting out the backoff between CopyRates attempts
    if(g_hist_count <= 0)
      {
@@ -1116,9 +1157,9 @@ void PumpHistory()
             SeriesInfoInteger(_Symbol, g_hist_tf, SERIES_BARS_COUNT);
             if(g_hist_tries <= AURION_HIST_QUICK_TRIES)
               {
-               uint qwait = (uint)(120 * g_hist_tries);
+               ulong qwait = (ulong)(120 * g_hist_tries);
                if(qwait > 1000) qwait = 1000;
-               g_hist_next = GetTickCount() + qwait;
+               g_hist_next = GetTickCount64() + qwait;
                return;
               }
             // Still nothing on hand. The range form is the one that
@@ -1176,9 +1217,9 @@ void PumpHistory()
             if(g_hist_tries <= AURION_HIST_TRIES)
               {
                SeriesInfoInteger(_Symbol, g_hist_tf, SERIES_BARS_COUNT);
-               uint wait = (uint)(250 * g_hist_tries);
+               ulong wait = (ulong)(250 * g_hist_tries);
                if(wait > 3000) wait = 3000;
-               g_hist_next = GetTickCount() + wait;
+               g_hist_next = GetTickCount64() + wait;
                return;
               }
             if(g_hist_sent > 0)
@@ -1265,7 +1306,7 @@ void PumpHistory()
             g_hist_phase = 1;
             g_hist_pos = 0;
             g_hist_tries = 0;
-            g_hist_next = GetTickCount() + 50;
+            g_hist_next = GetTickCount64() + 50;
            }
         }
      }
