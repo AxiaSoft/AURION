@@ -558,7 +558,8 @@
     "bad_price": "That is not a price.",
     "risk_line": "{points} points · {money}",
     "risk_unpriced": "The broker has not reported a tick value for this symbol, so the money cannot be worked out. Attach the EA to its chart.",
-    "risk_need_price": "Set a lot and an entry price to see what these levels are worth."
+    "risk_need_price": "Set a lot and an entry price to see what these levels are worth.",
+    "risk_no_side": "The stop and the target are on the same side of the market, so this ticket has no direction to price. Move one of them."
   },
   "charts": {
     "title": "EA chart agents",

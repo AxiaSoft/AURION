@@ -22,6 +22,7 @@ from .risk import (
     auto_risk_cap,
     auto_risk_pct,
     cap_stop,
+    market_entry,
     money_at_risk,
     normalise_scope,
     risk_budget,
@@ -1684,7 +1685,10 @@ class Trader:
         if entry <= 0:
             tick = self.tick_of(symbol)
             if tick:
-                entry = float(tick.get("ask" if side == "buy" else "bid") or 0)
+                # A buy fills at the ask and a sell at the bid. Shared
+                # with the desk, which draws the cost of the stop from
+                # the same price - see risk.market_entry.
+                entry = market_entry(side, tick.get("bid"), tick.get("ask"))
         if entry <= 0:
             return request
 

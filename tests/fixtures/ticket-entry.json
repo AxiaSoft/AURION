@@ -1,0 +1,100 @@
+{
+  "_comment": [
+    "What price a ticket actually opens at - the one number every stop on",
+    "that ticket is measured from.",
+    "",
+    "    market buy   -> the ask (it crosses the spread)",
+    "    market sell  -> the bid",
+    "    limit / stop -> the resting price that was asked for",
+    "",
+    "Python: aurion.runtime.risk.market_entry, used by Trader when it sizes",
+    "and caps an order. JavaScript: marketEntry / ticketEntry in app.js, used",
+    "by the risk line under the ticket.",
+    "",
+    "WHY THIS FILE EXISTS. The desk measured a market order's stop from the",
+    "MID - a price nobody trades at. The engine fills at bid/ask, so the desk",
+    "understated the cost of every market stop by half the spread, on both",
+    "sides, always in the direction that looks safer than it is:",
+    "",
+    "    EURUSD  0.00002 spread,  200-tick stop, 1 lot:  199.00 vs 200.00   -0.5%",
+    "    US30    4.0     spread,   50-tick stop, 1 lot:   48.00 vs  50.00   -4.0%",
+    "    BTCUSD  12.0    spread, 5000-tick stop, 1 lot:   44.00 vs  50.00  -12.0%",
+    "    XAUUSD  0.30    spread,  100-tick stop, 1 lot:   85.00 vs 100.00  -15.0%",
+    "",
+    "A trader working to a 100 cap would set a stop the desk priced at 100,",
+    "the engine would price the same stop at 118 and pull it in to fit, and",
+    "the stop that reached the broker was not the stop that was agreed to.",
+    "",
+    "Adding a case here is how the rule changes, and it must then pass on",
+    "both sides."
+  ],
+  "market": [
+    {
+      "why": "a buy crosses the spread and fills at the ask",
+      "side": "buy", "bid": 1.08500, "ask": 1.08502, "entry": 1.08502
+    },
+    {
+      "why": "a sell fills at the bid",
+      "side": "sell", "bid": 1.08500, "ask": 1.08502, "entry": 1.08500
+    },
+    {
+      "why": "a wide spread is where the two readings diverge most",
+      "side": "buy", "bid": 2650.0, "ask": 2650.3, "entry": 2650.3
+    },
+    {
+      "why": "and on the sell side of the same quote",
+      "side": "sell", "bid": 2650.0, "ask": 2650.3, "entry": 2650.0
+    },
+    {
+      "why": "case does not decide a fill price",
+      "side": "BUY", "bid": 100.0, "ask": 101.0, "entry": 101.0
+    },
+    {
+      "why": "nor does stray whitespace",
+      "side": " sell ", "bid": 100.0, "ask": 101.0, "entry": 100.0
+    },
+    {
+      "why": "an unknown side has no entry - it must not silently become the mid",
+      "side": "", "bid": 100.0, "ask": 101.0, "entry": 0
+    },
+    {
+      "why": "nor does a close or a cancel name a fill price",
+      "side": "close", "bid": 100.0, "ask": 101.0, "entry": 0
+    },
+    {
+      "why": "no ask means no buy price, rather than a guess",
+      "side": "buy", "bid": 100.0, "ask": 0, "entry": 0
+    },
+    {
+      "why": "no bid means no sell price",
+      "side": "sell", "bid": 0, "ask": 101.0, "entry": 0
+    },
+    {
+      "why": "junk in the quote is not a price",
+      "side": "buy", "bid": null, "ask": null, "entry": 0
+    }
+  ],
+  "_implied_comment": [
+    "Which side a half-filled ticket is for. The desk needs this because",
+    "buy and sell are only chosen when the button is pressed, while the risk",
+    "line has to be drawn as the stop is being typed. The stop says it: a",
+    "stop below the market protects a long, a stop above it protects a short.",
+    "A take profit says the same thing the other way round.",
+    "",
+    "This one is desk-only - the engine is always told the side - so it is",
+    "exercised from the JavaScript side alone."
+  ],
+  "implied": [
+    { "why": "a stop below the market is protecting a long", "sl": 2640, "tp": 0, "mid": 2650, "side": "buy" },
+    { "why": "a stop above it is protecting a short", "sl": 2660, "tp": 0, "mid": 2650, "side": "sell" },
+    { "why": "a target above the market is a long", "sl": 0, "tp": 2670, "mid": 2650, "side": "buy" },
+    { "why": "a target below it is a short", "sl": 0, "tp": 2630, "mid": 2650, "side": "sell" },
+    { "why": "both set and agreeing - a long", "sl": 2640, "tp": 2670, "mid": 2650, "side": "buy" },
+    { "why": "both set and agreeing - a short", "sl": 2660, "tp": 2630, "mid": 2650, "side": "sell" },
+    { "why": "both below the market is a broken ticket, not a guess", "sl": 2640, "tp": 2630, "mid": 2650, "side": "" },
+    { "why": "both above it likewise", "sl": 2660, "tp": 2670, "mid": 2650, "side": "" },
+    { "why": "nothing set says nothing", "sl": 0, "tp": 0, "mid": 2650, "side": "" },
+    { "why": "no market price means no reading", "sl": 2640, "tp": 0, "mid": 0, "side": "" },
+    { "why": "a stop exactly at the market is not a side", "sl": 2650, "tp": 0, "mid": 2650, "side": "" }
+  ]
+}

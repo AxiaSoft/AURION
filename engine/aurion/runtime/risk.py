@@ -36,6 +36,7 @@ __all__ = [
     "MONEY_SCOPES",
     "DEFAULT_SCOPE",
     "normalise_scope",
+    "market_entry",
     "round_money",
     "auto_risk_pct",
     "auto_risk_cap",
@@ -247,6 +248,39 @@ def normalise_scope(scope: Any) -> str:
     """Anything that is not a known scope is the default, not an error."""
     text = str(scope or "").strip().lower()
     return text if text in MONEY_SCOPES else DEFAULT_SCOPE
+
+
+def market_entry(side: Any, bid: Any, ask: Any) -> float:
+    """The price a market order of this side actually opens at.
+
+    A buy crosses the spread and fills at the ask; a sell fills at the
+    bid. 0.0 when the side is unknown or the quote is not usable.
+
+    Trivial arithmetic, written out because the number it produces is
+    what every stop on the ticket is measured from. The desk used to
+    measure from the mid instead, which is not a price anybody trades
+    at: it understated the cost of a stop by half the spread, on both
+    sides, always in the direction that looks safer than it is.
+
+        XAUUSD, 0.30 spread, 100-tick stop, 1 lot
+            desk said  85.00      engine computes  100.00    -15%
+        BTCUSD, 12.00 spread, 5000-tick stop, 1 lot
+            desk said  44.00      engine computes   50.00    -12%
+
+    That gap is not cosmetic. A trader working to a 100 cap sets a stop
+    the desk prices at 100, the engine prices the same stop at 118 and
+    pulls it in to fit - so the stop that gets sent is not the stop that
+    was agreed to, and nothing on screen said why.
+
+    Pinned from both languages by tests/fixtures/ticket-entry.json.
+    """
+    s = str(side or "").strip().lower()
+    b, a = _f(bid), _f(ask)
+    if s == "buy":
+        return a if a > 0 else 0.0
+    if s == "sell":
+        return b if b > 0 else 0.0
+    return 0.0
 
 
 def round_money(value: float, dp: int = 2) -> float:

@@ -6029,6 +6029,65 @@ function specFor(symbol) {
 }
 
 /**
+ * The price a market order of this side actually opens at.
+ *
+ * A buy crosses the spread and fills at the ask, a sell at the bid.
+ * Mirrors the engine's risk.market_entry, pinned by
+ * tests/fixtures/ticket-entry.json.
+ *
+ * 0 when the side is unknown or the quote is unusable - deliberately
+ * not the mid. The mid is not a price anybody trades at, and using it
+ * here understated the cost of every market stop by half the spread:
+ * 15% on gold, 12% on BTC, always in the direction that looks safer.
+ */
+function marketEntry(side, bid, ask) {
+  const s = String(side || "").trim().toLowerCase();
+  const b = Number(bid) || 0;
+  const a = Number(ask) || 0;
+  if (s === "buy") return a > 0 ? a : 0;
+  if (s === "sell") return b > 0 ? b : 0;
+  return 0;
+}
+
+/**
+ * Which side this half-written ticket is for.
+ *
+ * Buy and sell are only chosen when the button is pressed, but the risk
+ * line has to be drawn while the stop is still being typed. The stop
+ * says which it is: a stop below the market protects a long, a stop
+ * above it protects a short, and a target says the same thing the other
+ * way round.
+ *
+ * "" when it cannot be read - nothing set, no quote, or a stop and a
+ * target that disagree. A ticket whose two halves point opposite ways
+ * is broken, and guessing a side for it would put a confident number
+ * under a trade that cannot be sent.
+ */
+function impliedSide(sl, tp, reference) {
+  const ref = Number(reference) || 0;
+  const s = Number(sl) || 0;
+  const t = Number(tp) || 0;
+  if (!(ref > 0)) return "";
+  const fromSl = s > 0 ? (s < ref ? "buy" : s > ref ? "sell" : "") : "";
+  const fromTp = t > 0 ? (t > ref ? "buy" : t < ref ? "sell" : "") : "";
+  if (fromSl && fromTp) return fromSl === fromTp ? fromSl : "";
+  return fromSl || fromTp;
+}
+
+/**
+ * The price this ticket would open at: the resting price for a limit or
+ * a stop, the side's own side of the spread for a market order.
+ *
+ * The same fork the engine takes - an explicit price wins, otherwise
+ * the quote decides - so the distance the desk measures is the distance
+ * the engine will measure.
+ */
+function ticketEntry(side, kind, restingPrice, bid, ask) {
+  if (kind === "limit" || kind === "stop") return Number(restingPrice) || 0;
+  return marketEntry(side, bid, ask);
+}
+
+/**
  * What a price distance is worth: how many points, and how much money
  * at this lot.
  *
@@ -6097,20 +6156,39 @@ function paintTicketRisk() {
   const type = String($("ct-type")?.value || "market");
   const kind = type === "limit" || type === "stop" ? type : "";
   const tick = (S.snap && S.snap.ticks && S.snap.ticks[symbol]) || {};
-  const mid = Number(tick.bid || 0) && Number(tick.ask || 0)
-    ? (Number(tick.bid) + Number(tick.ask)) / 2
-    : Number(tick.bid || tick.ask || 0);
-  const from = kind ? Number($("ct-price")?.value || 0) : mid;
   const sl = Number($("ct-sl")?.value || 0);
   const tp = Number($("ct-tp")?.value || 0);
 
   if (!sl && !tp) { host.hidden = true; host.textContent = ""; return; }
   host.hidden = false;
 
+  /* Measure from where the trade would actually open, which for a
+     market order is this side's side of the spread - not the mid.
+     The side is read off the ticket: the stop and the target say
+     which way it is pointing. The reference for that reading is the
+     resting price on a pending order and the mid on a market one,
+     because "is this stop above or below the market" is a question
+     about the market, not about which half of the spread fills. */
+  const mid = Number(tick.bid || 0) && Number(tick.ask || 0)
+    ? (Number(tick.bid) + Number(tick.ask)) / 2
+    : Number(tick.bid || tick.ask || 0);
+  const resting = kind ? Number($("ct-price")?.value || 0) : 0;
+  const side = impliedSide(sl, tp, kind ? resting : mid);
+  const from = ticketEntry(side, kind, resting, tick.bid, tick.ask);
+
   if (!specFor(symbol)) {
     /* Named, not blank: "we cannot price this" is information, and a
        row that silently disappears looks like a bug in the desk. */
     host.innerHTML = `<span class="ct-risk-none">${esc(I18N.t("exec.risk_unpriced"))}</span>`;
+    return;
+  }
+  /* A stop and a target on the same side of the market point in
+     opposite directions. There is no side to price it from, and a
+     confident number under a ticket that cannot be sent is worse than
+     saying so. Told apart from "no price yet", which is a different
+     thing to fix. */
+  if (!side && (mid > 0 || resting > 0)) {
+    host.innerHTML = `<span class="ct-risk-none">${esc(I18N.t("exec.risk_no_side"))}</span>`;
     return;
   }
   if (!(from > 0) || !(volume > 0)) {
@@ -7539,12 +7617,6 @@ function moneyRefLot(money) {
 }
 
 /**
- * Does the cap count one trade or one reference lot?
- *
- * Unknown reads as "trade". A desk that cannot tell which rule the
- * engine is applying must not draw the one that understates risk.
- */
-/**
  * Round a currency amount half-up, explicitly.
  *
  * Math.round is already half-up, but it is half-up on a binary float:
@@ -7606,6 +7678,12 @@ function autoRiskCap(equity, typedPct, bounds) {
   return { pct, cap: Math.max(0, roundMoney(eq * pct / 100)) };
 }
 
+/**
+ * Does the cap count one trade or one reference lot?
+ *
+ * Unknown reads as "trade". A desk that cannot tell which rule the
+ * engine is applying must not draw the one that understates risk.
+ */
 function moneyMode(money) {
   return String((money || {}).mode || "").toLowerCase() === "auto" ? "auto" : "fixed";
 }
