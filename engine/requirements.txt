@@ -1,21 +1,58 @@
-fastapi==0.116.1
-uvicorn==0.35.0
-pydantic==2.11.7
-websockets==15.0.1
-httpx==0.28.1
-# NumPy 2.1+ wheels require x86-64-v2. NumPy 1.26.4 is the last
-# CPU-safe official Windows wheel, and it only exists for CPython 3.9–3.12.
-# Do not run AURION on Python 3.13/3.14.
-numpy==1.26.4
-pandas==2.2.3
-scipy==1.14.1
-scikit-learn==1.5.2
-joblib==1.4.2
-openpyxl==3.1.5
-python-multipart==0.0.20
+fastapi>=0.116.1
+uvicorn>=0.35.0
+pydantic>=2.11.7
+websockets>=15.0.1
+httpx>=0.28.1
+
+# ---------------------------------------------------------------------
+# The compiled stack, and why it is written twice.
+#
+# There is exactly one real constraint here, and it is about CPUs, not
+# about Python. NumPy 2.1+ publishes x86 wheels built for the
+# x86-64-v2 baseline (SSE4.2, POPCNT). On an older x86 chip those
+# wheels do not merely run slowly, they crash with an illegal
+# instruction. NumPy 1.26.4 is the last release whose x86 wheel runs
+# anywhere - and it publishes nothing for CPython 3.13 or newer.
+#
+# Those two facts collide only on x86. Every other architecture -
+# aarch64, Apple silicon, a phone running Debian under proot - has no
+# baseline problem at all, because the ARM wheels were never built
+# against a raised baseline. Pinning them to 1.26.4 there bought
+# nothing and cost everything: it is what made AURION refuse to
+# install on any current Python, since the distribution that ships
+# 3.13 is exactly the one a phone or a fresh Linux gives you.
+#
+# So the markers say what was always meant: hold the line on x86 while
+# an old-CPU user can still be on 3.12, and take the current release
+# everywhere else. The engine's own test suite passes on both - 1293
+# tests against numpy 1.26.4 / pandas 2.2.3 / scikit-learn 1.5.2, and
+# the same 1293 against numpy 2.4.6 / pandas 3.1.1 / scikit-learn
+# 1.9.1 - so this is a packaging boundary, not a code one.
+#
+# `in` on a marker is a substring test, which is why the x86 list is
+# written as one string: "x86_64" and "AMD64" are both inside it,
+# "aarch64" and "arm64" are not.
+# ---------------------------------------------------------------------
+numpy==1.26.4; python_version < "3.13" and platform_machine in "i386 i686 x86 x86_64 AMD64"
+numpy>=2.1;    python_version >= "3.13" or platform_machine not in "i386 i686 x86 x86_64 AMD64"
+
+pandas==2.2.3; python_version < "3.13" and platform_machine in "i386 i686 x86 x86_64 AMD64"
+pandas>=2.2.3; python_version >= "3.13" or platform_machine not in "i386 i686 x86 x86_64 AMD64"
+
+scikit-learn==1.5.2; python_version < "3.13" and platform_machine in "i386 i686 x86 x86_64 AMD64"
+scikit-learn>=1.5.2; python_version >= "3.13" or platform_machine not in "i386 i686 x86 x86_64 AMD64"
+
+# Required by scikit-learn, so it arrives either way; named here to keep
+# the same split rather than letting the resolver pick for us.
+scipy==1.14.1; python_version < "3.13" and platform_machine in "i386 i686 x86 x86_64 AMD64"
+scipy>=1.14.1; python_version >= "3.13" or platform_machine not in "i386 i686 x86 x86_64 AMD64"
+
+joblib>=1.4.2
+openpyxl>=3.1.5
+python-multipart>=0.0.20
 # Windows ships no IANA time zone database, so zoneinfo cannot resolve
 # "Asia/Tehran" there at all - it raises, and every city the trader picks
 # would quietly fall back to UTC. This is the database, as a wheel.
-tzdata==2024.2
+tzdata>=2024.2
 # MetaTrader5 is Windows-only. Installed by scripts/fix-numpy.ps1 and start.ps1.
 # MetaTrader5>=5.0.4874

@@ -11,7 +11,7 @@
 
 | چیزی که نیست | ستاپ چه نصب می‌کند | از کجا | دسترسی مدیر |
 |---|---|---|---|
-| Python ۳٫۱۰ تا ۳٫۱۲ | Python 3.12، فقط برای همین کاربر، روی `PATH` | python.org | لازم نیست |
+| Python ۳٫۱۰ یا بالاتر | Python 3.12، فقط برای همین کاربر، روی `PATH` | python.org | لازم نیست |
 | کتابخانه‌های موتور | `pip install -r engine\requirements.txt` | PyPI | لازم نیست |
 | Node.js نسخهٔ ۱۸ به بالا | Node.js 20 | nodejs.org | **لازم است** |
 | کتابخانه‌های دسک | `npm install` داخل `backend\` | npm | لازم نیست |

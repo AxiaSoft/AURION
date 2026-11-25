@@ -5,7 +5,7 @@ AURION never invents a market. After install the desk is empty until AurionBridg
 ## Windows — manual setup
 
 1. Copy the full tree to `D:\aurion` (not nested `D:\aurion\aurion`).
-2. Install **Python 3.10 / 3.11 / 3.12** (never 3.13 or 3.14) and **Node.js 18+**.
+2. Install **Python 3.10 or newer** and **Node.js 18+**.
 3. Run `pip install -r engine\requirements.txt`, then `npm install` inside `backend`.
 4. Start **`start-aurion.cmd`** — it copies `AurionBridge.mq5` into every local `MQL5\Experts\Aurion` folder and launches engine + desk hidden.
 5. The desk opens at `http://127.0.0.1:8080`. First launch creates the administrator — there is no factory password.
@@ -14,7 +14,7 @@ Daily start is **`start-aurion.cmd`**. Stop with **`stop-aurion.cmd`**.
 
 Allow inbound TCP **8080** on the Windows Private firewall so the local desk is reachable on the machine (Settings → Firewall, or add the port yourself).
 
-Do **not** use Python 3.13 or 3.14. Node **18+** is fine, including **26**.
+Any Python from **3.10** upwards works, including the current release. Node **18+** is fine, including **26**.
 
 ## What the machine needs
 

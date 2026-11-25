@@ -23,7 +23,7 @@ git push
 | `keyserver` | `store/keyserver` tests, including the Ed25519 parity check that mints keys in Node and decodes them in Python (and back) |
 | `translations` | `lang/en.json`, `fa.json` and `ar.json` must define exactly the same keys |
 
-Python is capped at 3.12 on purpose: `engine/main.py` refuses to start on 3.13
+Python is not capped. `engine/requirements.txt` picks NumPy by architecture, so an old x86 CPU keeps 1.26.4 while everything else takes the current release on any Python
 and later, because `numpy==1.26.4` has no wheels for them.
 
 All of it runs locally too:

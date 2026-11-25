@@ -11,9 +11,34 @@ ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT / "engine") not in sys.path:
     sys.path.insert(0, str(ROOT / "engine"))
 
+#: The engine used to refuse outright to start on CPython 3.13 or newer.
+#: That rule was a proxy for a real constraint and outlived it. The
+#: constraint was never the language version: it was that NumPy 2.1+
+#: builds its *x86* wheels for the x86-64-v2 baseline, which an old
+#: x86 chip cannot execute, while the last wheel that runs everywhere
+#: - 1.26.4 - publishes nothing for 3.13+.
+#:
+#: engine/requirements.txt now states that properly with environment
+#: markers, so an x86 machine on 3.12 still gets 1.26.4 and everything
+#: else gets the current release. A version check here would only
+#: re-impose, on every architecture, a limit that applies to one.
+#:
+#: What can still go wrong is narrower and is handled below: the
+#: libraries are missing, or a NumPy built for a newer baseline than
+#: this CPU was installed anyway. Both are detected by trying, which
+#: is the only way either can honestly be known.
 try:
     from aurion.config import load  # noqa: E402
     from aurion.util.log import setup  # noqa: E402
+except ModuleNotFoundError as exc:
+    sys.stderr.write(
+        f"\nAURION: a required Python library is missing ({exc.name}).\n"
+        f"This is Python {sys.version.split()[0]} on {sys.platform}.\n\n"
+        "Install the engine's dependencies into the interpreter you are\n"
+        "starting it with:\n\n"
+        f"  {Path(sys.executable).name} -m pip install -r engine/requirements.txt\n\n"
+    )
+    raise SystemExit(2) from exc
 except RuntimeError as exc:
     msg = str(exc)
     if "X86_V2" in msg or "baseline optimizations" in msg:
@@ -77,14 +102,6 @@ def main() -> None:
     parser.add_argument("--host", default="")
     parser.add_argument("--port", type=int, default=0)
     args = parser.parse_args()
-    if sys.platform.startswith("win") and sys.version_info >= (3, 13):
-        sys.stderr.write(
-            f"\nAURION on Windows needs Python 3.10–3.12. This is {sys.version.split()[0]}.\n"
-            "Install 3.12 from https://www.python.org/downloads/windows/\n"
-            "then:  py -3.12 -m pip install -r engine\\requirements.txt\n"
-            "        py -3.12 engine\\main.py --host 127.0.0.1 --port 18765\n\n"
-        )
-        raise SystemExit(2)
     setup("INFO")
     cfg = load()
     host = args.host or cfg["engine"].get("bind") or "0.0.0.0"

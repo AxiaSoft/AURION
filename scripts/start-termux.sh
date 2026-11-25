@@ -12,31 +12,37 @@
 # back to building from source, and then:
 #
 #   * numpy, pandas and scikit-learn each want a full compile,
-#   * pydantic-core wants a Rust target triple rustup does not publish
-#     for Android, so it fails outright,
-#   * and Termux now ships Python 3.13, for which numpy 1.26.4 - the
-#     version engine/requirements.txt pins, and the last one that is
-#     CPU-safe for us - has no wheel at all.
+#   * and pydantic-core wants a Rust target triple rustup does not
+#     publish for Android, so it fails outright.
 #
 # None of that is worked around. It is sidestepped: this script puts a
 # Debian in front of it with proot-distro. Inside, the platform is
-# glibc Linux again, every wheel installs in seconds, and Debian
-# bookworm's Python 3.11 sits inside the supported 3.9-3.12 range.
+# glibc Linux again and every wheel installs in seconds, whichever
+# Python that Debian happens to ship - there is no upper version bound
+# here any more, because engine/requirements.txt now picks NumPy by
+# architecture rather than capping the interpreter for everyone.
 #
 # scikit-learn is not optional, before anyone tries trimming the
 # requirements to make a native install fit: runtime/trader.py imports
 # ai/engine.py, which imports ai/models.py, which imports sklearn at
 # module level. No sklearn, no engine.
 #
+# The repository may live on shared storage - /storage/emulated/0,
+# where a file manager can see it. The environment may not: that mount
+# has no exec bit, no symlinks and no SQLite locking worth the name, so
+# the venv, node_modules and the data tree are moved to the distro's
+# own filesystem. The code stays where you put it.
+#
 # What it does
 # ------------
 #   1. On Termux: installs proot-distro and Debian if missing, takes a
 #      wake lock, then re-runs itself inside Debian with this checkout
 #      bind-mounted - so there is one copy of the repo, not two.
-#   2. Inside: installs apt packages, builds .venv, pip-installs
+#   2. Inside: installs apt packages, builds the venv, pip-installs
 #      engine/requirements.txt, npm-installs the backend. All of it
 #      skipped on later runs unless the dependency files changed.
-#   3. Starts the engine, waits for /health, then starts the desk.
+#   3. Starts the engine, waits for /health, starts the desk, waits for
+#      that too, then tells you where to open it.
 #
 # Safe to run repeatedly. The slow first run is the only slow one.
 #
@@ -98,9 +104,23 @@ if [ "$HERE" -eq 0 ] && on_termux; then
     pkg install -y proot-distro
   fi
 
-  if ! proot-distro list --installed 2>/dev/null | grep -qw "$DISTRO"; then
+  # Asked of the filesystem, not of `proot-distro list --installed`.
+  # Parsing that output was a bug: its format varies between versions,
+  # so on a machine that already had Debian the grep found nothing,
+  # the script tried to install it again, and proot-distro exited with
+  # "container 'debian' already exists" - taking the whole run with it
+  # under set -e. The rootfs directory is the thing that is actually
+  # true, and the install is tolerant now in case the layout moves.
+  ROOTFS="$PREFIX/var/lib/proot-distro/installed-rootfs/$DISTRO"
+  if [ ! -d "$ROOTFS" ]; then
     say "installing $DISTRO (a few hundred MB, once)"
-    proot-distro install "$DISTRO"
+    proot-distro install "$DISTRO" || true
+  fi
+  if [ ! -d "$ROOTFS" ] \
+     && ! proot-distro login "$DISTRO" -- /bin/true >/dev/null 2>&1; then
+    fail "could not install or reach the '$DISTRO' container.
+       proot-distro list            shows what is available
+       proot-distro remove $DISTRO  then re-run, to start clean"
   fi
 
   # Android suspends processes once the screen goes off, which kills the
@@ -136,19 +156,84 @@ cd "$ROOT"
 export PYTHONUNBUFFERED=1
 export AURION_HOST="${AURION_HOST:-0.0.0.0}"
 export AURION_PORT="${AURION_PORT:-8080}"
-export AURION_DATA_DIR="${AURION_DATA_DIR:-$ROOT/data}"
 ENGINE_PORT="${AURION_ENGINE_PORT:-18765}"
 export AURION_ENGINE_PORT="$ENGINE_PORT"
 
+# --- can this directory hold a working installation? ------------------
+#
+# Android's shared storage - /storage/emulated/0, what a file manager
+# calls "Internal storage" - is a FUSE layer, not a filesystem. It
+# cannot store a symlink, it ignores the executable bit, and its
+# locking is not what SQLite expects. Keeping a repository there is
+# perfectly fine and is what anyone who wants to see their files from
+# the phone will do. Installing *into* it is not:
+#
+#   * python -m venv links or copies an interpreter and then runs it,
+#     which needs both symlinks and the exec bit;
+#   * npm writes symlinks into node_modules/.bin;
+#   * the engine's SQLite databases want real locking.
+#
+# So the rule is: the code may live on shared storage, everything the
+# machine has to execute or lock moves to the distro's own filesystem.
+# Decided by trying it rather than by matching the path, because the
+# question is what this mount can do, not what it is called.
+can_install_into() {
+  local d="$1" t
+  t="$d/.aurion-probe.$$"
+  rm -rf "$t" 2>/dev/null || true
+  mkdir -p "$t" 2>/dev/null || return 1
+  if ! printf '#!/bin/sh\nexit 7\n' > "$t/run" 2>/dev/null \
+     || ! chmod +x "$t/run" 2>/dev/null \
+     || ! ln -s run "$t/link" 2>/dev/null; then
+    rm -rf "$t" 2>/dev/null || true
+    return 1
+  fi
+  "$t/run" >/dev/null 2>&1
+  local rc=$?
+  rm -rf "$t" 2>/dev/null || true
+  [ "$rc" -eq 7 ]
+}
+
+WORK="$ROOT"
+if can_install_into "$ROOT"; then
+  VENV="$ROOT/.venv"
+  NPM_PREFIX="$ROOT/backend"
+else
+  WORK="$HOME/.aurion"
+  say "this directory cannot hold an installation (no exec bit or no symlinks)."
+  say "the code stays here; the environment goes to $WORK"
+
+  # node resolves a bare import by walking up from the importing file,
+  # so node_modules in the repository's PARENT is found by
+  # backend/src/index.js without a symlink or a bind mount. Under the
+  # Termux stage the repo is bound at /root/AURION, so the parent is
+  # /root - the distro's own ext4.
+  NPM_PREFIX="$(dirname "$ROOT")"
+  if ! can_install_into "$NPM_PREFIX"; then
+    fail "neither $ROOT nor its parent can hold an installation.
+       Node finds its libraries by walking up from the file that
+       imports them, so there has to be one usable directory above
+       the repository. Clone or bind the repository somewhere under
+       the distro's home instead - $HOME - and run this again."
+  fi
+  mkdir -p "$WORK"
+  VENV="$WORK/venv"
+  # SQLite over FUSE is the other half of the same problem, so the
+  # runtime tree follows. Override AURION_DATA_DIR if you would rather
+  # have it somewhere visible to the phone and accept the risk.
+  export AURION_DATA_DIR="${AURION_DATA_DIR:-$WORK/data}"
+fi
+export AURION_DATA_DIR="${AURION_DATA_DIR:-$ROOT/data}"
+
 LOGS="$AURION_DATA_DIR/logs"
 mkdir -p "$LOGS" "$AURION_DATA_DIR/exports" "$AURION_DATA_DIR/uploads" \
-         "$AURION_DATA_DIR/archive" engine/models
+         "$AURION_DATA_DIR/archive" engine/models 2>/dev/null || true
 ENGINE_LOG="$LOGS/engine-start.log"
 
-VENV="$ROOT/.venv"
-# Kept inside the venv, not in data/: .venv/ is already ignored by git,
-# and a stamp that outlived the environment it describes would claim
-# dependencies were installed into something that no longer exists.
+# Kept beside the environment it describes, never in the repository: a
+# stamp that outlived its venv would claim dependencies were installed
+# into something that no longer exists, and on shared storage the
+# repository is the one place that cannot hold the venv anyway.
 STAMP="$VENV/.aurion-setup-stamp"
 
 apt_get() {
@@ -179,23 +264,32 @@ if [ -n "$need_apt" ]; then
 fi
 
 # --- the interpreter --------------------------------------------------
-# numpy 1.26.4 is pinned because it is the last release with a wheel
-# that does not require x86-64-v2, and it only publishes for CPython
-# 3.9 to 3.12. 3.13 is the exact trap Termux walks into.
+# The newest one on the machine wins, and there is no upper bound.
+#
+# This used to refuse anything past 3.12, which is why a phone could
+# not run AURION at all: the distribution that ships 3.13 is exactly
+# the one a current Debian or Ubuntu gives you. The limit was a proxy
+# for NumPy's x86-64-v2 baseline, which is an x86 problem;
+# engine/requirements.txt now says so with environment markers, so
+# every architecture gets a set that installs. Nothing here needs to
+# know the rule any more - it only has to pick an interpreter.
+#
+# The named candidates are a preference order, not a whitelist: plain
+# python3 is tried too, so a release newer than anything listed here
+# is still found and still used.
 PY=""
-for cand in python3.12 python3.11 python3.10 python3; do
+PYV=0
+for cand in python3 python3.15 python3.14 python3.13 python3.12 python3.11 python3.10 python3.9; do
   command -v "$cand" >/dev/null 2>&1 || continue
-  if "$cand" -c 'import sys; sys.exit(0 if (3,9) <= sys.version_info < (3,13) else 1)' 2>/dev/null; then
-    PY="$cand"; break
-  fi
+  v="$("$cand" -c 'import sys; print(sys.version_info[0] * 100 + sys.version_info[1])' 2>/dev/null)" || continue
+  case "$v" in ''|*[!0-9]*) continue ;; esac
+  [ "$v" -ge 309 ] || continue
+  if [ "$v" -gt "$PYV" ]; then PYV="$v"; PY="$cand"; fi
 done
 if [ -z "$PY" ]; then
   have="$(python3 -V 2>&1 || echo 'none')"
-  fail "need CPython 3.9-3.12, found $have.
-       numpy 1.26.4 publishes no wheel for 3.13+, so the engine cannot
-       be installed against it. On Debian/Ubuntu:
-         apt-get install -y python3.12 python3.12-venv
-       then run this script again."
+  fail "need CPython 3.9 or newer, found $have.
+       On Debian/Ubuntu:  apt-get install -y python3 python3-venv"
 fi
 say "python: $($PY -V) at $(command -v "$PY")"
 
@@ -219,7 +313,18 @@ if [ "$REINSTALL" -eq 1 ] || [ "$want" != "$have" ] || [ ! -x "$VENV/bin/python"
   python -m pip install -q -r engine/requirements.txt
 
   say "npm: backend"
-  ( cd backend && npm install --omit=dev --no-audit --no-fund )
+  # Installed from a copy of the backend's manifest so npm writes
+  # node_modules into NPM_PREFIX. When that is backend/ this is the
+  # ordinary install; when the repository is on shared storage it is
+  # the parent directory, which node searches anyway.
+  if [ "$NPM_PREFIX" = "$ROOT/backend" ]; then
+    ( cd backend && npm install --omit=dev --no-audit --no-fund )
+  else
+    say "npm: installing into $NPM_PREFIX (shared storage cannot hold node_modules)"
+    cp backend/package.json "$NPM_PREFIX/package.json"
+    [ -f backend/package-lock.json ] && cp backend/package-lock.json "$NPM_PREFIX/package-lock.json"
+    ( cd "$NPM_PREFIX" && npm install --omit=dev --no-audit --no-fund )
+  fi
 
   printf '%s' "$want" > "$STAMP"
   say "dependencies ready"
@@ -286,6 +391,25 @@ fi
 say "starting desk on :$AURION_PORT"
 node backend/src/index.js &
 DESK_PID=$!
+
+# The engine is waited for, so the desk is too. It printed "AURION is
+# up" the moment node was spawned, which on a phone is several seconds
+# before anything answers - long enough to open the address, get a
+# connection refused, and conclude it is broken.
+printf '[aurion] waiting for the desk'
+for _ in $(seq 1 60); do
+  if curl -fsS -m 2 -o /dev/null "http://127.0.0.1:${AURION_PORT}/" 2>/dev/null; then
+    printf ' - online\n'
+    break
+  fi
+  if ! kill -0 "$DESK_PID" 2>/dev/null; then
+    printf '\n'
+    fail "the desk exited during start-up. Run it directly to see why:
+       node backend/src/index.js"
+  fi
+  printf '.'
+  sleep 1
+done
 
 echo
 say "AURION is up. Open it in the phone's browser:"

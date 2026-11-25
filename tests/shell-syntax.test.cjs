@@ -100,15 +100,45 @@ if (fs.existsSync(TERMUX)) {
   check("it execs into the distro",
     /exec\s+proot-distro\s+login/.test(src));
 
-  /* numpy is pinned to 1.26.4 because it is the last release whose
-     wheel does not require x86-64-v2, and it publishes nothing for
-     CPython 3.13. Termux ships 3.13 by default, so this gate is the
-     difference between a clear refusal and a baffling build failure
-     deep inside a pip log. */
-  check("the interpreter is gated below 3.13",
-    /version_info\s*<\s*\(3,\s*13\)/.test(src));
-  check("...and the gate names candidates older than the default python3",
-    /python3\.12/.test(src) && /python3\.11/.test(src));
+  /* There must be no upper bound on the interpreter.
+     
+     This is the inverse of the assertion that used to live here. The
+     cap at 3.12 was a proxy for NumPy's x86-64-v2 baseline, which is
+     an x86 concern; engine/requirements.txt states that with markers
+     now, so capping the version here would re-impose on every
+     architecture a limit that applies to one - and would again make
+     AURION uninstallable on the current Debian, which ships 3.13. */
+  check("the interpreter has no upper version bound",
+    !/version_info\s*<\s*\(3,\s*1[3-9]\)/.test(src)
+    && !/sys\.exit\(0 if[^)]*<[^)]*\(3,\s*1[3-9]\)/.test(src));
+  check("...but still requires at least 3.9",
+    /-ge\s+309/.test(src));
+  check("...and plain python3 is a candidate, so a release newer than any listed is found",
+    /for cand in python3\s/.test(src));
+
+  /* Detection by filesystem, not by parsing another tool's output.
+     The grep against `proot-distro list --installed` did not match on
+     a real device, so the script tried to install a container that
+     already existed and set -e killed the run. */
+  check("an existing container is detected from the filesystem",
+    /installed-rootfs/.test(src) && !/proot-distro list --installed/.test(src));
+  check("...and a redundant install cannot abort the run",
+    /proot-distro install "\$DISTRO" \|\| true/.test(src));
+
+  /* Android shared storage has no exec bit and no symlinks, so a venv
+     and node_modules cannot live in a repository kept there - which
+     is exactly where someone who wants to see their files puts it. */
+  check("installability is probed by trying, not by matching the path",
+    /can_install_into/.test(src)
+    && /ln -s/.test(src)
+    && /chmod \+x/.test(src)
+    && !/\/storage\/emulated/.test(src));
+  check("...and the environment relocates off it rather than refusing",
+    /VENV="\$WORK\/venv"/.test(src) && /NPM_PREFIX/.test(src));
+  check("...using the parent directory for node, which node searches anyway",
+    /NPM_PREFIX="\$\(dirname "\$ROOT"\)"/.test(src));
+  check("...and the SQLite tree moves too",
+    /AURION_DATA_DIR="\$\{AURION_DATA_DIR:-\$WORK\/data\}"/.test(src));
 
   /* A phone's engine takes the better part of a minute to import
      numpy, pandas and sklearn. Starting the desk first leaves the
