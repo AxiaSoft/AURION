@@ -478,25 +478,56 @@ def cap_stop(
     )
 
 
+def _step_dp(step: float) -> int:
+    """How many decimals the broker's own volume step is written with.
+
+    0.01 -> 2, 0.001 -> 3, 1.0 -> 0, 0.25 -> 2. Capped at 8, which is
+    far past any real volume step and keeps the search bounded.
+    """
+    for dp in range(0, 9):
+        scaled = step * (10.0 ** dp)
+        if abs(scaled - round(scaled)) < 1e-9:
+            return dp
+    return 8
+
+
 def round_volume(volume: float, spec: SymbolSpec) -> float:
-    """Down to the broker's step, inside its bounds. Down, never up."""
+    """Down to the broker's step, inside its bounds. Down, never up.
+
+    "Down, never up" is a money statement, not a tidiness one. This
+    number usually arrives from volume_for_risk, which divides a budget
+    by what the stop costs per lot; rounding it up spends more than the
+    cap the trader agreed to.
+
+    The final rounding exists only to clear binary dust, and its
+    precision has to come from the broker's step. It used to be
+    round(out, 2) - two decimals, whatever the broker said - which on a
+    book quoting 0.001 lots turned the broker's own minimum lot into
+    0.0 ("no tradeable size") and turned 0.005 into 0.01, doubling a
+    $10 budget into a $20 trade. Pinned by
+    tests/fixtures/lot-rounding.json.
+    """
     volume = _f(volume)
     step = spec.volume_step if spec.volume_step > 0 else 0.01
     if volume <= 0:
         return 0.0
+    dp = _step_dp(step)
     # Floor, with a millionth of a step of slack. Without the slack a
     # budget that divides exactly — 100 dollars of risk at 10 dollars a
     # lot — lands on 9.999999999998 in binary and is floored to 9.99,
     # which looks like an arbitrary haircut and is really a float.
     steps = int(volume / step + 1e-6)
     out = max(0, steps) * step
-    if spec.volume_max > 0:
-        out = min(out, spec.volume_max)
+    if spec.volume_max > 0 and out > spec.volume_max:
+        # The ceiling is not necessarily on the ladder. Come down to the
+        # ceiling and then back onto the nearest step at or below it, or
+        # the "rounded" lot is one the broker refuses.
+        out = int(spec.volume_max / step + 1e-6) * step
     # Below the broker's minimum there is no tradeable size; say zero
     # rather than quietly sending a lot the broker will reject.
     if out < spec.volume_min - 1e-12:
         return 0.0
-    return round(out, 2)
+    return round(out, dp)
 
 
 def volume_for_risk(

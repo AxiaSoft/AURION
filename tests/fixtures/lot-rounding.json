@@ -1,0 +1,63 @@
+{
+  "_comment": [
+    "Fitting a lot to the broker's own volume ladder.",
+    "",
+    "    round_volume(v, spec) = the largest multiple of volume_step that is",
+    "                            <= v, inside [volume_min, volume_max],",
+    "                            or 0 when no tradeable size fits",
+    "",
+    "DOWN, NEVER UP. This is not a presentational nicety: the lot comes out",
+    "of volume_for_risk, which divides a money budget by what the stop costs",
+    "per lot. Rounding that result up spends more than the budget - the one",
+    "number the trader actually agreed to.",
+    "",
+    "WHY THIS FILE EXISTS. round_volume finished with round(out, 2), which",
+    "hardcoded two decimals instead of taking them from the broker's step.",
+    "On a book quoting 0.001 lots that was wrong twice over:",
+    "",
+    "  * round_volume(0.001) -> 0.0, so the broker's OWN MINIMUM LOT read as",
+    "    'no tradeable size'. An off switch nobody asked for.",
+    "",
+    "  * round_volume(0.005) -> 0.01, rounded UP, against the docstring and",
+    "    against the cap. A $10 budget with a stop costing $2000/lot sizes to",
+    "    0.005 lots; it was sent as 0.01 and risked $20. Double.",
+    "",
+    "  * round_volume(0.125) -> 0.12, a silent haircut of a perfectly valid",
+    "    size.",
+    "",
+    "0.01 is the step on nearly every retail forex book, which is why this",
+    "survived: at two decimals the old code and the rule agree exactly. The",
+    "step-0.01 cases below are here to keep that true.",
+    "",
+    "Adding a case here is how the rule changes."
+  ],
+  "cases": [
+    { "why": "the ordinary retail step, an exact multiple", "step": 0.01, "min": 0.01, "max": 100, "want": 0.5, "lot": 0.5 },
+    { "why": "between two steps, floored", "step": 0.01, "min": 0.01, "max": 100, "want": 0.015, "lot": 0.01 },
+    { "why": "0.125 on a 0.01 book is 0.12, and legitimately so", "step": 0.01, "min": 0.01, "max": 100, "want": 0.125, "lot": 0.12 },
+    { "why": "below the broker's minimum there is no tradeable size", "step": 0.01, "min": 0.01, "max": 100, "want": 0.005, "lot": 0 },
+    { "why": "exactly the minimum is tradeable", "step": 0.01, "min": 0.01, "max": 100, "want": 0.01, "lot": 0.01 },
+    { "why": "a budget that divides exactly must not be floored by float dust", "step": 0.01, "min": 0.01, "max": 100, "want": 10.0, "lot": 10.0 },
+    { "why": "over the broker's maximum, held at the maximum", "step": 0.01, "min": 0.01, "max": 5, "want": 7.5, "lot": 5.0 },
+    { "why": "zero is zero", "step": 0.01, "min": 0.01, "max": 100, "want": 0, "lot": 0 },
+    { "why": "a negative size is not a short, it is nothing", "step": 0.01, "min": 0.01, "max": 100, "want": -2, "lot": 0 },
+
+    { "why": "a 0.001 book: its own minimum lot is tradeable", "step": 0.001, "min": 0.001, "max": 100, "want": 0.001, "lot": 0.001 },
+    { "why": "a 0.001 book: 0.005 stays 0.005 and is not doubled to 0.01", "step": 0.001, "min": 0.001, "max": 100, "want": 0.005, "lot": 0.005 },
+    { "why": "a 0.001 book: the third decimal is not thrown away", "step": 0.001, "min": 0.001, "max": 100, "want": 0.125, "lot": 0.125 },
+    { "why": "a 0.001 book: still floors between steps", "step": 0.001, "min": 0.001, "max": 100, "want": 0.0159, "lot": 0.015 },
+    { "why": "a 0.001 book: under its minimum is still nothing", "step": 0.001, "min": 0.01, "max": 100, "want": 0.005, "lot": 0 },
+
+    { "why": "an index book stepping in whole lots", "step": 1.0, "min": 1.0, "max": 500, "want": 2.5, "lot": 2.0 },
+    { "why": "whole lots: under one lot is nothing", "step": 1.0, "min": 1.0, "max": 500, "want": 0.9, "lot": 0 },
+    { "why": "whole lots: exactly one", "step": 1.0, "min": 1.0, "max": 500, "want": 1.0, "lot": 1.0 },
+
+    { "why": "a tenth-lot book", "step": 0.1, "min": 0.1, "max": 50, "want": 0.75, "lot": 0.7 },
+    { "why": "a quarter-lot book keeps its quarters", "step": 0.25, "min": 0.25, "max": 50, "want": 1.3, "lot": 1.25 },
+    { "why": "a quarter-lot book floors to the quarter below", "step": 0.25, "min": 0.25, "max": 50, "want": 0.9, "lot": 0.75 },
+
+    { "why": "a minimum above the step: 0.01 steps but 0.10 minimum", "step": 0.01, "min": 0.1, "max": 100, "want": 0.07, "lot": 0 },
+    { "why": "...and just over that minimum is fine", "step": 0.01, "min": 0.1, "max": 100, "want": 0.1, "lot": 0.1 },
+    { "why": "a maximum that is not on the step is floored onto it", "step": 0.25, "min": 0.25, "max": 1.6, "want": 5.0, "lot": 1.5 }
+  ]
+}
