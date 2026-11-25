@@ -27,6 +27,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 
+import numpy as np
 import pandas as pd
 
 
@@ -86,19 +87,40 @@ def swings(frame: pd.DataFrame, k: int = 2) -> list[Swing]:
     The last ``k`` bars can never be pivots — their right-hand neighbours do
     not exist yet. That is not a limitation to work around; an unconfirmed
     pivot is exactly the thing that repaints.
+
+    The pivot test is the same comparison it has always been, done to
+    every bar at once rather than one bar at a time.
+
+    The loop this replaces asked numpy for the max and the min of a
+    five-element slice, twice per bar, and numpy's per-call overhead is
+    far larger than the work when the array is that small. Profiling
+    smart_money over 2880 bars of M15 counted 13.3 million ufunc
+    reductions and 41 of 61 seconds inside this one function - it was
+    the single most expensive thing in a replay. A sliding window gives
+    numpy the whole series in two calls instead, which is the shape it
+    is fast at.
+
+    Same comparison, same order, same values: bars are still visited
+    left to right, and a bar that is both a pivot high and a pivot low
+    still yields the high first.
     """
     rows = len(frame)
     if rows < 2 * k + 1 or k < 1:
         return []
     highs = frame["high"].to_numpy()
     lows = frame["low"].to_numpy()
+    width = 2 * k + 1
+    windows = np.lib.stride_tricks.sliding_window_view
+    # Row j of the view is the window centred on bar j + k, so the masks
+    # are offset by k from the bar they describe.
+    high_pivot = highs[k : rows - k] >= windows(highs, width).max(axis=1)
+    low_pivot = lows[k : rows - k] <= windows(lows, width).min(axis=1)
     found: list[Swing] = []
-    for i in range(k, rows - k):
-        window_hi = highs[i - k : i + k + 1]
-        window_lo = lows[i - k : i + k + 1]
-        if highs[i] >= window_hi.max():
+    for j in np.nonzero(high_pivot | low_pivot)[0]:
+        i = int(j) + k
+        if high_pivot[j]:
             found.append(Swing(i, float(highs[i]), "high"))
-        if lows[i] <= window_lo.min():
+        if low_pivot[j]:
             found.append(Swing(i, float(lows[i]), "low"))
     return found
 
