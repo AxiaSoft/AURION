@@ -36,6 +36,9 @@ __all__ = [
     "MONEY_SCOPES",
     "DEFAULT_SCOPE",
     "normalise_scope",
+    "round_money",
+    "auto_risk_pct",
+    "auto_risk_cap",
     "risk_budget",
     "SymbolSpec",
     "StopCap",
@@ -244,6 +247,87 @@ def normalise_scope(scope: Any) -> str:
     """Anything that is not a known scope is the default, not an error."""
     text = str(scope or "").strip().lower()
     return text if text in MONEY_SCOPES else DEFAULT_SCOPE
+
+
+def round_money(value: float, dp: int = 2) -> float:
+    """Round a currency amount half-UP, explicitly.
+
+    Not an implementation detail: the desk previews the same cap the
+    engine computes, so the rounding has to be part of the rule rather
+    than inherited from whichever language is evaluating it. Python's
+    round() is half-to-even and JavaScript's Math.round() is half-up,
+    and they disagree on a cap like 2250 x 0.05% = 1.125 exactly - 1.12
+    against 1.13. Half-up is what a trader reading the percentage
+    expects, so half-up is the rule, written out here once.
+
+    C# will need the same treatment when the native desk lands:
+    Math.Round is half-to-even there too.
+    """
+    x = _f(value)
+    if x == 0.0:
+        return 0.0
+    factor = 10.0 ** dp
+    scaled = x * factor
+    # The epsilon pulls a product that landed a hair under the half -
+    # 1.1249999999999998 for what is arithmetically 1.125 - back onto
+    # it. Without it the rule is "half-up except when binary floating
+    # point says otherwise", which is not a rule anybody can reproduce.
+    nudge = 1e-9 if scaled >= 0 else -1e-9
+    import math
+
+    return math.floor(scaled + 0.5 + nudge) / factor if scaled >= 0 \
+        else math.ceil(scaled - 0.5 + nudge) / factor
+
+
+def auto_risk_pct(typed_pct: Any, min_pct: float, max_pct: float,
+                  prop_pct: Any = 0.0) -> float:
+    """The share of the account one trade may lose, after every ceiling.
+
+    The trader's own number, held between the floor and the ceiling, and
+    then lowered - never raised - by the prop profile's limit when one is
+    armed. A prop rule that says 1% and a desk that says 2% is not a
+    disagreement to average out: the tighter of the two is the only one
+    that keeps both promises.
+
+    Anything unreadable reads as the floor rather than as zero, because
+    zero here does not mean "no risk", it means "no rule".
+    """
+    pct = _f(typed_pct, default=min_pct)
+    pct = max(_f(min_pct), min(_f(max_pct), pct))
+    ceiling = _f(prop_pct)
+    if ceiling > 0:
+        pct = min(pct, ceiling)
+    return pct
+
+
+def auto_risk_cap(equity: Any, typed_pct: Any, min_pct: float, max_pct: float,
+                  prop_pct: Any = 0.0) -> tuple[float, float]:
+    """The automatic money cap: ``(percentage in force, cap in currency)``.
+
+    One rule, evaluated in two languages. The engine applies it to size
+    and stop-cap every ticket; the desk draws a preview of it while the
+    trader is still typing. Those two must agree, so the arithmetic lives
+    here and the engine publishes this function's *inputs* - the floor,
+    the ceiling and the prop ceiling - for the desk to run it over.
+
+    It used to be reproduced on the desk from ``risk_pct_effective``, the
+    already-resolved answer for the *saved* percentage, used as though it
+    were a ceiling on the percentage being typed. It is not a ceiling, it
+    is an answer, so the preview sat frozen at the saved value: 1% saved
+    on a 10,000 account previewed a 100 cap no matter what was typed,
+    while the engine would go on to apply 300 for 3%.
+
+    The shared cases are in tests/fixtures/auto-risk-cap.json and are run
+    from both sides. Adding a case there is how this rule changes.
+    """
+    pct = auto_risk_pct(typed_pct, min_pct, max_pct, prop_pct)
+    eq = _f(equity)
+    if not eq > 0:
+        # No equity to size against is not a negative cap and not a
+        # fallback: it is zero here, and the caller decides whether to
+        # hold the last good one. See Trader._cap.
+        return pct, 0.0
+    return pct, max(0.0, round_money(eq * pct / 100.0))
 
 
 def risk_budget(max_loss_per_lot: float, volume: float,

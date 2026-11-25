@@ -19,6 +19,8 @@ from .risk import (
     MONEY_SCOPES,
     REFERENCE_LOT,
     SymbolSpec,
+    auto_risk_cap,
+    auto_risk_pct,
     cap_stop,
     money_at_risk,
     normalise_scope,
@@ -1534,25 +1536,31 @@ class Trader:
     def _auto_risk_pct(self) -> float:
         """The share of the account one trade may lose, after every ceiling.
 
-        The trader's own number, held between 0.05% and 10%, and then
-        lowered - never raised - by the prop profile's max risk per
-        trade when one is armed. A prop rule that says 1% and a desk
-        that says 2% is not a disagreement to average out: the tighter
-        of the two is the only one that keeps both promises.
+        The arithmetic itself is risk.auto_risk_pct, not a copy of it
+        here: the desk previews this same number while the trader is
+        typing, so there has to be exactly one implementation for the
+        shared cases in tests/fixtures/auto-risk-cap.json to pin.
         """
+        return auto_risk_pct(
+            getattr(self, "money_risk_pct", 1.0),
+            self.AUTO_RISK_MIN_PCT,
+            self.AUTO_RISK_MAX_PCT,
+            self._prop_risk_ceiling(),
+        )
+
+    def _prop_risk_ceiling(self) -> float:
+        """The prop profile's max risk per trade, or 0 when none is armed.
+
+        Published to the desk as well as used here - a preview cannot be
+        correct unless it knows about the ceiling that will be applied to
+        what is being typed.
+        """
+        if not getattr(self.prop, "enabled", False):
+            return 0.0
         try:
-            pct = float(getattr(self, "money_risk_pct", 1.0) or 0.0)
+            return max(0.0, float((self.prop.profile or {}).get("max_risk_per_trade_pct") or 0))
         except (TypeError, ValueError):
-            pct = 1.0
-        pct = max(self.AUTO_RISK_MIN_PCT, min(self.AUTO_RISK_MAX_PCT, pct))
-        if getattr(self.prop, "enabled", False):
-            try:
-                prop_pct = float((self.prop.profile or {}).get("max_risk_per_trade_pct") or 0)
-            except (TypeError, ValueError):
-                prop_pct = 0.0
-            if prop_pct > 0:
-                pct = min(pct, prop_pct)
-        return pct
+            return 0.0
 
     def _cap(self) -> float:
         """The most one trade may lose, in account currency.
@@ -1575,7 +1583,13 @@ class Trader:
         if str(getattr(self, "money_mode", "fixed")) == "auto":
             equity = self._equity_now()
             if equity > 0:
-                cap = round(equity * self._auto_risk_pct() / 100.0, 2)
+                _, cap = auto_risk_cap(
+                    equity,
+                    getattr(self, "money_risk_pct", 1.0),
+                    self.AUTO_RISK_MIN_PCT,
+                    self.AUTO_RISK_MAX_PCT,
+                    self._prop_risk_ceiling(),
+                )
                 if cap > 0:
                     self._auto_cap_last = cap
                     return cap
@@ -2317,6 +2331,15 @@ class Trader:
             "mode": mode,
             "risk_pct": float(getattr(self, "money_risk_pct", 1.0) or 0.0),
             "risk_pct_effective": self._auto_risk_pct(),
+            # The rule's INPUTS, not just its answer. risk_pct_effective
+            # resolves the SAVED percentage; the desk also has to show
+            # what a percentage being typed would do, and it cannot do
+            # that without the bounds that will be applied to it. When
+            # it tried, by reusing risk_pct_effective as a ceiling, the
+            # preview froze at the saved value.
+            "risk_pct_min": self.AUTO_RISK_MIN_PCT,
+            "risk_pct_max": self.AUTO_RISK_MAX_PCT,
+            "risk_pct_cap": self._prop_risk_ceiling(),
             "equity": equity,
             "auto_held": bool(mode == "auto" and equity <= 0 and cap > 0),
             "scope": scope,

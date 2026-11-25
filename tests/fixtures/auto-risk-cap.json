@@ -1,0 +1,123 @@
+{
+  "_comment": [
+    "The automatic money cap, as ONE rule, pinned from both languages.",
+    "",
+    "In automatic mode the trader states a percentage of the account and the",
+    "engine turns it into a currency cap for the next ticket:",
+    "",
+    "    pct = clamp(typed, risk_pct_min, risk_pct_max)",
+    "    pct = min(pct, risk_pct_cap)        # only when a prop ceiling is armed",
+    "    cap = round_half_up(equity * pct / 100, 2)",
+    "",
+    "The desk draws a preview of this while the trader is still typing, so the",
+    "rule is evaluated in two languages and the two must not drift. Python:",
+    "aurion.runtime.risk.auto_risk_cap. JavaScript: autoRiskCap in app.js.",
+    "",
+    "WHY THIS FILE EXISTS. The desk used to reuse risk_pct_effective - the",
+    "already-resolved answer for the SAVED percentage - as if it were a",
+    "ceiling on the percentage being typed. It is not a ceiling, it is an",
+    "answer, so the preview was frozen at the saved value: on 10,000 equity",
+    "with 1% saved, typing 3% still previewed 100 while the engine would",
+    "apply 300. Wrong in every case where a preview is worth drawing.",
+    "The engine now publishes the rule's INPUTS (min, max, prop ceiling) and",
+    "both sides run the same arithmetic over them.",
+    "",
+    "ROUNDING IS PART OF THE RULE, not a detail of the host language.",
+    "Python's round() is half-to-even and JavaScript's Math.round() is",
+    "half-up, so they disagree by a cent on a cap like 2250 x 0.05% = 1.125.",
+    "Half-up is what a trader reading the percentage expects, so half-up is",
+    "the rule and both sides implement it explicitly. C# will have to as",
+    "well - Math.Round is half-to-even there too.",
+    "",
+    "Adding a case here is how the rule changes, and it must then pass on",
+    "both sides."
+  ],
+  "defaults": { "risk_pct_min": 0.05, "risk_pct_max": 10.0 },
+  "cases": [
+    {
+      "why": "the plain case: 1% of a 10,000 account",
+      "equity": 10000, "typed": 1.0, "prop": 0,
+      "pct": 1.0, "cap": 100.0
+    },
+    {
+      "why": "typing a bigger number must move the preview - this is the bug",
+      "equity": 10000, "typed": 3.0, "prop": 0,
+      "pct": 3.0, "cap": 300.0
+    },
+    {
+      "why": "typing a smaller number must move it too",
+      "equity": 10000, "typed": 0.5, "prop": 0,
+      "pct": 0.5, "cap": 50.0
+    },
+    {
+      "why": "above the ceiling the engine holds at the maximum, not at what was typed",
+      "equity": 10000, "typed": 50.0, "prop": 0,
+      "pct": 10.0, "cap": 1000.0
+    },
+    {
+      "why": "below the floor it is lifted to the minimum, so the preview must lift too",
+      "equity": 10000, "typed": 0.01, "prop": 0,
+      "pct": 0.05, "cap": 5.0
+    },
+    {
+      "why": "exactly on the floor",
+      "equity": 10000, "typed": 0.05, "prop": 0,
+      "pct": 0.05, "cap": 5.0
+    },
+    {
+      "why": "exactly on the ceiling",
+      "equity": 10000, "typed": 10.0, "prop": 0,
+      "pct": 10.0, "cap": 1000.0
+    },
+    {
+      "why": "a prop ceiling lowers the percentage",
+      "equity": 10000, "typed": 5.0, "prop": 1.0,
+      "pct": 1.0, "cap": 100.0
+    },
+    {
+      "why": "a prop ceiling never RAISES it - the tighter of the two wins",
+      "equity": 10000, "typed": 0.5, "prop": 1.0,
+      "pct": 0.5, "cap": 50.0
+    },
+    {
+      "why": "the real FTMO-style 0.40% ceiling against a desk asking for 2%",
+      "equity": 25000, "typed": 2.0, "prop": 0.4,
+      "pct": 0.4, "cap": 100.0
+    },
+    {
+      "why": "both ceilings at once - the maximum first, then the prop one",
+      "equity": 10000, "typed": 99.0, "prop": 0.75,
+      "pct": 0.75, "cap": 75.0
+    },
+    {
+      "why": "half-up at the half-cent: half-to-even would answer 1.12",
+      "equity": 2250, "typed": 0.05, "prop": 0,
+      "pct": 0.05, "cap": 1.13
+    },
+    {
+      "why": "an ordinary fractional cap, rounded to the cent",
+      "equity": 12345, "typed": 0.37, "prop": 0,
+      "pct": 0.37, "cap": 45.68
+    },
+    {
+      "why": "no equity reported yet - the rule has nothing to size against",
+      "equity": 0, "typed": 1.0, "prop": 0,
+      "pct": 1.0, "cap": 0.0
+    },
+    {
+      "why": "a negative equity is not a negative cap",
+      "equity": -500, "typed": 1.0, "prop": 0,
+      "pct": 1.0, "cap": 0.0
+    },
+    {
+      "why": "nothing typed yet reads as the floor, never as no rule at all",
+      "equity": 10000, "typed": 0, "prop": 0,
+      "pct": 0.05, "cap": 5.0
+    },
+    {
+      "why": "a small account still gets a cent-accurate cap",
+      "equity": 137.5, "typed": 1.0, "prop": 0,
+      "pct": 1.0, "cap": 1.38
+    }
+  ]
+}

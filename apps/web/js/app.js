@@ -7544,6 +7544,68 @@ function moneyRefLot(money) {
  * Unknown reads as "trade". A desk that cannot tell which rule the
  * engine is applying must not draw the one that understates risk.
  */
+/**
+ * Round a currency amount half-up, explicitly.
+ *
+ * Math.round is already half-up, but it is half-up on a binary float:
+ * what is arithmetically 1.125 can arrive as 1.1249999999999998 and
+ * round down. The engine's round_money carries the same nudge, because
+ * the two have to answer the same thing on the same inputs.
+ */
+function roundMoney(value, dp = 2) {
+  const x = Number(value) || 0;
+  if (!x) return 0;
+  const factor = 10 ** dp;
+  const scaled = x * factor;
+  const nudge = scaled >= 0 ? 1e-9 : -1e-9;
+  return (scaled >= 0
+    ? Math.floor(scaled + 0.5 + nudge)
+    : Math.ceil(scaled - 0.5 + nudge)) / factor;
+}
+
+/**
+ * The share of the account one trade may lose, after every ceiling.
+ *
+ * Mirrors the engine's risk.auto_risk_pct. The bounds are not constants
+ * here - they are published by the engine in the money snapshot
+ * (risk_pct_min / risk_pct_max / risk_pct_cap), so a change to the rule
+ * does not need a matching edit in the browser.
+ */
+function autoRiskPct(typedPct, bounds) {
+  const b = bounds || {};
+  const lo = Number(b.risk_pct_min);
+  const hi = Number(b.risk_pct_max);
+  const min = Number.isFinite(lo) ? lo : 0.05;
+  const max = Number.isFinite(hi) ? hi : 10;
+  let pct = Number(typedPct);
+  if (!Number.isFinite(pct)) pct = min;
+  pct = Math.max(min, Math.min(max, pct));
+  const ceiling = Number(b.risk_pct_cap) || 0;
+  return ceiling > 0 ? Math.min(pct, ceiling) : pct;
+}
+
+/**
+ * The automatic cap: what the engine WILL do with the percentage being
+ * typed, not what it did with the one last saved.
+ *
+ * One rule in two languages, pinned by tests/fixtures/auto-risk-cap.json
+ * against the engine's risk.auto_risk_cap.
+ *
+ * The previous version of this reused `risk_pct_effective` - the engine's
+ * resolved answer for the SAVED percentage - as if it were a ceiling on
+ * what was being typed. It is an answer, not a ceiling, so the preview
+ * was frozen: on a 10,000 account with 1% saved, typing 3% still drew a
+ * 100 cap while the engine would go on to apply 300. It understated the
+ * cap in every case where the two numbers differed - which is every case
+ * where a preview is worth drawing at all.
+ */
+function autoRiskCap(equity, typedPct, bounds) {
+  const pct = autoRiskPct(typedPct, bounds);
+  const eq = Number(equity) || 0;
+  if (!(eq > 0)) return { pct, cap: 0 };
+  return { pct, cap: Math.max(0, roundMoney(eq * pct / 100)) };
+}
+
 function moneyMode(money) {
   return String((money || {}).mode || "").toLowerCase() === "auto" ? "auto" : "fixed";
 }
@@ -7626,20 +7688,22 @@ function liveMoney(saved) {
     ...(saved || {}),
   };
   if (mode && mode.dataset.mmode === "auto") {
-    // Preview the automatic cap from the field being typed in, the
-    // same arithmetic the engine does, so the sentence under the box
-    // answers "what would this do" before anything is saved.
+    // Preview the automatic cap from the field being typed in, through
+    // the shared rule, so the sentence under the box answers "what
+    // would this do" before anything is saved.
     const pct = Number($("st-money-pct")?.value || 0);
     const equity = Number(base.equity || 0);
-    const live = base.risk_pct_effective != null && Number(base.risk_pct_effective) < pct
-      ? Number(base.risk_pct_effective) : pct;
+    const { pct: live, cap } = autoRiskCap(equity, pct, base);
     return {
       ...base,
       mode: "auto",
       scope: "trade",
       risk_pct: pct,
       risk_pct_effective: live,
-      max_loss_per_lot: equity > 0 ? Math.round(equity * live) / 100 : Number(base.max_loss_per_lot || 0),
+      // With no equity reported the rule has nothing to size against,
+      // and the engine holds the last cap it computed rather than
+      // dropping to zero. The preview says the same thing.
+      max_loss_per_lot: equity > 0 ? cap : Number(base.max_loss_per_lot || 0),
     };
   }
   return {
