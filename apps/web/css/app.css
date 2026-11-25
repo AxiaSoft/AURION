@@ -5005,6 +5005,15 @@ html[dir="rtl"] .ct-lab{letter-spacing:0;text-transform:none;font-size:12px}
 .ct-risk .ct-risk-sl b{color:var(--rose);opacity:.75}
 .ct-risk .ct-risk-tp b{color:var(--cyan);opacity:.75}
 .ct-risk .ct-risk-none{white-space:normal;color:var(--faint)}
+/* A stop the broker will refuse. Not --faint like "cannot price this":
+   that one is an absence of information, this one is a ticket that will
+   come back rejected, and it has to carry the weight of a warning
+   rather than sit quietly under the numbers. Full width, so it wraps
+   onto its own line instead of fighting the money for space. */
+.ct-risk .ct-risk-warn{
+  flex-basis:100%;white-space:normal;
+  color:var(--amber, #d8a657);font-weight:600;
+}
 /* The figures read left-to-right in every language: "250 points" is a
    quantity, and mirroring it puts the unit before the number. */
 html[dir="rtl"] .ct-risk span{direction:rtl}

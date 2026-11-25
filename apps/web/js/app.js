@@ -6220,6 +6220,21 @@ function paintTicketRisk() {
   if (slR && tpR && slR.money > 0) {
     parts.push(`<span class="ct-risk-rr"><b>${esc(I18N.t("signal.rr"))}</b> ${esc(fmtNum(tpR.money / slR.money, 2))}</span>`);
   }
+  /* A stop closer to the price than the broker accepts is not a tight
+     stop - it is the whole order refused, with no stop and no position.
+     The engine already declines to CREATE one inside that floor; this
+     is the trader's own stop, typed by hand, and the desk is the only
+     place that can say so before the order is sent rather than after
+     the broker has rejected it. The money is still shown: it is true,
+     and the warning is about whether the ticket is sendable at all. */
+  const floor = Number((specFor(symbol) || {}).min_stop_distance) || 0;
+  if (sl && slR && floor > 0 && Math.abs(from - sl) < floor) {
+    const tickSize = Number((specFor(symbol) || {}).tick_size) || 0;
+    parts.push(`<span class="ct-risk-warn">${esc(I18N.t("exec.risk_stop_too_close", {
+      points: fmtNum(Math.round(slR.points), 0),
+      min: fmtNum(tickSize > 0 ? Math.round(floor / tickSize) : 0, 0),
+    }))}</span>`);
+  }
   host.innerHTML = parts.join("");
 }
 

@@ -81,6 +81,11 @@ class SymbolSpec:
     volume_max: float = 100.0
     contract_size: float = 0.0
     currency: str = ""
+    # The broker's own minimum distance for a stop, in points, and the
+    # size of a point. Kept apart from tick_size because stops_level is
+    # quoted in points and the two are not always the same number.
+    point: float = 0.0
+    stops_level: float = 0.0
 
     @classmethod
     def from_info(cls, info: dict[str, Any] | None, symbol: str = "") -> "SymbolSpec":
@@ -132,12 +137,35 @@ class SymbolSpec:
             volume_max=pick("volume_max", "max_lot", default=100.0),
             contract_size=pick("trade_contract_size", "contract_size"),
             currency=str(info.get("currency_profit") or info.get("currency") or ""),
+            point=pick("point", "trade_tick_size", "tick_size"),
+            stops_level=pick("trade_stops_level", "stops_level"),
         )
 
     @property
     def usable(self) -> bool:
         """True when a price distance can be turned into money."""
         return self.tick_size > 0 and self.tick_value > 0
+
+    @property
+    def min_stop_distance(self) -> float:
+        """Closest to the market the broker will accept a stop, in price.
+
+        SYMBOL_TRADE_STOPS_LEVEL, converted from points. A stop inside
+        it is not a tight stop - it is TRADE_RETCODE_INVALID_STOPS, the
+        whole order refused, which the trader meets as an opaque
+        rejection with no stop and no position.
+
+        The expert has been sending this number since the spec message
+        was written and nothing read it. The one floor that was being
+        enforced was the live spread, which is a different and usually
+        smaller number: a broker quoting EURUSD at 0.2 points of spread
+        can still demand 20 points of stop distance.
+
+        0 when the broker does not restrict it, which is common on ECN
+        books and means exactly what it says.
+        """
+        step = self.point if self.point > 0 else self.tick_size
+        return max(0.0, self.stops_level * step)
 
     def money(self, distance: float, volume: float = 1.0) -> float:
         """What ``distance`` price units cost at ``volume`` lots."""
@@ -403,6 +431,12 @@ def protective_stop(
     and the cap is the only number in the system that knows how far is
     too far. Returns 0 when it cannot be computed, and the caller must
     then refuse to improvise.
+
+    It also returns 0 when the cap would place the stop closer than the
+    broker accepts (SYMBOL_TRADE_STOPS_LEVEL). That is not a stop the
+    trader can have: sending it gets the whole order refused, with no
+    stop and no position, which is a worse outcome than being told the
+    cap and the instrument do not fit each other.
     """
     entry = _f(entry)
     cap = _f(max_loss_per_lot)
@@ -413,6 +447,8 @@ def protective_stop(
     budget = risk_budget(cap, volume, scope)
     distance = spec.floor_to_tick(spec.distance_for(budget, volume))
     if distance <= 0:
+        return 0.0
+    if distance < spec.min_stop_distance:
         return 0.0
     return spec.round_price(entry - distance if side == "buy" else entry + distance)
 
@@ -434,7 +470,12 @@ def cap_stop(
     up" the allowance would be the opposite of what it is for.
 
     Returns None when the question cannot be answered — no spec, no cap,
-    no entry — so the caller can say so instead of pretending.
+    no entry — so the caller can say so instead of pretending, and also
+    when the cap is tighter than the broker's own minimum stop distance.
+    Tightening past SYMBOL_TRADE_STOPS_LEVEL does not produce a cheap
+    stop, it produces TRADE_RETCODE_INVALID_STOPS and no trade at all;
+    that conflict belongs to the caller to explain, not to this function
+    to paper over.
     """
     entry, sl = _f(entry), _f(sl)
     cap = _f(max_loss_per_lot)
@@ -446,6 +487,11 @@ def cap_stop(
     budget = risk_budget(cap, volume, scope)
     limit = spec.floor_to_tick(spec.distance_for(budget, volume))
     if limit <= 0:
+        return None
+    # The cap buys this much distance; the broker will not accept less
+    # than that. When the two disagree there is no legal stop at this
+    # cap, and saying so is the only honest answer.
+    if limit < spec.min_stop_distance:
         return None
 
     if sl <= 0:

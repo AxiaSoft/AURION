@@ -117,13 +117,36 @@ console.log("\n— the ticket actually uses it ------------------------------");
 }
 
 {
-  /* The new string has to exist everywhere, like every other one. */
+  /* The new strings have to exist everywhere, like every other one. */
   for (const lang of ["en", "fa", "ar"]) {
     const pack = JSON.parse(fs.readFileSync(path.join(ROOT, "lang", lang + ".json"), "utf8"));
-    ok(typeof (pack.exec || {}).risk_no_side === "string"
-      && pack.exec.risk_no_side.length > 10,
-      `${lang}: exec.risk_no_side is written`);
+    for (const key of ["risk_no_side", "risk_stop_too_close"]) {
+      ok(typeof (pack.exec || {})[key] === "string" && pack.exec[key].length > 10,
+        `${lang}: exec.${key} is written`);
+    }
+    ok(/\{points\}/.test(pack.exec.risk_stop_too_close)
+      && /\{min\}/.test(pack.exec.risk_stop_too_close),
+      `${lang}: the too-close warning names both distances`);
   }
+}
+
+console.log("\n— a stop the broker will refuse is named -------------------");
+
+{
+  const fn = liftFn("paintTicketRisk");
+  ok(/min_stop_distance/.test(fn),
+    "the ticket knows the broker's minimum stop distance");
+  ok(/risk_stop_too_close/.test(fn),
+    "and says so before the order is sent, not after it is rejected");
+  /* The money stays on screen: it is true, and the warning is about
+     whether the ticket can be sent at all, not about the arithmetic. */
+  const at = fn.indexOf("risk_stop_too_close");
+  ok(fn.indexOf("ct-risk-sl") < at,
+    "the warning is added beside the money rather than replacing it");
+
+  const css = fs.readFileSync(path.join(ROOT, "apps/web/css/app.css"), "utf8");
+  ok(/\.ct-risk-warn\{/.test(css.replace(/\s+/g, "")) || /ct-risk-warn/.test(css),
+    "the warning has a style of its own, not the faint one used for absences");
 }
 
 console.log(`\n${ok_} ok, ${bad} failed`);

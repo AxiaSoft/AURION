@@ -1825,17 +1825,26 @@ class Trader:
                 # A stop inside the current spread is not a stop, it is an
                 # instant exit wearing one. Tightening is only a rescue
                 # while the result is still a trade, so the spread - the
-                # one cost that is visible at this instant - is the floor.
+                # one cost that is visible at this instant - is a floor.
                 # No quote means no measurement, and an unmeasured floor
                 # does not get to refuse anything.
-                if fitted is not None:
-                    quote = self.tick_of(symbol)
-                    try:
-                        spread = float(quote.get("ask") or 0) - float(quote.get("bid") or 0)
-                    except (TypeError, ValueError):
-                        spread = 0.0
-                    if spread > 0 and fitted.distance < spread:
-                        fitted = None
+                #
+                # The spread is not the ONLY floor, and for a long time
+                # it was the only one checked. The broker also declares
+                # a minimum stop distance, and it is frequently the
+                # larger of the two - a book quoting EURUSD at 0.2
+                # points of spread can still demand 20 points of stop.
+                # A stop inside it is not a tight stop, it is the whole
+                # order refused with TRADE_RETCODE_INVALID_STOPS.
+                quote = self.tick_of(symbol)
+                try:
+                    spread = float(quote.get("ask") or 0) - float(quote.get("bid") or 0)
+                except (TypeError, ValueError):
+                    spread = 0.0
+                spread = max(0.0, spread)
+                floor = max(spread, spec.min_stop_distance)
+                if fitted is not None and floor > 0 and fitted.distance < floor:
+                    fitted = None
                 if fitted is not None and fitted.sl > 0:
                     before = float(request.get("sl") or 0)
                     request["volume"] = smallest
@@ -1860,11 +1869,22 @@ class Trader:
                     # a sentence about lot sizes.
                     per_min = money_at_risk(side, entry, float(request.get("sl") or 0),
                                             smallest or spec.volume_min, spec)
+                    # Name the floor that actually bound. "Inside the
+                    # spread" was the only wording there was, and it was
+                    # simply wrong whenever the broker's declared
+                    # minimum stop distance was the larger of the two -
+                    # which sent the trader looking at a spread that was
+                    # not the problem.
+                    blocked_by = (
+                        "closer to the price than this broker accepts a stop"
+                        if spec.min_stop_distance >= spread and spec.min_stop_distance > 0
+                        else "inside the spread"
+                    )
                     why = (
                         f"{symbol}: this account allows {budget:.2f} on one trade, but the "
                         f"smallest lot the broker takes ({(smallest or spec.volume_min):g}) "
                         f"risks {per_min:.2f} with this stop, and pulling the stop in far "
-                        f"enough would put it inside the spread. Raise the risk-per-trade "
+                        f"enough would put it {blocked_by}. Raise the risk-per-trade "
                         f"percentage in Prop, or trade an instrument whose minimum lot fits."
                     )
                     self.last_money_block = {
@@ -2420,6 +2440,11 @@ class Trader:
                 # size the engine will silently bring back down.
                 "volume_max": spec.volume_max,
                 "contract_size": spec.contract_size,
+                # Already resolved into price, so the desk never has to
+                # work out whether stops_level was quoted in points or
+                # in ticks. The same principle as tick_value: publish
+                # the answer, not the raw fields and the choice.
+                "min_stop_distance": spec.min_stop_distance,
             }
         return out
 
