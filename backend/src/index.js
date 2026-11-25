@@ -72,6 +72,68 @@ try {
 const app = express();
 app.disable("x-powered-by");
 
+/* Make a router forward a rejected promise to the error handler.
+ *
+ * Express 4 calls a route handler and ignores what it returns. For a
+ * synchronous handler that is fine - a throw unwinds into Express's own
+ * try/catch and becomes a 500. For an `async` handler it is not: the
+ * throw becomes a rejected promise that Express never looks at, so
+ *
+ *   - the request is never answered and the desk waits forever, and
+ *   - Node sees an unhandled rejection, and since Node 15 the default
+ *     for that is to PRINT THE STACK AND EXIT.
+ *
+ * The second one is the serious half. This process serves index.html,
+ * every /api route and the websocket, so one `undefined` dereferenced
+ * in one handler does not fail one request - it takes the entire desk
+ * down, mid-session, with every in-flight order request dropped. There
+ * are twenty async handlers here and nineteen of them do their argument
+ * checking before they reach their try/catch.
+ *
+ * So the promise is given somewhere to land. Handlers keep their own
+ * try/catch and their own error shapes; this only catches what they
+ * did not.
+ *
+ * Only functions are touched, which leaves `app.get("port")` (Express's
+ * settings getter) and `app.use(router)` working as before, and 4-arity
+ * functions are left alone because those are error handlers, whose
+ * signature Express detects by length.
+ */
+function forwardAsyncErrors(target) {
+  const wrap = (fn) => {
+    if (typeof fn !== "function" || fn.length === 4) return fn;
+    const wrapped = function (req, res, next) {
+      let out;
+      try {
+        out = fn.apply(this, arguments);
+      } catch (err) {
+        next(err);
+        return undefined;
+      }
+      if (out && typeof out.then === "function") {
+        // `next` is only called on rejection; a handler that resolves
+        // has already answered, and calling next() there would run the
+        // 404 after it.
+        Promise.resolve(out).catch(next);
+      }
+      return out;
+    };
+    // Express reads .length to tell a handler from an error handler, and
+    // a wrapper is always 3, which is what a plain handler should be.
+    Object.defineProperty(wrapped, "name", { value: fn.name || "handler" });
+    return wrapped;
+  };
+  for (const verb of ["use", "all", "get", "post", "put", "patch", "delete", "head", "options"]) {
+    const original = target[verb];
+    if (typeof original !== "function") continue;
+    target[verb] = function (...args) {
+      return original.apply(this, args.map(wrap));
+    };
+  }
+  return target;
+}
+forwardAsyncErrors(app);
+
 // ---------------------------------------------------------------------------
 // Deployment overrides.
 //
@@ -710,6 +772,9 @@ function passthrough(method, enginePath) {
 }
 
 const guarded = express.Router();
+// Same reason as the app itself - see forwardAsyncErrors. Most of the
+// async handlers in this file hang off this router.
+forwardAsyncErrors(guarded);
 guarded.use(auth.middleware);
 guarded.use((req, res, next) => {
   if (req.method === "GET" || req.method === "HEAD" || req.method === "OPTIONS") return next();
@@ -1322,6 +1387,73 @@ app.get("*", (req, res, next) => {
   if (req.path.startsWith("/api") || req.path.startsWith("/ws")) return next();
   res.sendFile(path.join(WEB, "index.html"));
 });
+
+/* The last word on a request that went wrong.
+ *
+ * Registered after every route, with four arguments, which is how
+ * Express recognises an error handler. Anything a handler threw - or,
+ * via forwardAsyncErrors above, anything an async handler rejected with
+ * - arrives here instead of killing the process or hanging the desk.
+ *
+ * The body is the shape the desk's fetch wrapper already understands,
+ * so an unexpected failure reads as a failure rather than as
+ * "bad_response". The message is included because this server is run by
+ * the same person who would be reading the log, on their own machine;
+ * there is no third party to leak it to.
+ */
+app.use((err, req, res, _next) => {
+  const ts = new Date().toISOString();
+  try {
+    console.error(JSON.stringify({
+      ts,
+      msg: `unhandled error in ${req.method} ${req.originalUrl}`,
+      error: String((err && err.stack) || err),
+    }));
+  } catch { /* logging must not throw here of all places */ }
+  if (res.headersSent) {
+    // Something was already sent, so the only honest thing left is to
+    // stop writing. Leaving the socket open would hang the desk.
+    try { res.end(); } catch { /* already gone */ }
+    return;
+  }
+  res.status(500).json({
+    ok: false,
+    code: "server_error",
+    error: String((err && err.message) || err || "server error"),
+  });
+});
+
+/* A desk that is still up is worth more than a clean exit.
+ *
+ * These are the two ways Node ends a process on its own. Everything
+ * above is meant to stop either from firing - the error handler catches
+ * what routes throw - but the websocket handlers, the engine
+ * supervisor, the updater and every timer in this file live outside
+ * Express and have no such net under them.
+ *
+ * The default behaviour for both is to exit. For a server whose death
+ * blanks the trader's screen while positions are open, that is the
+ * wrong trade: a logged fault with the desk still serving is strictly
+ * better than a silent process that is simply gone. The log line is
+ * what makes the fault findable afterwards.
+ *
+ * uncaughtException is deliberately NOT turned into a clean shutdown.
+ * Node's own guidance is that state may be inconsistent after one, and
+ * that is true - but the state most likely to be inconsistent here is
+ * one request's, while the state certainly lost by exiting is the
+ * trader's whole session.
+ */
+for (const signal of ["unhandledRejection", "uncaughtException"]) {
+  process.on(signal, (err) => {
+    try {
+      console.error(JSON.stringify({
+        ts: new Date().toISOString(),
+        msg: `${signal} - the desk is staying up; this is a bug, please report it`,
+        error: String((err && err.stack) || err),
+      }));
+    } catch { /* nothing left to do */ }
+  });
+}
 
 const server = http.createServer(app);
 const wss = new WebSocketServer({ server, path: "/ws" });

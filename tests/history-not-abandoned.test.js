@@ -168,7 +168,12 @@ check("history is streamed fast enough to beat the engine's patience", () => {
 
 check("the retry waits, and the wait widens", () => {
   const body = mqlFn("PumpHistory");
-  if (!/GetTickCount\(\) < g_hist_next/.test(body)) throw new Error("nothing honours the backoff");
+  /* GetTickCount64, not GetTickCount: the 32-bit clock wraps every
+     49.7 days and this comparison is absolute, so on the old call a
+     wrap could park the history pump for seven weeks. See 1.30 in
+     tests/calendar-backtest-and-kill.test.js. The backoff itself is
+     unchanged, which is what this line is here to check. */
+  if (!/GetTickCount64\(\) < g_hist_next/.test(body)) throw new Error("nothing honours the backoff");
   if (!/250 \* g_hist_tries/.test(body)) throw new Error("the delay does not grow with the attempt");
   if (!/wait > 3000/.test(body)) throw new Error("the delay is unbounded");
   /* A retry that never nudges the terminal can wait for a download

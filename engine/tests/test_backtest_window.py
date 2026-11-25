@@ -36,7 +36,7 @@ from aurion.strategy.builtin.atr_breakout import ATRBreakout
 from aurion.strategy.builtin.ema_rsi import EmaRsi
 from aurion.strategy.builtin.price_action import PriceAction
 from aurion.strategy.builtin.smart_money import SmartMoney
-from aurion.util.history import HISTORY_DAYS, bars_for_days
+from aurion.util.history import bars_for_days
 
 WINDOWED = [EmaRsi, PriceAction, ATRBreakout]
 
@@ -89,10 +89,35 @@ def run_with(strategy_cls, bars: list[dict], timeframe: str, window: int) -> dic
 def test_declared_window_does_not_change_the_result(strategy_cls) -> None:
     """The window is a speed change. Prove it is only a speed change.
 
-    M15 rather than M1 because the point is the equality, not the clock,
-    and 2880 bars is the real thirty-day window on that timeframe.
+    M15 rather than M1 because the point is the equality, not the clock.
+
+    The length is pinned to thirty days - 2880 bars - and NOT to
+    ``bars_for_days("M15")``, which is the product promise and is now a
+    hundred and eighty days. That distinction cost this file its ability
+    to run at all.
+
+    When HISTORY_DAYS went from 30 to 180 every caller of
+    ``bars_for_days`` followed it, including this one, because it looked
+    like the line that keeps the test honest about the real window. It
+    is not: the uncapped replay is quadratic by design - that is the
+    whole thing being measured - so six times the bars is thirty-six
+    times the work. The run went from about fifteen seconds to three and
+    a half minutes per strategy, and the file as a whole from under a
+    minute to roughly twenty. The suite was still green and nobody
+    waited for it; `pytest` on the engine simply appeared to hang at
+    seventeen per cent.
+
+    Thirty days of M15 proves exactly what the comparison needs proved -
+    the declared window is 1500 bars and 2880 is comfortably past it, so
+    the cap genuinely bites - and it proves it in seconds. The sibling
+    file test_live_speed_and_partials.py pins the same figure the same
+    way, and for the same reason.
+
+    What the promise is remains asserted, in
+    test_the_window_is_longer_than_anything_the_strategy_asks_for and in
+    test_chart_load_is_bounded.py, neither of which replays anything.
     """
-    bars = synth(bars_for_days("M15"), 15)
+    bars = synth(bars_for_days("M15", 30), 15)
     declared = int(strategy_cls.history_window)
     assert declared > 0, f"{strategy_cls.name} is expected to declare a window"
     assert declared < len(bars), "a window longer than the run would prove nothing"
@@ -102,7 +127,7 @@ def test_declared_window_does_not_change_the_result(strategy_cls) -> None:
 
     assert fingerprint(capped) == fingerprint(full), (
         f"{strategy_cls.name}: the declared window of {declared} bars changes the result over "
-        f"{HISTORY_DAYS} days of M15 - it is too short for what this strategy reads"
+        "30 days of M15 - it is too short for what this strategy reads"
     )
     assert capped["metrics"].get("trades"), "a run with no trades at all cannot prove anything"
 
