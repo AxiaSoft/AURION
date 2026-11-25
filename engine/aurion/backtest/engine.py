@@ -9,7 +9,7 @@ from pathlib import Path
 from typing import Any
 
 from ..ai.engine import AIEngine
-from ..ai.features import build_feature_frame
+from ..ai.features import FramedWindow, build_feature_frame, candles_to_frame
 from ..ai.models import LiveModels
 from ..runtime.sizing import auto_lot
 from ..runtime.stops import resolve_stop_r
@@ -384,6 +384,24 @@ class Backtester:
     ) -> dict[str, Any]:
         """The bar loop itself. Split out only so run() can clean up after it."""
         feats = self._precompute_features(bars)
+        # The strategies' own frame, hoisted the same way and for the
+        # same reason as the AI's above. See FramedWindow: every builtin
+        # opens its bar with candles_to_frame(ctx.candles), and rebuilding
+        # that from dicts once per bar was 42% of a replay.
+        #
+        # The shortcut is only offered when the frame has exactly one row
+        # per bar. candles_to_frame drops rows whose OHLC will not parse,
+        # and a single dropped row shifts every position after it, so a
+        # window addressed by position would then be quietly wrong -
+        # reading the wrong bars rather than failing. Series with bad
+        # rows in them simply keep the old path.
+        shared = None
+        try:
+            built = candles_to_frame(bars)
+            if len(built) == len(bars) and not built.empty:
+                shared = built
+        except Exception:
+            shared = None       # never let an optimisation break a run
         # What the strategy says it reads. 0 (the default) means the
         # whole run, which is how this always behaved.
         try:
@@ -461,7 +479,8 @@ class Backtester:
                         progress = None
                 except Exception:
                     progress = None         # a broken reporter must not stop the run
-            window = bars[max(0, i + 1 - span): i + 1] if span else bars[: i + 1]
+            lo = max(0, i + 1 - span) if span else 0
+            window = FramedWindow(bars[lo : i + 1], shared, lo, i + 1)
             bar = bars[i]
             price = float(bar.get("close") or bar.get("c") or 0)
             if price <= 0:
