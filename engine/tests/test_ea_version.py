@@ -84,7 +84,16 @@ def test_the_written_guides_name_the_version_that_is_shipped() -> None:
         if not page.is_file():
             continue
         text = page.read_text(encoding="utf-8")
-        assert old not in text, f"{page.name} still tells the user to look for {old}"
+        # Matched as a WHOLE version, not as a substring of one.
+        #
+        # A bare `old in text` also fires on any longer version that
+        # merely starts with the same digits - and the guides pin
+        # `numpy==1.26.4`, which is nothing to do with the expert.
+        # At the 1.26 -> 1.27 bump that made this test demand the
+        # numpy pin be changed too, which would have been a genuine
+        # break shipped to satisfy a test.
+        stale_ref = re.search(re.escape(old) + r"(?!\.?\d)", text)
+        assert not stale_ref, f"{page.name} still tells the user to look for {old}"
         assert want in text, f"{page.name} never names the shipped version {want}"
 
 

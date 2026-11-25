@@ -201,7 +201,12 @@ check("reaching the oldest bar fetches one slab BEHIND it, once at a time", () =
     + "\n" + BAR_TIME + "\n" + liftFn("mergeOlder")
     + "\n" + liftFn("noteHistoryDepth") + "\n" + liftFn("historyDepthOf")
     + "\n" + liftFn("noteHistoryProgress")
-    + "\n" + liftFn("paintHistoryEdge") + "\n" + liftFn("loadOlderSlab")
+    + "\n" + liftFn("paintHistoryEdge")
+    /* loadOlderSlab now checks that the bars it is given actually
+       claim to be this symbol's before it merges them - the
+       wrong-price-candle fix - so the guard has to come into the
+       sandbox with it. */
+    + "\n" + liftFn("barsSaySeries") + "\n" + liftFn("loadOlderSlab")
     + "\n" + liftFn("loadMoreHistory")
     + "\nthis.loadMoreHistory = loadMoreHistory;", box);
 

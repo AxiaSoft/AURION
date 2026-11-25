@@ -2,6 +2,19 @@
 //| AurionBridge.mq5                                                 |
 //| Live chart agent for the AURION engine.                          |
 //|                                                                  |
+//| v1.27 — history a month at a time, and stop when told to stop.  |
+//|   Attaching used to fetch the whole six months at once: one     |
+//|   CopyRates over the period, then every bar of it streamed 250  |
+//|   to a message. On M1 that is 259 200 bars and a thousand-odd   |
+//|   messages pushed as fast as the socket would take them, for a  |
+//|   chart showing a day and a half. It buried the engine's queue. |
+//|   A request now extends the chart by at most one month beyond   |
+//|   what this terminal holds, and the desk asks again when the    |
+//|   trader drags back into the empty space - so the five months   |
+//|   nobody is looking at are never paid for. OnDeinit also drops  |
+//|   a stream in progress now: removing the expert, or closing     |
+//|   MetaTrader, used to leave the remainder being flushed.        |
+//|                                                                  |
 //| v1.26 — six months is the limit, not a target to clear. The one  |
 //|   history ceiling here was 300 000 bars, about seven months of   |
 //|   M1, sized to leave room above the promise. Room above a        |
@@ -118,8 +131,8 @@
 // nobody could tell. AURION_EA_VERSION is the value sent to the engine;
 // engine/tests/test_ea_version.py fails the build if the #property below
 // drifts from it, because #property will not take a macro.
-#define AURION_EA_VERSION "1.26"
-#property version   "1.26"
+#define AURION_EA_VERSION "1.27"
+#property version   "1.27"
 #property strict
 #property description "AURION live bridge 1.25 — one engine, one port; the file inbox is the only fallback"
 
@@ -166,6 +179,24 @@ input int    InpCandleDepth  = 3000;
 // second or it is not coming at all, and every attempt here is time
 // the desk spends with an empty chart.
 #define AURION_HIST_QUICK_TRIES 8
+
+/* How much history one request may ADD, in days.
+ *
+ * Six months used to be fetched the moment the expert attached: one
+ * CopyRates over the whole period, then the entire result streamed
+ * 250 bars to a message. On M1 that is 259 200 bars and over a
+ * thousand messages, pushed as fast as the socket would take them,
+ * for a chart showing a day and a half. It buried the engine's
+ * queue, and because the terminal keeps serving a download that has
+ * been started, closing MetaTrader did not stop it.
+ *
+ * Now a request extends the chart by at most one month beyond what
+ * this terminal already holds. The desk asks again when the trader
+ * drags back into the empty space, so six months arrives as six
+ * cheap steps taken only by someone who is actually looking at
+ * them - and the common case, a trader watching the live edge,
+ * never pays for the other five. */
+#define AURION_HIST_MONTH_DAYS 31
 // Bars per message. 60 was a safe guess made when a request was a few
 // hundred bars; at one chunk per timer pass it means six months of
 // M15 (17 280 bars) takes 288 passes, which was two minutes of
@@ -298,6 +329,20 @@ int OnInit()
 void OnDeinit(const int reason)
   {
    EventKillTimer();
+   /* Abandon any history still being streamed, whatever the reason.
+      A download in progress used to keep its state here, and the
+      queued remainder went on being flushed while the terminal shut
+      down - which is why removing the expert, and even closing
+      MetaTrader, did not stop the candles arriving. Nothing is
+      waiting for these bars any more: the desk asks again when it
+      next needs them. */
+   g_hist_pos = -1;
+   g_hist_count = 0;
+   g_hist_tries = 0;
+   g_hist_next = 0;
+   g_hist_phase = 0;
+   g_hist_sent = 0;
+   ArrayFree(g_hist_rates);
    if(reason == REASON_REMOVE)
      {
       ArrayResize(g_http_q, 0);
@@ -964,6 +1009,17 @@ void SendHistoryShortfall(const int requested)
 
 /* The depth this request is for, clamped once rather than in three
  * places that could drift apart. */
+/* One step of history, in bars of this timeframe. */
+int HistStepBars(const ENUM_TIMEFRAMES tf)
+  {
+   int mins = (int)(PeriodSeconds(tf) / 60);
+   if(mins < 1) mins = 1;
+   int bars = (AURION_HIST_MONTH_DAYS * 24 * 60) / mins;
+   if(bars < 120) bars = 120;          // a month of D1 is still a short chart
+   if(bars > AURION_HIST_MAX) bars = AURION_HIST_MAX;
+   return bars;
+  }
+
 int HistDepth()
   {
    int depth = (g_hist_want > 0 ? g_hist_want : InpCandleDepth);
@@ -1069,7 +1125,16 @@ void PumpHistory()
           * depth x PeriodSeconds therefore asks for the same calendar
           * window, and the weekends inside it simply come back empty. */
          datetime stop  = TimeCurrent() + PeriodSeconds(g_hist_tf);
-         datetime begin = (datetime)((long)stop - (long)PeriodSeconds(g_hist_tf) * (long)depth);
+         /* One month further back than this terminal already has -
+            not the whole six. g_hist_sent is what phase 0 served
+            out of the built series, so this asks the broker for the
+            next step and no more. The engine asks again for the
+            step after that, when the trader scrolls into it. */
+         int step = HistStepBars(g_hist_tf);
+         int reach = g_hist_sent + step;
+         if(reach > depth) reach = depth;
+         if(reach < step) reach = step;
+         datetime begin = (datetime)((long)stop - (long)PeriodSeconds(g_hist_tf) * (long)reach);
          if((long)begin < 0) begin = 0;
          int n = CopyRates(_Symbol, g_hist_tf, begin, stop, g_hist_rates);
          if(n > g_hist_sent)
@@ -1166,9 +1231,13 @@ void PumpHistory()
       if(g_hist_phase == 0)
         {
          g_hist_sent = streamed;
-         // The desk has a chart now. If it is shallower than what was
-         // asked for, go and fetch the rest as a period: that download
-         // can take a minute, and nothing is waiting on it any more.
+         /* The desk has a chart now. If it is shallower than what
+            was asked for, go and fetch ONE STEP more as a period -
+            see AURION_HIST_MONTH_DAYS. Phase 1 does not chain: when
+            that step has been streamed the expert goes quiet and
+            waits to be asked again. Chaining to the full depth here
+            is what turned attaching the expert into a download
+            storm. */
          if(streamed < HistDepth())
            {
             g_hist_phase = 1;

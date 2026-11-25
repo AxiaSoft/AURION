@@ -131,6 +131,20 @@ CHART_MARK_BUDGET_SECONDS = 8.0
 #: of H4, and once it is covered the work STOPS.
 MARK_DAYS = 1
 
+#: How much further back one refresh may reach when it is filling in
+#: the rest of the chart. The first pass covers MARK_DAYS so the
+#: newest bars - today's - carry their marks immediately; after that
+#: each call walks this many bars further back until the window the
+#: desk asked for is covered, and then stops.
+#:
+#: This is what makes "the whole chart eventually, the engine never
+#: blocked" possible at once. The old planner had no second half: it
+#: walked 1500 bars per refresh with no destination, so it never
+#: reached a finished state and the engine never returned to idle.
+#: The destination here is the window the desk asked for, which is
+#: itself bounded by what the trader is looking at.
+MARK_EXTEND_BARS = 2000
+
 #: How many charts' worth of analysis to remember at once.
 CHART_MARK_CACHES = 8
 
@@ -6012,6 +6026,30 @@ class Trader:
         # nothing" in one place and "analyse everything" in another.
         return min(total, max(WARMUP_BARS, total - span))
 
+    def _mark_target_floor(self, total: int) -> int:
+        """The oldest bar the marks should EVENTUALLY reach.
+
+        _mark_floor is where the first pass starts, so that today's
+        bars carry their marks within one refresh instead of after a
+        six-month replay. This is where the walk finishes.
+
+        They used to be the same number, and that was the fault
+        behind "the older candles have no signals": a chart holding
+        a month of history was marked over its last day and no
+        further, for ever, because the planner had already reached
+        its floor and reported itself complete. The marked stretch
+        then looked like signals that start part-way across the
+        chart and stop.
+
+        The destination is the start of the window the desk asked
+        for - bounded by what the trader has on screen, not by six
+        months - less the warm-up the strategies need before they
+        are entitled to an opinion.
+        """
+        from ..signals.strategy_signals import WARMUP_BARS
+
+        return max(0, min(total, WARMUP_BARS))
+
     def _chart_mark_plan(self, symbol: str, timeframe: str, armed: list, bars: list) -> dict[str, Any]:
         """Which bars to analyse on this call.
 
@@ -6062,10 +6100,15 @@ class Trader:
             # being re-analysed.
             return {"key": key, "first": max(floor, hi - 1), "last": total, "fresh": False}
 
-        if lo > floor:
-            # The window grew backwards - a timeframe switch, or the
-            # first bars of a new session. Finite, and it ends here.
-            return {"key": key, "first": floor, "last": lo + 1, "fresh": False}
+        target = self._mark_target_floor(total)
+        if lo > target:
+            # Everything newer is covered, so this call goes further
+            # back - one bounded slab of it, not the whole remainder.
+            # Bounded per call keeps the engine answering; repeated
+            # across refreshes it still arrives at the start of the
+            # chart, and then stops for good.
+            return {"key": key, "first": max(target, lo - MARK_EXTEND_BARS),
+                    "last": lo + 1, "fresh": False}
 
         # Covered, and there is nothing older to do. This is the state
         # the old planner could never reach.
@@ -6151,7 +6194,7 @@ class Trader:
         # longer extends to by design. Left as it was, the desk would
         # hold its "still analysing" wash over the chart for ever and
         # keep polling for work that was already finished.
-        complete = covered_lo <= self._mark_floor(timeframe, total) and covered_hi >= total
+        complete = covered_lo <= self._mark_target_floor(total) and covered_hi >= total
 
         # Re-planning against the state just written is the only way
         # to be sure this says what the next call will really do; a
@@ -6193,6 +6236,59 @@ class Trader:
             "complete": bool(complete),
             "analysing": not complete,
         }
+
+    #: A backtest assembles its window one month at a time. See
+    #: _pull_history_in_steps - and AURION_HIST_MONTH_DAYS in the
+    #: expert, which is the other half of the same agreement.
+    BACKTEST_STEP_DAYS = 31
+
+    #: Enough steps for half a year, and a hard stop either way: a
+    #: loop that asks the terminal for history is exactly the kind
+    #: that must not be able to run for ever.
+    BACKTEST_MAX_STEPS = 8
+
+    async def _pull_history_in_steps(
+        self, symbol: str, timeframe: str, want: int, asked_from: str = "",
+    ) -> list[dict[str, Any]]:
+        """Fetch a long window as a series of short ones.
+
+        The expert now serves at most a month of new history per
+        request, because asking it for six months in one breath is
+        what buried the engine when the chart first attached. A
+        backtest over three months still needs its three months, so
+        it asks three times instead of demanding them all at once.
+
+        Each round is a request the engine can answer promptly and
+        the terminal can satisfy, and the rounds stop as soon as one
+        of three things is true: the window is covered, the oldest
+        day asked for is on hand, or a round brought nothing new -
+        which is what a broker that has no more history looks like,
+        and is an answer rather than a reason to keep asking.
+        """
+        from ..util.history import bars_for_days
+
+        step = max(1, int(bars_for_days(timeframe, self.BACKTEST_STEP_DAYS)))
+        bars: list[dict[str, Any]] = []
+        reach = 0
+        for _ in range(self.BACKTEST_MAX_STEPS):
+            reach = min(int(want), reach + step) if want else reach + step
+            got = await self.bridge.pull_candles(
+                symbol, timeframe, reach, need_from=asked_from, tries=3,
+            ) or []
+            gained = len(got) > len(bars)
+            if got:
+                bars = got
+            if len(bars) >= int(want or 0) and want:
+                break
+            if asked_from:
+                oldest = str((bars[0] or {}).get("time") or "")[:10] if bars else ""
+                if oldest and oldest <= asked_from:
+                    break
+            if not gained:
+                # The terminal has stopped finding more. Asking again
+                # would only repeat the same download.
+                break
+        return bars
 
     async def chart_signals(self, symbol: str, timeframe: str = "M15", count: int = 0, strict: bool = True) -> dict[str, Any]:
         # premium feature
@@ -6354,8 +6450,8 @@ class Trader:
             # over long before the series arrived. The answer then
             # read as a verdict on the broker's archive instead of a
             # report on a download that had just started.
-            bars = await self.bridge.pull_candles(
-                symbol, timeframe, want, need_from=asked_from, tries=3,
+            bars = await self._pull_history_in_steps(
+                symbol, timeframe, want, asked_from,
             ) or bars
         if not bars:
             # Still nothing. Say which of the two it is, because they

@@ -31,7 +31,7 @@ is given endless work is a slow engine an hour later.
 
 from __future__ import annotations
 
-from aurion.runtime.trader import MARK_DAYS, Trader
+from aurion.runtime.trader import MARK_DAYS, MARK_EXTEND_BARS, Trader
 from aurion.signals.strategy_signals import WARMUP_BARS
 from aurion.util.history import HISTORY_DAYS, bars_for_days, requested_window
 
@@ -107,10 +107,20 @@ def test_a_short_history_cannot_produce_a_backwards_range() -> None:
 def test_the_marking_work_finishes_and_stays_finished() -> None:
     """The planner must reach "complete" and stay there.
 
-    This is the whole bug. The old planner, once caught up at the
-    right-hand edge, spent every refresh reaching 1500 bars further
-    back - for ever, on every chart, at once. A chart that is fully
-    marked must ask for no work at all.
+    This is the original bug, and the guarantee still holds - but
+    what counts as finished has changed, on a second report: "the
+    signals only cover part of the chart; today's candles show
+    none".
+
+    The old planner stopped at the end of its first day-long pass
+    and declared the chart done, so every bar older than a day was
+    left permanently unanalysed. Now the first pass still covers
+    one day - so the newest bars carry marks within one refresh -
+    and each later call walks one bounded slab further back until
+    the window the desk asked for is covered. Then, and this is the
+    part that must never regress, it stops for good.
+
+    So: bounded per call, and finite overall.
     """
     trader = _trader()
     tf = "M15"
@@ -126,18 +136,38 @@ def test_the_marking_work_finishes_and_stays_finished() -> None:
     covered = first["last"] - first["first"]
     assert covered == PER_DAY[tf], f"the first pass covered {covered} bars, not one day"
 
-    # Pretend that pass happened.
-    store["k"] = {"from_time": bars[first["first"]]["time"],
-                  "to_time": bars[first["last"] - 1]["time"], "signals": []}
+    # Walk it the way the refreshes would, recording each pass.
+    lo, hi = first["first"], first["last"]
+    store["k"] = {"from_time": bars[lo]["time"],
+                  "to_time": bars[hi - 1]["time"], "signals": []}
 
-    # Nothing has changed since. There is no work left, and crucially
-    # the planner must say so rather than inventing some.
-    again = trader._chart_mark_plan("XAUUSD", tf, armed, bars)
-    assert again.get("complete") is True, (
-        "a fully marked chart still asked for work - this is the loop that "
-        "never let the engine go idle"
+    passes = 0
+    while True:
+        plan = trader._chart_mark_plan("XAUUSD", tf, armed, bars)
+        if plan.get("complete"):
+            assert plan["last"] - plan["first"] == 0, "a completed plan still has bars in it"
+            break
+        slab = plan["last"] - plan["first"]
+        assert 0 < slab <= MARK_EXTEND_BARS + 1, (
+            f"one refresh asked for {slab} bars - the point is that no single "
+            "call may be unbounded"
+        )
+        lo = min(lo, plan["first"])
+        hi = max(hi, plan["last"])
+        store["k"] = {"from_time": bars[lo]["time"],
+                      "to_time": bars[hi - 1]["time"], "signals": []}
+        passes += 1
+        assert passes < 200, "the walk back never reached a finished state"
+
+    assert passes > 1, "the chart was declared finished with most of it unanalysed"
+    assert lo <= trader._mark_target_floor(total), (
+        "the walk stopped before reaching the start of the window - which is "
+        "the 'older candles have no signals' report"
     )
-    assert again["last"] - again["first"] == 0, "a completed plan still has bars in it"
+
+    # And once finished it stays finished, however often it is asked.
+    for _ in range(3):
+        assert trader._chart_mark_plan("XAUUSD", tf, armed, bars).get("complete") is True
 
 
 def test_new_bars_are_the_only_work_a_settled_chart_does() -> None:

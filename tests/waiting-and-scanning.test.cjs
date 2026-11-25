@@ -378,7 +378,16 @@ const inner = (box) => { const el = veilOn(box); return el ? String(el.innerHTML
 /* =============== 4. a timeframe nothing has asked MetaTrader for yet */
 {
   const bt = TRADER.slice(TRADER.indexOf("async def backtest("), TRADER.indexOf("async def backtest(") + 9000);
-  ok(/tries=3/.test(bt),
+  /* The retry now lives in the stepped fetch the backtest calls: a
+     run assembles its window one month at a time, because the
+     expert will not serve more than a month per request. The
+     guarantee is unchanged - a timeframe the terminal has never
+     built is asked for more than once, since the first ask is what
+     starts MetaTrader downloading it - so the call is followed
+     rather than the old line being insisted upon. */
+  const stepped = TRADER.slice(TRADER.indexOf("async def _pull_history_in_steps("),
+    TRADER.indexOf("async def chart_signals("));
+  ok(/_pull_history_in_steps\(/.test(bt) && /tries=3/.test(stepped),
     "a backtest asks the terminal more than once for a series it has never built");
   ok(/history_downloading/.test(bt),
     "and reports a download in progress rather than an empty archive");
