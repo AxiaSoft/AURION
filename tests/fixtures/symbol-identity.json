@@ -1,0 +1,49 @@
+{
+  "_comment": [
+    "When are two spellings of a symbol the same instrument?",
+    "",
+    "This question is answered in two languages, and it has to be",
+    "answered identically in both. The engine decides whose candles and",
+    "whose contract specification are whose; the desk decides which",
+    "spec to price a ticket with, in the browser, because a round trip",
+    "per mouse move while dragging a stop is not something anyone would",
+    "ship. A future native front end will be the third.",
+    "",
+    "Three implementations of one rule is three chances to disagree, so",
+    "the cases live here, once, and every implementation is tested",
+    "against this file. Adding a case here is how the rule changes.",
+    "",
+    "The rule itself: fold away a broker's account-type suffix when it",
+    "is its own separator-delimited token of up to four letters -",
+    "XAUUSD.m, XAUUSD-ECN, XAUUSD_i are all XAUUSD. Fold away nothing",
+    "else. A glued suffix is not folded, because nothing distinguishes",
+    "the 'm' of XAUUSDm from the 'T' of EURUSDT. A remainder containing",
+    "a digit is not folded either, because that names a contract rather",
+    "than an account type: CL.F25 and CL.G25 are two different futures."
+  ],
+
+  "same": [
+    ["XAUUSD", "XAUUSD"],
+    ["XAUUSD", "xauusd"],
+    ["XAUUSD", "XAUUSD.m"],
+    ["XAUUSD", "XAUUSD-ECN"],
+    ["XAUUSD", "XAUUSD_i"],
+    ["XAUUSD", "XAUUSD.raw"],
+    ["XAUUSD", "XAUUSD.pro"],
+    ["US30", "US30.cash"],
+    ["EURUSD", "EURUSD.m"]
+  ],
+
+  "different": [
+    ["XAUUSD", "XAUUSDm"],
+    ["EURUSD", "EURUSDT"],
+    ["US30", "US3000"],
+    ["NAS100", "NAS1000"],
+    ["XAU", "XAUUSD"],
+    ["EURUSD", "GBPUSD"],
+    ["CL.F25", "CL.G25"],
+    ["CL.F25", "CL"],
+    ["XAUUSD", ""],
+    ["", ""]
+  ]
+}

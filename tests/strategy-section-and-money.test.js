@@ -184,10 +184,27 @@ check("saving sends the mode, and the percentage only in automatic mode", () => 
   if (!/risk_pct:/.test(fn)) throw new Error("the percentage is not sent");
 });
 
-check("the preview does the same arithmetic as the engine", () => {
+/* This check used to look for the literal `equity * live` inside
+   liveMoney, and it passed happily for as long as that arithmetic was
+   WRONG: `live` was taken from risk_pct_effective, the engine's answer
+   for the SAVED percentage, so the preview never moved off the saved
+   value however much the field changed. Spelling is not agreement.
+
+   The arithmetic now lives in one place, autoRiskCap, which is run
+   against the engine's own implementation over a shared table of cases
+   in tests/fixtures/auto-risk-cap.json (tests/auto-risk-cap-agrees.test.cjs).
+   What is left to check here is that liveMoney actually delegates to it
+   rather than growing a second copy again. */
+check("the preview goes through the one shared rule, not a copy of it", () => {
   const fn = body("liveMoney");
-  if (!/equity \* live/.test(fn)) {
-    throw new Error("the preview does not price the percentage against equity");
+  if (!/autoRiskCap\(/.test(fn)) {
+    throw new Error("the preview does not use the shared auto-cap rule");
+  }
+  if (/Math\.round\(equity/.test(fn) || /equity \* live/.test(fn)) {
+    throw new Error("the preview has its own arithmetic again");
+  }
+  if (/risk_pct_effective\s*!=\s*null/.test(fn)) {
+    throw new Error("the preview reads the saved answer as if it were a ceiling");
   }
   if (!/scope: "trade"/.test(fn)) {
     throw new Error("the preview lets the automatic cap be read per lot");

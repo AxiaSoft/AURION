@@ -105,8 +105,18 @@ function moneyBox(snapMoney, fields) {
     },
   };
   vm.createContext(ctx);
-  const names = ["specFor", "priceMoney", "fmtNum", "fmtMoney", "riskPhrase",
+  /* symbolSeriesKey/sameSeriesSymbol are specFor's own dependencies: the
+     desk no longer decides on its own what counts as the same contract,
+     it asks the one rule that the engine is tested against too
+     (tests/fixtures/symbol-identity.json). Lifting specFor without them
+     gives a ReferenceError, not a wrong answer - which is the point. */
+  const names = ["symbolSeriesKey", "sameSeriesSymbol",
+    "specFor", "priceMoney", "fmtNum", "fmtMoney", "riskPhrase",
     "moneyRefLot", "moneyScope", "moneyUnit", "moneyScopeNote",
+    // moneyAtLot writes the lot to the broker's own precision, so it
+    // needs the ladder: a 0.005 size on a 0.001 book printed to two
+    // decimals reads as "0.01", twice what is being sent.
+    "lotDp", "lotBounds",
     "fmtLot", "liveMoney", "moneyAtLot"];
   const src = names.map((n) => liftFn(APP, n)).join("\n") +
     "\nwindow.X = {" + names.join(",") + "};";

@@ -558,7 +558,11 @@
     "bad_price": "That is not a price.",
     "risk_line": "{points} points · {money}",
     "risk_unpriced": "The broker has not reported a tick value for this symbol, so the money cannot be worked out. Attach the EA to its chart.",
-    "risk_need_price": "Set a lot and an entry price to see what these levels are worth."
+    "risk_need_price": "Set a lot and an entry price to see what these levels are worth.",
+    "risk_no_side": "The stop and the target are on the same side of the market, so this ticket has no direction to price. Move one of them.",
+    "risk_stop_too_close": "This stop is {points} points from the entry; your broker will not accept one closer than {min}. The order would be refused outright, with no stop and no position.",
+    "margin_need": "Margin {need} of {free} free",
+    "margin_short": "This size needs {need} in margin and only {free} is free. The broker will refuse it — the stop is not the problem, the account cannot afford to hold the position."
   },
   "charts": {
     "title": "EA chart agents",
@@ -2042,6 +2046,7 @@
     "symbol_required": "Pick a live chart, or type the broker's own symbol.",
     "volume_required": "The lot size has to be greater than zero.",
     "max_open": "The open-trade ceiling of {n} has been reached.",
+    "frozen": "{symbol} is inside the broker's freeze zone: too near its stop or target to be modified or closed. It can be touched again once the price moves away.",
     "mt5_unreachable": "MetaTrader 5 is not reachable. AURION will not fabricate a fill.",
     "engine_offline": "The Python engine is offline.",
     "premium_required": "This feature is part of the paid plan.",

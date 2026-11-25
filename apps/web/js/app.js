@@ -5736,6 +5736,10 @@ function chartTicketHtml() {
   const t = S.ticket || S.manual || {};
   const who = operatorName();
   const sym = (S.chartFocus && S.chartFocus.symbol) || S.symbol;
+  /* The lot field steps the way this broker's book does, not the way
+     0.01 books do. Re-applied on every repaint too, because the
+     specification can arrive after the ticket has been drawn. */
+  const ctLots = lotBounds(sym);
   const tick = (S.snap && S.snap.ticks && S.snap.ticks[sym]) || {};
   /* This instrument's step, not the desk's. EURUSD's fields step by
      0.0001 and gold's by 0.01, because a field that steps by a digit
@@ -5752,7 +5756,7 @@ function chartTicketHtml() {
         <span class="ct-lab">${I18N.t("exec.volume")}</span>
         <div class="ct-step">
           <button type="button" class="ct-pm" data-vol="-1" aria-label="-">${icon("minus")}</button>
-          <input id="ct-vol" type="number" step="0.01" min="0.01" inputmode="decimal"
+          <input id="ct-vol" type="number" step="${ctLots.step}" min="${ctLots.min}"${ctLots.max > 0 ? ` max="${ctLots.max}"` : ""} inputmode="decimal"
                  aria-label="${esc(I18N.t("exec.volume"))}"
                  value="${esc(String(ticketLot()))}" />
           <button type="button" class="ct-pm" data-vol="1" aria-label="+">${icon("plus")}</button>
@@ -5974,20 +5978,155 @@ function rememberTicket() {
  * from what MetaTrader actually said, and says so plainly when it
  * cannot.
  */
+/**
+ * The identity of a symbol: which instrument this spelling names.
+ *
+ * The same rule as the engine's _series_key, and it has to be - the
+ * engine decides whose candles and whose contract specification are
+ * whose, and the desk decides which specification to price a ticket
+ * with. Two answers to that question means the number shown before
+ * the order and the number enforced after it are about different
+ * instruments.
+ *
+ * It is written here as well as there, rather than asked for, because
+ * this is consulted while a stop is being dragged - a round trip per
+ * mouse move is not something to ship. What stops the two copies
+ * drifting is tests/fixtures/symbol-identity.json: one table of
+ * cases, and both implementations are tested against it.
+ *
+ * The rule: fold away a broker's account-type suffix when it is its
+ * own separator-delimited token of up to four letters, and fold away
+ * nothing else.
+ *
+ * What this replaced cut the name at the first non-alphanumeric
+ * character, so CL.F25 and CL.G25 - two different dated futures -
+ * both came out as "CL" and shared one contract specification. The
+ * tick value of the wrong contract prices every stop on the right
+ * one.
+ */
+function symbolSeriesKey(symbol) {
+  const s = String(symbol || "").trim().toUpperCase();
+  if (!s) return "";
+  const m = /[._\-\s][A-Z]{1,4}$/.exec(s);
+  const base = (m && m.index >= 3) ? s.slice(0, m.index) : s;
+  return base.replace(/[^A-Z0-9]/g, "");
+}
+
+/** Are these two spellings the same instrument? */
+function sameSeriesSymbol(a, b) {
+  const ka = symbolSeriesKey(a);
+  return Boolean(ka) && ka === symbolSeriesKey(b);
+}
+
 function specFor(symbol) {
   const specs = ((S.snap && S.snap.strategy && S.snap.strategy.money) || {}).specs || {};
   const want = String(symbol || "").trim();
   if (!want) return null;
   if (specs[want]) return specs[want];
   /* "EURUSD" against a book that calls it "EURUSD.m". The engine's
-     bridge does the same match on the way in. */
-  const root = (v) => String(v || "").toUpperCase().replace(/[^A-Z0-9].*$/, "");
-  const base = root(want);
-  if (!base) return null;
+     bridge folds the same suffixes on the way in. */
+  if (!symbolSeriesKey(want)) return null;
   for (const key of Object.keys(specs)) {
-    if (root(key) === base) return specs[key];
+    if (sameSeriesSymbol(key, want)) return specs[key];
   }
   return null;
+}
+
+/**
+ * The price a market order of this side actually opens at.
+ *
+ * A buy crosses the spread and fills at the ask, a sell at the bid.
+ * Mirrors the engine's risk.market_entry, pinned by
+ * tests/fixtures/ticket-entry.json.
+ *
+ * 0 when the side is unknown or the quote is unusable - deliberately
+ * not the mid. The mid is not a price anybody trades at, and using it
+ * here understated the cost of every market stop by half the spread:
+ * 15% on gold, 12% on BTC, always in the direction that looks safer.
+ */
+function marketEntry(side, bid, ask) {
+  const s = String(side || "").trim().toLowerCase();
+  const b = Number(bid) || 0;
+  const a = Number(ask) || 0;
+  if (s === "buy") return a > 0 ? a : 0;
+  if (s === "sell") return b > 0 ? b : 0;
+  return 0;
+}
+
+/**
+ * Which side this half-written ticket is for.
+ *
+ * Buy and sell are only chosen when the button is pressed, but the risk
+ * line has to be drawn while the stop is still being typed. The stop
+ * says which it is: a stop below the market protects a long, a stop
+ * above it protects a short, and a target says the same thing the other
+ * way round.
+ *
+ * "" when it cannot be read - nothing set, no quote, or a stop and a
+ * target that disagree. A ticket whose two halves point opposite ways
+ * is broken, and guessing a side for it would put a confident number
+ * under a trade that cannot be sent.
+ */
+function impliedSide(sl, tp, reference) {
+  const ref = Number(reference) || 0;
+  const s = Number(sl) || 0;
+  const t = Number(tp) || 0;
+  if (!(ref > 0)) return "";
+  const fromSl = s > 0 ? (s < ref ? "buy" : s > ref ? "sell" : "") : "";
+  const fromTp = t > 0 ? (t > ref ? "buy" : t < ref ? "sell" : "") : "";
+  if (fromSl && fromTp) return fromSl === fromTp ? fromSl : "";
+  return fromSl || fromTp;
+}
+
+/**
+ * The price this ticket would open at: the resting price for a limit or
+ * a stop, the side's own side of the spread for a market order.
+ *
+ * The same fork the engine takes - an explicit price wins, otherwise
+ * the quote decides - so the distance the desk measures is the distance
+ * the engine will measure.
+ */
+function ticketEntry(side, kind, restingPrice, bid, ask) {
+  if (kind === "limit" || kind === "stop") return Number(restingPrice) || 0;
+  return marketEntry(side, bid, ask);
+}
+
+/**
+ * What this ticket costs to HOLD, as opposed to what it might lose.
+ *
+ * Every other number on the ticket is about risk: how far the stop is,
+ * what it costs if it is hit. None of them answers "can this account
+ * open the position at all", and that is a different question with a
+ * different answer. A 2-lot gold ticket risking $40 on its stop still
+ * needs around $2000 of margin, and on a $500 account the broker
+ * simply refuses it.
+ *
+ * Per lot, per side, exactly as the terminal itself calculated it
+ * (OrderCalcMargin) - never derived here from leverage, which is wrong
+ * on every instrument the broker prices differently.
+ *
+ * null when the broker did not say. Not zero: zero would read as free.
+ */
+function marginNeeded(symbol, side, volume) {
+  const spec = specFor(symbol);
+  const v = Math.max(0, Number(volume) || 0);
+  if (!spec || !(v > 0)) return null;
+  const s = String(side || "").trim().toLowerCase();
+  let perLot = Number(s === "buy" ? spec.margin_per_lot_buy : spec.margin_per_lot_sell) || 0;
+  if (!(perLot > 0)) {
+    // Either side missing falls back to the other before giving up,
+    // the same order the engine's margin_for uses.
+    perLot = Number(s === "buy" ? spec.margin_per_lot_sell : spec.margin_per_lot_buy) || 0;
+  }
+  if (!(perLot > 0)) return null;
+  return perLot * v;
+}
+
+/** Margin the account has spare, or null when the engine has not said. */
+function freeMargin() {
+  const acc = (S.snap && S.snap.account) || {};
+  const v = Number(acc.margin_free);
+  return Number.isFinite(v) && v > 0 ? v : null;
 }
 
 /**
@@ -6055,24 +6194,48 @@ function paintTicketRisk() {
   const host = $("ct-risk");
   if (!host) return;
   const symbol = (S.chartFocus && S.chartFocus.symbol) || S.symbol || "";
+  /* The broker's lot ladder, re-applied here because this runs on every
+     repaint and the specification often arrives after the field was
+     drawn. Cheap, idempotent, and it keeps the +/- buttons honest -
+     they read step/min/max straight off the input. */
+  applyLotBounds(symbol);
   const volume = Number($("ct-vol")?.value || 0);
   const type = String($("ct-type")?.value || "market");
   const kind = type === "limit" || type === "stop" ? type : "";
   const tick = (S.snap && S.snap.ticks && S.snap.ticks[symbol]) || {};
-  const mid = Number(tick.bid || 0) && Number(tick.ask || 0)
-    ? (Number(tick.bid) + Number(tick.ask)) / 2
-    : Number(tick.bid || tick.ask || 0);
-  const from = kind ? Number($("ct-price")?.value || 0) : mid;
   const sl = Number($("ct-sl")?.value || 0);
   const tp = Number($("ct-tp")?.value || 0);
 
   if (!sl && !tp) { host.hidden = true; host.textContent = ""; return; }
   host.hidden = false;
 
+  /* Measure from where the trade would actually open, which for a
+     market order is this side's side of the spread - not the mid.
+     The side is read off the ticket: the stop and the target say
+     which way it is pointing. The reference for that reading is the
+     resting price on a pending order and the mid on a market one,
+     because "is this stop above or below the market" is a question
+     about the market, not about which half of the spread fills. */
+  const mid = Number(tick.bid || 0) && Number(tick.ask || 0)
+    ? (Number(tick.bid) + Number(tick.ask)) / 2
+    : Number(tick.bid || tick.ask || 0);
+  const resting = kind ? Number($("ct-price")?.value || 0) : 0;
+  const side = impliedSide(sl, tp, kind ? resting : mid);
+  const from = ticketEntry(side, kind, resting, tick.bid, tick.ask);
+
   if (!specFor(symbol)) {
     /* Named, not blank: "we cannot price this" is information, and a
        row that silently disappears looks like a bug in the desk. */
     host.innerHTML = `<span class="ct-risk-none">${esc(I18N.t("exec.risk_unpriced"))}</span>`;
+    return;
+  }
+  /* A stop and a target on the same side of the market point in
+     opposite directions. There is no side to price it from, and a
+     confident number under a ticket that cannot be sent is worse than
+     saying so. Told apart from "no price yet", which is a different
+     thing to fix. */
+  if (!side && (mid > 0 || resting > 0)) {
+    host.innerHTML = `<span class="ct-risk-none">${esc(I18N.t("exec.risk_no_side"))}</span>`;
     return;
   }
   if (!(from > 0) || !(volume > 0)) {
@@ -6094,6 +6257,41 @@ function paintTicketRisk() {
      nothing to show once the other two are known. */
   if (slR && tpR && slR.money > 0) {
     parts.push(`<span class="ct-risk-rr"><b>${esc(I18N.t("signal.rr"))}</b> ${esc(fmtNum(tpR.money / slR.money, 2))}</span>`);
+  }
+  /* A stop closer to the price than the broker accepts is not a tight
+     stop - it is the whole order refused, with no stop and no position.
+     The engine already declines to CREATE one inside that floor; this
+     is the trader's own stop, typed by hand, and the desk is the only
+     place that can say so before the order is sent rather than after
+     the broker has rejected it. The money is still shown: it is true,
+     and the warning is about whether the ticket is sendable at all. */
+  /* What it costs to hold, next to what it costs to be wrong. These
+     are different questions and the ticket only ever answered one of
+     them: a size can pass every risk rule here and still come back
+     "no money" from the broker, because nothing on this desk had ever
+     compared the ticket against the free margin it was already
+     displaying two panels away. */
+  const need = marginNeeded(symbol, side, volume);
+  const free = freeMargin();
+  if (need !== null) {
+    const cur = String((specFor(symbol) || {}).currency || "");
+    parts.push(`<span class="ct-risk-margin"><b>${esc(I18N.t("exec.margin_need", {
+      need: fmtMoney(need, cur), free: free === null ? "—" : fmtMoney(free, cur),
+    }))}</b></span>`);
+    if (free !== null && need > free) {
+      parts.push(`<span class="ct-risk-warn">${esc(I18N.t("exec.margin_short", {
+        need: fmtMoney(need, cur), free: fmtMoney(free, cur),
+      }))}</span>`);
+    }
+  }
+
+  const floor = Number((specFor(symbol) || {}).min_stop_distance) || 0;
+  if (sl && slR && floor > 0 && Math.abs(from - sl) < floor) {
+    const tickSize = Number((specFor(symbol) || {}).tick_size) || 0;
+    parts.push(`<span class="ct-risk-warn">${esc(I18N.t("exec.risk_stop_too_close", {
+      points: fmtNum(Math.round(slR.points), 0),
+      min: fmtNum(tickSize > 0 ? Math.round(floor / tickSize) : 0, 0),
+    }))}</span>`);
   }
   host.innerHTML = parts.join("");
 }
@@ -7232,6 +7430,9 @@ function switchRow(o) {
  */
 function robotPanelHtml() {
   const st = S.snap?.strategy || {};
+  /* The desk's default lot, stepped on the active instrument's own
+     ladder - that is the book this size will be sent to. */
+  const stLots = lotBounds((S.chartFocus && S.chartFocus.symbol) || S.symbol);
   const style = st.trade_style || S.snap?.trade_style || "normal";
   const L = (S.snap && S.snap.license) || S.license || {};
   const locTag = I18N.lang === "fa" ? "fa-IR-u-ca-persian" : I18N.lang === "ar" ? "ar-SA-u-ca-islamic-umalqura" : "en-GB-u-ca-gregory";
@@ -7341,7 +7542,7 @@ function robotPanelHtml() {
           <div class="ct-step lot-step">
             <button type="button" class="ct-pm" data-lot-step="-1" data-lot-for="st-vol"
                     aria-label="${esc(I18N.t("exec.lot_down"))}">${icon("minus")}</button>
-            <input id="st-vol" type="number" step="0.01" min="0.01" max="1000" inputmode="decimal"
+            <input id="st-vol" type="number" step="${stLots.step}" min="${stLots.min}" max="${stLots.max > 0 ? stLots.max : 1000}" inputmode="decimal"
                    aria-labelledby="st-vol-label" value="${st.manual_volume ?? 0.10}" />
             <button type="button" class="ct-pm" data-lot-step="1" data-lot-for="st-vol"
                     aria-label="${esc(I18N.t("exec.lot_up"))}">${icon("plus")}</button>
@@ -7501,6 +7702,68 @@ function moneyRefLot(money) {
 }
 
 /**
+ * Round a currency amount half-up, explicitly.
+ *
+ * Math.round is already half-up, but it is half-up on a binary float:
+ * what is arithmetically 1.125 can arrive as 1.1249999999999998 and
+ * round down. The engine's round_money carries the same nudge, because
+ * the two have to answer the same thing on the same inputs.
+ */
+function roundMoney(value, dp = 2) {
+  const x = Number(value) || 0;
+  if (!x) return 0;
+  const factor = 10 ** dp;
+  const scaled = x * factor;
+  const nudge = scaled >= 0 ? 1e-9 : -1e-9;
+  return (scaled >= 0
+    ? Math.floor(scaled + 0.5 + nudge)
+    : Math.ceil(scaled - 0.5 + nudge)) / factor;
+}
+
+/**
+ * The share of the account one trade may lose, after every ceiling.
+ *
+ * Mirrors the engine's risk.auto_risk_pct. The bounds are not constants
+ * here - they are published by the engine in the money snapshot
+ * (risk_pct_min / risk_pct_max / risk_pct_cap), so a change to the rule
+ * does not need a matching edit in the browser.
+ */
+function autoRiskPct(typedPct, bounds) {
+  const b = bounds || {};
+  const lo = Number(b.risk_pct_min);
+  const hi = Number(b.risk_pct_max);
+  const min = Number.isFinite(lo) ? lo : 0.05;
+  const max = Number.isFinite(hi) ? hi : 10;
+  let pct = Number(typedPct);
+  if (!Number.isFinite(pct)) pct = min;
+  pct = Math.max(min, Math.min(max, pct));
+  const ceiling = Number(b.risk_pct_cap) || 0;
+  return ceiling > 0 ? Math.min(pct, ceiling) : pct;
+}
+
+/**
+ * The automatic cap: what the engine WILL do with the percentage being
+ * typed, not what it did with the one last saved.
+ *
+ * One rule in two languages, pinned by tests/fixtures/auto-risk-cap.json
+ * against the engine's risk.auto_risk_cap.
+ *
+ * The previous version of this reused `risk_pct_effective` - the engine's
+ * resolved answer for the SAVED percentage - as if it were a ceiling on
+ * what was being typed. It is an answer, not a ceiling, so the preview
+ * was frozen: on a 10,000 account with 1% saved, typing 3% still drew a
+ * 100 cap while the engine would go on to apply 300. It understated the
+ * cap in every case where the two numbers differed - which is every case
+ * where a preview is worth drawing at all.
+ */
+function autoRiskCap(equity, typedPct, bounds) {
+  const pct = autoRiskPct(typedPct, bounds);
+  const eq = Number(equity) || 0;
+  if (!(eq > 0)) return { pct, cap: 0 };
+  return { pct, cap: Math.max(0, roundMoney(eq * pct / 100)) };
+}
+
+/**
  * Does the cap count one trade or one reference lot?
  *
  * Unknown reads as "trade". A desk that cannot tell which rule the
@@ -7555,9 +7818,74 @@ function moneyScopeNote(money) {
     : I18N.t("money.scope_trade_note");
 }
 
-/** A lot size written the way a trader writes it: 0.01, 0.10, 1.00. */
-function fmtLot(v) {
-  return fmtNum(Number(v) || 0, 2);
+/**
+ * How many decimals the broker's own volume step is written with.
+ *
+ * 0.01 -> 2, 0.001 -> 3, 1.0 -> 0, 0.25 -> 2. Mirrors the engine's
+ * _step_dp, and it has to: a lot shown to fewer decimals than the
+ * broker trades in is a lie about the size being sent. On a 0.001 book
+ * a 0.005 lot written to two decimals reads as "0.01", twice the size.
+ */
+function lotDp(step) {
+  const s = Number(step) || 0.01;
+  for (let dp = 0; dp <= 8; dp += 1) {
+    const scaled = s * 10 ** dp;
+    if (Math.abs(scaled - Math.round(scaled)) < 1e-9) return dp;
+  }
+  return 8;
+}
+
+/**
+ * The broker's own lot ladder for a symbol: step, floor and ceiling.
+ *
+ * The engine already publishes volume_step / volume_min / volume_max in
+ * the symbol specification - the desk simply was not reading them, and
+ * hardcoded step="0.01" min="0.01" into the lot fields instead. On a
+ * book that steps in whole lots the desk offered 0.01, which the broker
+ * refuses; on one that steps in 0.001 it could not offer 0.005 at all.
+ *
+ * 0.01 remains the fallback, because it is the step on nearly every
+ * retail forex book and because a desk with no specification yet has to
+ * put something in the field.
+ */
+function lotBounds(symbol) {
+  const spec = typeof specFor === "function" ? specFor(symbol) : null;
+  const step = Number(spec && spec.volume_step) > 0 ? Number(spec.volume_step) : 0.01;
+  const min = Number(spec && spec.volume_min) > 0 ? Number(spec.volume_min) : step;
+  const max = Number(spec && spec.volume_max) > 0 ? Number(spec.volume_max) : 0;
+  return { step, min, max, dp: lotDp(step) };
+}
+
+/**
+ * Put the broker's ladder onto the lot fields that are on screen.
+ *
+ * The specification can arrive after the field has been drawn, so this
+ * is run again whenever the ticket repaints rather than only at render
+ * time. The +/- buttons read step/min/max straight off the input, so
+ * fixing the attributes fixes the steppers with them.
+ */
+function applyLotBounds(symbol) {
+  const b = lotBounds(symbol);
+  ["ct-vol", "st-vol"].forEach((id) => {
+    const el = $(id);
+    if (!el) return;
+    el.step = String(b.step);
+    el.min = String(b.min);
+    if (b.max > 0) el.max = String(b.max);
+  });
+  return b;
+}
+
+/**
+ * A lot size written the way a trader writes it: 0.01, 0.10, 1.00.
+ *
+ * The step is optional and every caller that knows the instrument
+ * should pass it - without one the lot is written to two decimals,
+ * which is right on almost every book and wrong on the ones that trade
+ * finer than that.
+ */
+function fmtLot(v, step) {
+  return fmtNum(Number(v) || 0, step === undefined ? 2 : lotDp(step));
 }
 
 /**
@@ -7588,20 +7916,22 @@ function liveMoney(saved) {
     ...(saved || {}),
   };
   if (mode && mode.dataset.mmode === "auto") {
-    // Preview the automatic cap from the field being typed in, the
-    // same arithmetic the engine does, so the sentence under the box
-    // answers "what would this do" before anything is saved.
+    // Preview the automatic cap from the field being typed in, through
+    // the shared rule, so the sentence under the box answers "what
+    // would this do" before anything is saved.
     const pct = Number($("st-money-pct")?.value || 0);
     const equity = Number(base.equity || 0);
-    const live = base.risk_pct_effective != null && Number(base.risk_pct_effective) < pct
-      ? Number(base.risk_pct_effective) : pct;
+    const { pct: live, cap } = autoRiskCap(equity, pct, base);
     return {
       ...base,
       mode: "auto",
       scope: "trade",
       risk_pct: pct,
       risk_pct_effective: live,
-      max_loss_per_lot: equity > 0 ? Math.round(equity * live) / 100 : Number(base.max_loss_per_lot || 0),
+      // With no equity reported the rule has nothing to size against,
+      // and the engine holds the last cap it computed rather than
+      // dropping to zero. The preview says the same thing.
+      max_loss_per_lot: equity > 0 ? cap : Number(base.max_loss_per_lot || 0),
     };
   }
   return {
@@ -7625,7 +7955,13 @@ function moneyAtLot(money) {
   // Per trade the answer is the cap, flat. Showing cap x lot/ref here
   // while the engine caps per trade is how a preview becomes a lie.
   const at = moneyScope(money) === "lot" ? cap * (lot / ref) : cap;
-  const common = { lot: fmtLot(lot), money: fmtMoney(at, money.currency) };
+  /* Written to the broker's own lot precision: on a book that trades
+     in 0.001 lots, a 0.005 size printed to two decimals reads as
+     "0.01" - twice the size actually being sent. */
+  const common = {
+    lot: fmtLot(lot, lotBounds(money.symbol).step),
+    money: fmtMoney(at, money.currency),
+  };
   if (!money.priced || money.max_stop_points == null) {
     return I18N.t("money.at_lot_unpriced", common);
   }
