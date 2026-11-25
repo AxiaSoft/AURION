@@ -2,6 +2,18 @@
 //| AurionBridge.mq5                                                 |
 //| Live chart agent for the AURION engine.                          |
 //|                                                                  |
+//| v1.29 — three ceilings the broker declares and nobody read.     |
+//|   SYMBOL_TRADE_FREEZE_LEVEL, SYMBOL_VOLUME_LIMIT and the margin |
+//|   one lot costs were all available from the terminal and none   |
+//|   of them were ever sent. Without them the engine could size a  |
+//|   trade the broker refuses outright: past the symbol's TOTAL    |
+//|   volume ceiling (which is not volume_max, that is per order),  |
+//|   or beyond the free margin, or asking to close a position too  |
+//|   near the market to be touched. Each came back as an opaque    |
+//|   rejection. Margin is asked of the terminal with               |
+//|   OrderCalcMargin rather than read from SYMBOL_MARGIN_INITIAL,  |
+//|   which is zero on most forex books.                            |
+//|                                                                  |
 //| v1.28 — the lot ladder survives the wire. The contract spec was |
 //|   sent with volume_min, volume_step and volume_max written to   |
 //|   two decimals, while the tick fields beside them used eight.   |
@@ -141,8 +153,8 @@
 // nobody could tell. AURION_EA_VERSION is the value sent to the engine;
 // engine/tests/test_ea_version.py fails the build if the #property below
 // drifts from it, because #property will not take a macro.
-#define AURION_EA_VERSION "1.28"
-#property version   "1.28"
+#define AURION_EA_VERSION "1.29"
+#property version   "1.29"
 #property strict
 #property description "AURION live bridge 1.25 — one engine, one port; the file inbox is the only fallback"
 
@@ -1281,6 +1293,27 @@ void SendSpec()
    json += "\"volume_step\":" + DoubleToString(SymbolInfoDouble(_Symbol, SYMBOL_VOLUME_STEP), 8) + ",";
    json += "\"volume_max\":" + DoubleToString(SymbolInfoDouble(_Symbol, SYMBOL_VOLUME_MAX), 8) + ",";
    json += "\"stops_level\":" + IntegerToString((int)SymbolInfoInteger(_Symbol, SYMBOL_TRADE_STOPS_LEVEL)) + ",";
+   json += "\"freeze_level\":" + IntegerToString((int)SymbolInfoInteger(_Symbol, SYMBOL_TRADE_FREEZE_LEVEL)) + ",";
+   json += "\"volume_limit\":" + DoubleToString(SymbolInfoDouble(_Symbol, SYMBOL_VOLUME_LIMIT), 8) + ",";
+   json += "\"margin_initial\":" + DoubleToString(SymbolInfoDouble(_Symbol, SYMBOL_MARGIN_INITIAL), 8) + ",";
+//--- What one lot actually costs to hold.
+//
+//  SYMBOL_MARGIN_INITIAL is zero on most forex books, where margin is
+//  derived from contract size and leverage rather than declared. So
+//  the terminal is asked the question directly, for one lot of each
+//  side, and it answers with the figure it will itself charge. Buy
+//  and sell are asked separately because they are allowed to differ.
+//  Zero means the terminal declined to answer, and the engine treats
+//  that as "unknown" rather than as "free".
+   double mbuy = 0.0, msell = 0.0;
+   double ask_now = SymbolInfoDouble(_Symbol, SYMBOL_ASK);
+   double bid_now = SymbolInfoDouble(_Symbol, SYMBOL_BID);
+   if(ask_now > 0 && !OrderCalcMargin(ORDER_TYPE_BUY, _Symbol, 1.0, ask_now, mbuy))
+      mbuy = 0.0;
+   if(bid_now > 0 && !OrderCalcMargin(ORDER_TYPE_SELL, _Symbol, 1.0, bid_now, msell))
+      msell = 0.0;
+   json += "\"margin_per_lot_buy\":" + DoubleToString(mbuy, 8) + ",";
+   json += "\"margin_per_lot_sell\":" + DoubleToString(msell, 8) + ",";
    json += "\"currency\":\"" + JsonEsc(SymbolInfoString(_Symbol, SYMBOL_CURRENCY_PROFIT)) + "\",";
    json += TapeTag();
    json += "}";

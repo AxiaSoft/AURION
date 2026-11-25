@@ -6092,6 +6092,44 @@ function ticketEntry(side, kind, restingPrice, bid, ask) {
 }
 
 /**
+ * What this ticket costs to HOLD, as opposed to what it might lose.
+ *
+ * Every other number on the ticket is about risk: how far the stop is,
+ * what it costs if it is hit. None of them answers "can this account
+ * open the position at all", and that is a different question with a
+ * different answer. A 2-lot gold ticket risking $40 on its stop still
+ * needs around $2000 of margin, and on a $500 account the broker
+ * simply refuses it.
+ *
+ * Per lot, per side, exactly as the terminal itself calculated it
+ * (OrderCalcMargin) - never derived here from leverage, which is wrong
+ * on every instrument the broker prices differently.
+ *
+ * null when the broker did not say. Not zero: zero would read as free.
+ */
+function marginNeeded(symbol, side, volume) {
+  const spec = specFor(symbol);
+  const v = Math.max(0, Number(volume) || 0);
+  if (!spec || !(v > 0)) return null;
+  const s = String(side || "").trim().toLowerCase();
+  let perLot = Number(s === "buy" ? spec.margin_per_lot_buy : spec.margin_per_lot_sell) || 0;
+  if (!(perLot > 0)) {
+    // Either side missing falls back to the other before giving up,
+    // the same order the engine's margin_for uses.
+    perLot = Number(s === "buy" ? spec.margin_per_lot_sell : spec.margin_per_lot_buy) || 0;
+  }
+  if (!(perLot > 0)) return null;
+  return perLot * v;
+}
+
+/** Margin the account has spare, or null when the engine has not said. */
+function freeMargin() {
+  const acc = (S.snap && S.snap.account) || {};
+  const v = Number(acc.margin_free);
+  return Number.isFinite(v) && v > 0 ? v : null;
+}
+
+/**
  * What a price distance is worth: how many points, and how much money
  * at this lot.
  *
@@ -6227,6 +6265,26 @@ function paintTicketRisk() {
      place that can say so before the order is sent rather than after
      the broker has rejected it. The money is still shown: it is true,
      and the warning is about whether the ticket is sendable at all. */
+  /* What it costs to hold, next to what it costs to be wrong. These
+     are different questions and the ticket only ever answered one of
+     them: a size can pass every risk rule here and still come back
+     "no money" from the broker, because nothing on this desk had ever
+     compared the ticket against the free margin it was already
+     displaying two panels away. */
+  const need = marginNeeded(symbol, side, volume);
+  const free = freeMargin();
+  if (need !== null) {
+    const cur = String((specFor(symbol) || {}).currency || "");
+    parts.push(`<span class="ct-risk-margin"><b>${esc(I18N.t("exec.margin_need", {
+      need: fmtMoney(need, cur), free: free === null ? "—" : fmtMoney(free, cur),
+    }))}</b></span>`);
+    if (free !== null && need > free) {
+      parts.push(`<span class="ct-risk-warn">${esc(I18N.t("exec.margin_short", {
+        need: fmtMoney(need, cur), free: fmtMoney(free, cur),
+      }))}</span>`);
+    }
+  }
+
   const floor = Number((specFor(symbol) || {}).min_stop_distance) || 0;
   if (sl && slR && floor > 0 && Math.abs(from - sl) < floor) {
     const tickSize = Number((specFor(symbol) || {}).tick_size) || 0;

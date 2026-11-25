@@ -1894,7 +1894,137 @@ class Trader:
                     }
                     await self.journal("warning", "too_small", why, dict(self.last_money_block))
                     request["volume"] = 0.0
+        return await self._apply_broker_ceilings(request, symbol, side, spec)
+
+    async def _apply_broker_ceilings(
+        self, request: dict[str, Any], symbol: str, side: str, spec: Any,
+    ) -> dict[str, Any]:
+        """The two ceilings the broker enforces and the account never saw.
+
+        Both are the same shape of defect as the stop distance: the
+        terminal declares a limit, the engine sizes a trade without
+        reference to it, and the broker refuses the order with a bare
+        retcode. The trader is left with a ticket that vanished.
+
+          * SYMBOL_VOLUME_LIMIT caps TOTAL volume in a symbol, across
+            every position and pending order. It is not volume_max,
+            which caps one order - a book can allow 50 lots per order
+            and 100 in total, so a fourth 30-lot order is individually
+            legal and still refused.
+
+          * margin is what the position costs to hold. Every risk rule
+            in this file is about what a trade can LOSE, and none of
+            them has anything to say about whether it can be AFFORDED.
+            margin_free has been arriving, being stored, and being
+            printed on the desk this whole time without once being
+            read before an order went out.
+
+        Sizing down, not refusing, wherever a smaller trade is a real
+        answer - the same preference the cap already follows.
+        """
+        volume = float(request.get("volume") or 0)
+        if volume <= 0:
+            return request
+
+        # --- total volume in this symbol -----------------------------
+        room = spec.room_under_volume_limit(self._held_volume(symbol))
+        if volume > room:
+            fitted = round_volume(room, spec) if room > 0 else 0.0
+            held = self._held_volume(symbol)
+            if fitted > 0:
+                await self.journal(
+                    "info", "volume_limit",
+                    f"{symbol}: the broker allows {spec.volume_limit:g} lots in this "
+                    f"symbol in total and {held:g} are already on, so {volume:g} was "
+                    f"cut to {fitted:g}. The whole order would have been refused.",
+                    {"requested": volume, "sent": fitted, "held": held,
+                     "limit": spec.volume_limit},
+                )
+                request["volume"] = fitted
+                volume = fitted
+            else:
+                why = (
+                    f"{symbol}: the broker allows {spec.volume_limit:g} lots in this "
+                    f"symbol in total and {held:g} are already on, so there is no room "
+                    f"for another trade. Close some of this symbol first."
+                )
+                self.last_money_block = {
+                    "symbol": symbol, "why": why, "held": held,
+                    "limit": spec.volume_limit, "at": utc_iso(),
+                }
+                await self.journal("warning", "volume_limit",
+                                   why, dict(self.last_money_block))
+                request["volume"] = 0.0
+                return request
+
+        # --- can the account afford to hold it -----------------------
+        #
+        # Skipped when an opposite position is already open on this
+        # symbol: on a hedging account the new trade may need little or
+        # no margin at all, and the per-lot figure cannot know that.
+        # Refusing a trade the broker would have accepted is the one
+        # outcome worse than the rejection this is trying to prevent.
+        required = spec.margin_for(side, volume)
+        if required <= 0:
+            return request
+        if self._has_opposite_position(symbol, side):
+            return request
+        free = self._free_margin()
+        if free <= 0 or required <= free:
+            return request
+        affordable = round_volume(volume * (free / required), spec)
+        if affordable > 0:
+            await self.journal(
+                "info", "margin_sized",
+                f"{symbol} {side}: {volume:g} lots need {required:.2f} in margin and "
+                f"{free:.2f} is free, so {affordable:g} was sent instead. The full size "
+                f"would have come back as 'no money'.",
+                {"requested": volume, "sent": affordable,
+                 "required": round(required, 2), "free": round(free, 2)},
+            )
+            request["volume"] = affordable
+            return request
+        why = (
+            f"{symbol} {side}: the smallest lot this broker takes needs "
+            f"{spec.margin_for(side, spec.volume_min):.2f} in margin and only "
+            f"{free:.2f} is free. This is not about the stop - the account cannot "
+            f"afford to hold the position at all."
+        )
+        self.last_money_block = {
+            "symbol": symbol, "why": why, "required": round(required, 2),
+            "free_margin": round(free, 2), "at": utc_iso(),
+        }
+        await self.journal("warning", "no_margin", why, dict(self.last_money_block))
+        request["volume"] = 0.0
         return request
+
+    def _free_margin(self) -> float:
+        """Margin the account has spare, or 0 when it has not been told."""
+        try:
+            return max(0.0, float(getattr(self.bridge.account, "margin_free", 0) or 0))
+        except (AttributeError, TypeError, ValueError):
+            return 0.0
+
+    def _has_opposite_position(self, symbol: str, side: str) -> bool:
+        """Is there a position on the other side of this symbol?
+
+        Only asked to decide whether a margin estimate can be trusted,
+        never to decide whether a trade is wise.
+        """
+        want = "sell" if str(side).lower() == "buy" else "buy"
+        try:
+            match = self.bridge._sym_match
+        except Exception:
+            def match(a: str, b: str) -> bool:
+                return a == b
+        try:
+            for p in list(self.bridge.positions):
+                if (match(str(getattr(p, "symbol", "")), symbol)
+                        and str(getattr(p, "type", "")).lower() == want):
+                    return True
+        except Exception:
+            return False
+        return False
 
     def _risk_budget(self) -> float:
         """What one trade may lose, in account money.
@@ -2445,6 +2575,14 @@ class Trader:
                 # in ticks. The same principle as tick_value: publish
                 # the answer, not the raw fields and the choice.
                 "min_stop_distance": spec.min_stop_distance,
+                "freeze_distance": spec.freeze_distance,
+                "volume_limit": spec.volume_limit,
+                # Per lot, per side, as the terminal itself calculates
+                # it. The desk multiplies by the ticket's own size - it
+                # never derives margin from leverage, which is wrong on
+                # every instrument the broker prices differently.
+                "margin_per_lot_buy": spec.margin_per_lot_buy,
+                "margin_per_lot_sell": spec.margin_per_lot_sell,
             }
         return out
 
@@ -3063,6 +3201,88 @@ class Trader:
             return sum(1 for p in rows if self.bridge._sym_match(str(getattr(p, "symbol", "")), symbol))
         except Exception:
             return sum(1 for p in rows if str(getattr(p, "symbol", "")) == symbol)
+
+    def _held_volume(self, symbol: str) -> float:
+        """Lots of this symbol already committed: positions and pendings.
+
+        The broker's SYMBOL_VOLUME_LIMIT counts both, so this does too.
+        Everything on the account is counted, not only AURION's own
+        orders - the ceiling belongs to the symbol, and a hand-placed
+        trade fills it just as well as a robot one.
+        """
+        total = 0.0
+        try:
+            rows = list(getattr(self, "bridge").positions)
+        except Exception:
+            rows = []
+        try:
+            match = self.bridge._sym_match
+        except Exception:
+            def match(a: str, b: str) -> bool:
+                return a == b
+        for p in rows:
+            try:
+                if match(str(getattr(p, "symbol", "")), symbol):
+                    total += abs(float(getattr(p, "volume", 0) or 0))
+            except (TypeError, ValueError):
+                continue
+        try:
+            orders = list(getattr(self.bridge, "orders", None) or [])
+        except Exception:
+            orders = []
+        for o in orders:
+            try:
+                row = o.to_dict() if hasattr(o, "to_dict") else dict(o or {})
+                if match(str(row.get("symbol") or ""), symbol):
+                    total += abs(float(row.get("volume") or row.get("volume_current") or 0))
+            except (TypeError, ValueError, AttributeError):
+                continue
+        return total
+
+    def _frozen_reason(self, pos: Any) -> str:
+        """Why this position cannot be touched right now, or "".
+
+        Inside SYMBOL_TRADE_FREEZE_LEVEL the broker refuses to modify
+        or close, and the refusal arrives as a bare retcode. From the
+        desk that reads as the Close button not working, so the trader
+        presses it again, and again. Saying it plainly costs nothing
+        and is the whole difference between a broken button and a
+        rule that is simply waiting out a few points of movement.
+        """
+        try:
+            symbol = str(getattr(pos, "symbol", "") or "")
+            spec = self.symbol_spec(symbol)
+            freeze = spec.freeze_distance
+            if freeze <= 0:
+                return ""
+            tick = self.tick_of(symbol) or {}
+            bid = float(tick.get("bid") or 0)
+            ask = float(tick.get("ask") or 0)
+            # Measure against the side this position would close on: a
+            # long closes at the bid, a short at the ask.
+            market = bid if str(getattr(pos, "type", "")) == "buy" else ask
+            if market <= 0:
+                return ""
+            near = 0.0
+            for level in (getattr(pos, "sl", 0), getattr(pos, "tp", 0)):
+                try:
+                    lv = float(level or 0)
+                except (TypeError, ValueError):
+                    continue
+                if lv > 0:
+                    gap = abs(market - lv)
+                    if near == 0.0 or gap < near:
+                        near = gap
+            if near == 0.0 or near >= freeze:
+                return ""
+            pts = freeze / (spec.point or spec.tick_size or 1)
+            return (
+                f"{symbol}: the broker freezes orders within {pts:g} points of "
+                f"their stop or target, and this one is inside that. It can be "
+                f"modified or closed again once the price moves away."
+            )
+        except Exception:
+            return ""
 
     def _resting_count(self, symbol: str = "") -> int:
         """Robot orders waiting at a price. Each one is a trade in waiting."""
@@ -4871,6 +5091,15 @@ class Trader:
             if not pos:
                 await self.journal("warning", "no_pos", "Close requested but no matching position")
                 return {"ok": False, "code": "no_position", "error": "no position to close"}
+            # Inside the broker's freeze level this close will be
+            # refused with a bare retcode, which from the desk looks
+            # like the button not working. Say which rule it is and
+            # that it clears on its own.
+            frozen = self._frozen_reason(pos)
+            if frozen:
+                await self.journal("warning", "frozen", frozen, {"ticket": pos.ticket})
+                return {"ok": False, "code": "frozen", "error": frozen,
+                        "args": {"symbol": str(getattr(pos, "symbol", ""))}}
             request = {
                 **request,
                 "ticket": pos.ticket,
@@ -4880,6 +5109,18 @@ class Trader:
                 "side": "sell" if pos.type == "buy" else "buy",
                 "profit": float(getattr(pos, "profit", 0) or 0),
             }
+        if action == "modify":
+            # Same freeze rule as the close above: within it the broker
+            # will not move a stop or a target either, and the refusal
+            # says nothing about why.
+            ticket = int(request.get("ticket") or 0)
+            pos = next((p for p in self.bridge.positions if p.ticket == ticket), None) if ticket else None
+            if pos is not None:
+                frozen = self._frozen_reason(pos)
+                if frozen:
+                    await self.journal("warning", "frozen", frozen, {"ticket": ticket})
+                    return {"ok": False, "code": "frozen", "error": frozen,
+                            "args": {"symbol": str(getattr(pos, "symbol", ""))}}
         if str(request.get("action") or "") == "market":
             robotish = source.startswith("strategy") or source in {"robot", "strategy_tick"}
             if robotish:

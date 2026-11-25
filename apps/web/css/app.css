@@ -5010,6 +5010,13 @@ html[dir="rtl"] .ct-lab{letter-spacing:0;text-transform:none;font-size:12px}
    come back rejected, and it has to carry the weight of a warning
    rather than sit quietly under the numbers. Full width, so it wraps
    onto its own line instead of fighting the money for space. */
+/* The cost of holding, beside the cost of being wrong. Muted: it is a
+   fact about the ticket, not a complaint about it - the complaint, if
+   there is one, is the warning rule below. */
+.ct-risk .ct-risk-margin{
+  font-variant-numeric:tabular-nums;font-feature-settings:"tnum" 1;
+  color:var(--muted);
+}
 .ct-risk .ct-risk-warn{
   flex-basis:100%;white-space:normal;
   color:var(--amber, #d8a657);font-weight:600;

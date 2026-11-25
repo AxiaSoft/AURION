@@ -552,9 +552,42 @@ check("the EA version moves for behaviour, and only for behaviour", () => {
      reach the broker's real ladder; volume_min of 0.00 also left the
      "below the broker's minimum" guard with nothing to guard. The
      engine sees different numbers in the same message, which is as
-     visible as a change gets, so the number moves. */
-  if (!/#define AURION_EA_VERSION "1\.28"/.test(ea)) {
+     visible as a change gets, so the number moves.
+     1.29 sends three contract fields that were never on the wire at
+     all: SYMBOL_TRADE_FREEZE_LEVEL, SYMBOL_VOLUME_LIMIT, and what one
+     lot costs in margin. Each is a ceiling the broker enforces and
+     the engine could not see, so it sized trades the broker then
+     refused outright - past the symbol's TOTAL volume ceiling (which
+     is not volume_max, that governs one order), or beyond the free
+     margin, or asking to touch a position too near the market to be
+     modified. All three came back as bare retcodes. Margin is asked
+     of the terminal with OrderCalcMargin rather than read from
+     SYMBOL_MARGIN_INITIAL, which is 0 on most forex books. Three new
+     fields in the message the engine parses, so the number moves. */
+  if (!/#define AURION_EA_VERSION "1\.29"/.test(ea)) {
     throw new Error("the version moved again; bump it only for a change the engine can see");
+  }
+  /* 1.29, asserted rather than described. */
+  for (const [field, source] of [
+    ["freeze_level", "SYMBOL_TRADE_FREEZE_LEVEL"],
+    ["volume_limit", "SYMBOL_VOLUME_LIMIT"],
+    ["margin_per_lot_buy", "OrderCalcMargin"],
+    ["margin_per_lot_sell", "OrderCalcMargin"],
+  ]) {
+    if (!ea.includes('\\"' + field + '\\":')) {
+      throw new Error("1.29 claims to send " + field + " and does not");
+    }
+    if (!ea.includes(source)) {
+      throw new Error(field + " is not read from " + source);
+    }
+  }
+  /* And the engine must actually read them - a field sent to nobody
+     is the defect 1.29 exists to fix, one layer further out. */
+  {
+    const risk = read("engine/aurion/runtime/risk.py");
+    for (const prop of ["freeze_distance", "margin_for", "room_under_volume_limit"]) {
+      if (!risk.includes(prop)) throw new Error("risk.py does not resolve " + prop);
+    }
   }
   /* 1.28, asserted rather than described: every field whose value is a
      lot size or a price scale is written with enough decimals to say

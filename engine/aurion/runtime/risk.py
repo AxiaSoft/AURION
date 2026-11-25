@@ -86,6 +86,25 @@ class SymbolSpec:
     # quoted in points and the two are not always the same number.
     point: float = 0.0
     stops_level: float = 0.0
+    # The distance inside which a position may not be modified or
+    # closed at all, also in points. Distinct from stops_level: that
+    # one governs where a stop may be PLACED, this one governs whether
+    # an existing order may be TOUCHED. Usually 0, often equal to
+    # stops_level, and occasionally neither.
+    freeze_level: float = 0.0
+    # The broker's ceiling on TOTAL volume in this symbol - every open
+    # position and pending order added together. Not volume_max, which
+    # is the ceiling for one order; a book can allow 50 lots per order
+    # and 100 lots in total, so the fourth 30-lot order is refused
+    # while being individually legal. 0 means no aggregate ceiling.
+    volume_limit: float = 0.0
+    # What one lot costs to hold, as the terminal itself calculates it
+    # (OrderCalcMargin), per side. margin_initial is the declared
+    # figure and is 0 on most forex books, where margin is derived
+    # from contract size and leverage instead.
+    margin_initial: float = 0.0
+    margin_per_lot_buy: float = 0.0
+    margin_per_lot_sell: float = 0.0
 
     @classmethod
     def from_info(cls, info: dict[str, Any] | None, symbol: str = "") -> "SymbolSpec":
@@ -139,6 +158,11 @@ class SymbolSpec:
             currency=str(info.get("currency_profit") or info.get("currency") or ""),
             point=pick("point", "trade_tick_size", "tick_size"),
             stops_level=pick("trade_stops_level", "stops_level"),
+            freeze_level=pick("trade_freeze_level", "freeze_level"),
+            volume_limit=pick("volume_limit"),
+            margin_initial=pick("margin_initial"),
+            margin_per_lot_buy=pick("margin_per_lot_buy"),
+            margin_per_lot_sell=pick("margin_per_lot_sell"),
         )
 
     @property
@@ -166,6 +190,63 @@ class SymbolSpec:
         """
         step = self.point if self.point > 0 else self.tick_size
         return max(0.0, self.stops_level * step)
+
+    @property
+    def freeze_distance(self) -> float:
+        """How near the market a position becomes untouchable, in price.
+
+        SYMBOL_TRADE_FREEZE_LEVEL, converted from points. Inside it the
+        broker refuses to modify or close - the request comes back
+        rejected, and from the desk that looks like the Close button
+        not working. It is a different question from min_stop_distance:
+        that one asks where a stop may be placed, this one asks whether
+        an order may be touched at all.
+
+        0 means no freeze zone, which is the common case.
+        """
+        step = self.point if self.point > 0 else self.tick_size
+        return max(0.0, self.freeze_level * step)
+
+    def margin_for(self, side: str, volume: float) -> float:
+        """What holding ``volume`` lots of ``side`` costs in margin.
+
+        0 means unknown, never free. The terminal answers
+        OrderCalcMargin for one lot of each side and the figure scales;
+        where it did not answer, margin_initial is used, and where
+        neither exists this returns 0 and the caller must not pretend
+        to have checked anything.
+
+        Linear in volume, which is how nearly every book charges it.
+        Brokers with volume-tiered margin rates will differ above the
+        tier boundary, so this is a sound basis for warning the trader
+        and for catching the clear-cut case - it is not a replacement
+        for the terminal's own answer at send time.
+        """
+        vol = max(0.0, _f(volume))
+        if vol <= 0:
+            return 0.0
+        s = str(side or "").strip().lower()
+        per_lot = self.margin_per_lot_buy if s == "buy" else self.margin_per_lot_sell
+        if per_lot <= 0:
+            # Either side missing falls back to the other before giving
+            # up: one answer about this symbol beats none, and the two
+            # differ by a few percent where they differ at all.
+            per_lot = self.margin_per_lot_sell if s == "buy" else self.margin_per_lot_buy
+        if per_lot <= 0:
+            per_lot = self.margin_initial
+        if per_lot <= 0:
+            return 0.0
+        return per_lot * vol
+
+    def room_under_volume_limit(self, held: float) -> float:
+        """Lots still addable in this symbol, given ``held`` already on.
+
+        Infinity when the broker sets no aggregate ceiling, so callers
+        can compare without special-casing the common book.
+        """
+        if self.volume_limit <= 0:
+            return float("inf")
+        return max(0.0, self.volume_limit - max(0.0, _f(held)))
 
     def money(self, distance: float, volume: float = 1.0) -> float:
         """What ``distance`` price units cost at ``volume`` lots."""
