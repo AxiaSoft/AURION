@@ -505,8 +505,11 @@ check("a viewport change is repainted more than once", (() => {
 
   // Windows ships no IANA database, so without this every city a trader
   // picks silently becomes UTC.
+  // The version is not the point and is no longer pinned: requirements.txt
+  // moved to floors so the compiled stack can follow the Python version.
+  // What matters is that the database is installed at all.
   check("the engine installs a timezone database for Windows",
-    /^tzdata==/m.test(read("engine/requirements.txt")) &&
+    /^tzdata[>=]=/m.test(read("engine/requirements.txt")) &&
     /_FALLBACK\.get\(text\)/.test(read("engine/aurion/prop/hours.py")));
 
   check("and each one says what it is for the broker",

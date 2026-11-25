@@ -3,7 +3,8 @@ from __future__ import annotations
 import asyncio
 import json
 import re
-from typing import Any
+from contextlib import asynccontextmanager
+from typing import Any, AsyncIterator
 
 import os
 
@@ -30,7 +31,32 @@ _STARTED_AT = utc_iso()
 log = get_log("api")
 
 trader = Trader()
-app = FastAPI(title="AURION Engine", version="1.0.0")
+
+
+@asynccontextmanager
+async def _lifespan(_: FastAPI) -> AsyncIterator[None]:
+    """Start and stop the trader with the application.
+
+    This was a pair of @app.on_event("startup"/"shutdown") handlers.
+    They still work, but FastAPI has deprecated them and will remove
+    them, and an engine that refuses to boot on a newer FastAPI is the
+    same class of problem as one that refuses to boot on a newer
+    Python. The behaviour is unchanged: everything before the yield ran
+    in the startup handler, everything after it in the shutdown one.
+    """
+    try:
+        # MSI installs ship config/*.json read-only; repair the tree once so
+        # the very first save (strategy toggle, MT5 connect, news cache) works
+        # without a PermissionError 500.
+        heal_packaged_files()
+    except Exception:
+        pass
+    await trader.start()
+    yield
+    await trader.stop()
+
+
+app = FastAPI(title="AURION Engine", version="1.0.0", lifespan=_lifespan)
 # Secure CORS: only localhost and app://aurion, never *
 app.add_middleware(
     CORSMiddleware,
@@ -46,23 +72,6 @@ app.add_middleware(
     allow_methods=["GET", "POST", "OPTIONS"],
     allow_headers=["Content-Type", "Authorization"],
 )
-
-
-@app.on_event("startup")
-async def _startup() -> None:
-    try:
-        # MSI installs ship config/*.json read-only; repair the tree once so
-        # the very first save (strategy toggle, MT5 connect, news cache) works
-        # without a PermissionError 500.
-        heal_packaged_files()
-    except Exception:
-        pass
-    await trader.start()
-
-
-@app.on_event("shutdown")
-async def _shutdown() -> None:
-    await trader.stop()
 
 
 def ok(data: Any, status: int = 200) -> JSONResponse:

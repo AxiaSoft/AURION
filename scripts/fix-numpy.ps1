@@ -206,10 +206,19 @@ $version = Get-PythonVersion -Python $python
 if ($version.Length -gt 0) { Say $version }
 
 if ($version -match "Python\s+3\.(1[3-9]|[2-9]\d)") {
-    Bad "$version is newer than the engine supports."
-    Say "The engine is pinned to NumPy 1.26.4, which has no wheel for CPython 3.13"
-    Say "or newer. AURION's own Python is 3.12 and lives inside the installation."
-    Say "Reinstall AURION, or run scripts\provision.ps1, which puts one there."
+    # This script exists for one situation: an x86 CPU older than the
+    # x86-64-v2 baseline, which NumPy 2.x wheels are built for and
+    # which crashes on them. The remedy is NumPy 1.26.4 - and 1.26.4
+    # publishes no wheel for 3.13 or newer, so on this interpreter
+    # there is nothing to install. The engine itself runs fine on
+    # 3.13+; it is only this downgrade that cannot be done there.
+    Bad "$version cannot run the old-CPU NumPy."
+    Say "NumPy 1.26.4 - the build that works on pre-x86-64-v2 processors -"
+    Say "has no wheel for CPython 3.13 or newer, so it cannot be installed here."
+    Say "If this machine really does need it, use Python 3.12: AURION's own"
+    Say "3.12 lives inside the installation, and scripts\provision.ps1 puts one"
+    Say "there. If the processor is from 2009 or later, no fix is needed - the"
+    Say "NumPy that requirements.txt already selects for 3.13+ runs on it."
     exit 1
 }
 

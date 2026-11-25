@@ -138,7 +138,7 @@ def validate_source(source: str) -> dict[str, Any]:
 
 
 class StrategyLoader:
-    """Loads strategies, and makes sure the user's own ones still exist.
+    r"""Loads strategies, and makes sure the user's own ones still exist.
 
     The working folder is engine/strategies, which is inside the
     installation. That is fine for the shipped template and examples and

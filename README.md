@@ -140,13 +140,13 @@ Copy the **full** tree to `D:\aurion` (not nested `D:\aurion\aurion`).
 
 | When | What to run |
 |---|---|
-| First time | Install **Python 3.10-3.12** (never 3.13/3.14) + **Node.js 18-30**, `pip install -r engine\requirements.txt`, then `npm install` in `backend\` — or just run `start-aurion.cmd` and let it do all of that for you |
+| First time | Install **Python 3.10 or newer** + **Node.js 18-30**, `pip install -r engine\requirements.txt`, then `npm install` in `backend\` — or just run `start-aurion.cmd` and let it do all of that for you |
 | Every later day | **`start-aurion.cmd`** |
 | Stop | **`stop-aurion.cmd`** |
 
 `start-aurion.cmd` checks the prerequisites — and, if any are missing, hands over to the same setup window the installer uses rather than leaving you with an error — waits for `/api/health` before opening the browser, and runs engine + desk **hidden**. Logs live inside the dashboard (**Terminal**).
 
-Python must be **3.10, 3.11 or 3.12** (3.12 preferred). **Never 3.13 or 3.14** — `engine/main.py` exits on them and `numpy==1.26.4` has no 3.13 wheels. Node **18 to 30** is fine, including **26**.
+Python must be **3.10 or newer**, including the current release. `engine/requirements.txt` selects the right NumPy for the machine with environment markers: an x86 CPU older than the x86-64-v2 baseline still gets `numpy==1.26.4` (the last wheel that runs on it, and the reason the old 3.12 ceiling existed), while every other architecture takes the current release and any Python. Node **18 to 30** is fine, including **26**.
 
 Desk: `http://127.0.0.1:8080`  
 
@@ -170,7 +170,7 @@ the desk serves `apps/web` and proxies the engine.
 ```bash
 git clone https://github.com/AxiaSoft/AURION.git && cd AURION
 
-python3 -m venv .venv && . .venv/bin/activate     # Python 3.10–3.12, never 3.13+
+python3 -m venv .venv && . .venv/bin/activate     # Python 3.10 or newer
 pip install -r engine/requirements.txt
 npm install && npm --prefix backend install
 

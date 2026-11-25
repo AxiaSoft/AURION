@@ -145,7 +145,9 @@ if (-not $py) {
         $ver = & $exe @pre -c "import sys;print('%d.%d' % sys.version_info[:2])" 2>$null
         if ($ver) {
             if ([version]"$ver" -ge [version]"3.13") {
-                Bad "Python $ver - the engine needs 3.10, 3.11 or 3.12 (NumPy has no wheels above 3.12)"
+                Good "Python $ver (requirements.txt selects NumPy 2.x for it)"
+                Say  "  note: NumPy 2.x x86 wheels need an x86-64-v2 CPU (2009 or later)."
+                Say  "        On an older chip, use 3.12, which gets NumPy 1.26.4 instead."
             } else { Good "Python $ver" }
         }
         $missing = & $exe @pre -c "import importlib.util as u;print(','.join(m for m in ('fastapi','numpy','sklearn','uvicorn') if u.find_spec(m) is None))" 2>$null

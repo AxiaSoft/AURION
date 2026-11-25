@@ -180,23 +180,27 @@ def test_the_result_is_verified_rather_than_assumed() -> None:
 
 # ------------------------------------------------- it agrees with the rest --
 
-def test_the_python_policy_is_the_same_everywhere() -> None:
-    """3.13 has no numpy wheels for this pin, and the engine refuses to start on it.
+def test_the_windows_installer_still_offers_a_runtime_it_has_tested() -> None:
+    """The Windows prerequisite list is a shipping decision, not a code limit.
 
-    That rule is now stated in three places; they have to say the same thing.
+    This used to assert that three separate places all refused Python
+    3.13. Two of them should not: engine/requirements.txt now selects
+    wheels by architecture, so the engine installs and runs on any
+    current Python, and engine/main.py no longer rejects one by number.
+    That is checked in test_requirements_policy.py.
+
+    What is left here is narrower and still true. The Windows installer
+    does not use whatever Python it finds - it offers to install a
+    specific runtime, and that runtime is the one the MSI was built and
+    verified against. Widening this list means fetching, bundling and
+    testing another runtime on Windows, so it stays a deliberate act
+    rather than something that drifts.
     """
     src = _prereq()
     versions = re.search(r'PythonVersions\s*=\s*{([^}]*)}', src)
     assert versions, "the supported Python list has moved"
     listed = set(re.findall(r'"(\d+\.\d+)"', versions.group(1)))
     assert listed == {"3.12", "3.11", "3.10"}, f"unexpected Python policy: {sorted(listed)}"
-
-    launcher = LAUNCHER.read_text(encoding="utf-8", errors="replace")
-    assert "3.13" in launcher, "the launcher should still warn about 3.13"
-
-    main = (ROOT / "engine" / "main.py").read_text(encoding="utf-8")
-    assert "3, 13" in main or "3.13" in main, \
-        "engine/main.py should still refuse to run on 3.13"
 
 
 def test_the_python_libraries_come_from_the_pinned_file() -> None:
@@ -316,7 +320,7 @@ TESTS = [
     test_nothing_unsigned_is_ever_executed,
     test_the_setup_screen_says_what_comes_from_where,
     test_the_result_is_verified_rather_than_assumed,
-    test_the_python_policy_is_the_same_everywhere,
+    test_the_windows_installer_still_offers_a_runtime_it_has_tested,
     test_the_python_libraries_come_from_the_pinned_file,
     test_nothing_in_setup_asks_for_administrator,
     test_a_reboot_request_counts_as_success,
