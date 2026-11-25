@@ -78,7 +78,12 @@ function rig(specs) {
      what is measured here is the code that ships. */
   vm.runInContext("globalThis.CandleChart = class CandleChart {\n" + LADDER + "\n};", ctx);
   vm.runInContext(
-    grab(APP, "function specFor(symbol) {", "/**\n * What a price distance is worth")
+    /* Starts at symbolSeriesKey, not at specFor: matching a broker's
+       spelling to a contract is no longer specFor's own business, it
+       defers to the series rule that the engine is held to as well
+       (tests/fixtures/symbol-identity.json). The two helpers sit
+       directly above it, so one grab still takes the shipped source. */
+    grab(APP, "function symbolSeriesKey(symbol) {", "/**\n * What a price distance is worth")
     + grab(APP, "const PRICE_DP = 2;", "function fmt(n, d = 2, min) {")
     + grab(APP, "function fmt(n, d = 2, min) {", "function markLangPills()"),
     ctx,

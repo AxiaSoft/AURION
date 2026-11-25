@@ -5974,18 +5974,56 @@ function rememberTicket() {
  * from what MetaTrader actually said, and says so plainly when it
  * cannot.
  */
+/**
+ * The identity of a symbol: which instrument this spelling names.
+ *
+ * The same rule as the engine's _series_key, and it has to be - the
+ * engine decides whose candles and whose contract specification are
+ * whose, and the desk decides which specification to price a ticket
+ * with. Two answers to that question means the number shown before
+ * the order and the number enforced after it are about different
+ * instruments.
+ *
+ * It is written here as well as there, rather than asked for, because
+ * this is consulted while a stop is being dragged - a round trip per
+ * mouse move is not something to ship. What stops the two copies
+ * drifting is tests/fixtures/symbol-identity.json: one table of
+ * cases, and both implementations are tested against it.
+ *
+ * The rule: fold away a broker's account-type suffix when it is its
+ * own separator-delimited token of up to four letters, and fold away
+ * nothing else.
+ *
+ * What this replaced cut the name at the first non-alphanumeric
+ * character, so CL.F25 and CL.G25 - two different dated futures -
+ * both came out as "CL" and shared one contract specification. The
+ * tick value of the wrong contract prices every stop on the right
+ * one.
+ */
+function symbolSeriesKey(symbol) {
+  const s = String(symbol || "").trim().toUpperCase();
+  if (!s) return "";
+  const m = /[._\-\s][A-Z]{1,4}$/.exec(s);
+  const base = (m && m.index >= 3) ? s.slice(0, m.index) : s;
+  return base.replace(/[^A-Z0-9]/g, "");
+}
+
+/** Are these two spellings the same instrument? */
+function sameSeriesSymbol(a, b) {
+  const ka = symbolSeriesKey(a);
+  return Boolean(ka) && ka === symbolSeriesKey(b);
+}
+
 function specFor(symbol) {
   const specs = ((S.snap && S.snap.strategy && S.snap.strategy.money) || {}).specs || {};
   const want = String(symbol || "").trim();
   if (!want) return null;
   if (specs[want]) return specs[want];
   /* "EURUSD" against a book that calls it "EURUSD.m". The engine's
-     bridge does the same match on the way in. */
-  const root = (v) => String(v || "").toUpperCase().replace(/[^A-Z0-9].*$/, "");
-  const base = root(want);
-  if (!base) return null;
+     bridge folds the same suffixes on the way in. */
+  if (!symbolSeriesKey(want)) return null;
   for (const key of Object.keys(specs)) {
-    if (root(key) === base) return specs[key];
+    if (sameSeriesSymbol(key, want)) return specs[key];
   }
   return null;
 }

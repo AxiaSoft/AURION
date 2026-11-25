@@ -86,6 +86,21 @@ class SymbolSpec:
         ones an EA or a test would use (``tick_value``) are both taken,
         and ``point`` stands in for a missing tick size, which is true
         for nearly every symbol and never worse than nothing.
+
+        Both spellings of the LOSS tick value are taken too, and that
+        pairing is load-bearing. A stop is a loss, so it is priced
+        with SYMBOL_TRADE_TICK_VALUE_LOSS, which on metals, indices
+        and anything quoted away from the account currency is not the
+        profit value. Only the prefixed spelling used to be read - so
+        a specification that arrived from the expert, which sends the
+        plain one, fell through to the profit value instead.
+
+        Same broker, same symbol: a hundred-tick stop on one lot cost
+        100 by way of the expert and 130 by way of the MetaTrader5
+        package. The trader's ten-dollar cap was really a
+        thirteen-dollar cap, and nothing raised - it just widened
+        somebody's risk in silence, which is the exact failure this
+        module was written to prevent.
         """
         info = dict(info or {})
 
@@ -98,7 +113,10 @@ class SymbolSpec:
             return default
 
         tick_size = pick("trade_tick_size", "tick_size", "point")
-        tick_value = pick("trade_tick_value_loss", "trade_tick_value", "tick_value")
+        tick_value = pick(
+            "trade_tick_value_loss", "tick_value_loss",
+            "trade_tick_value", "tick_value",
+        )
         digits = int(pick("digits", default=5))
         return cls(
             symbol=str(info.get("name") or symbol or ""),
