@@ -60,13 +60,19 @@ const code = (src) => src.replace(/\/\*[\s\S]*?\*\//g, "").replace(/^\s*\/\/.*$/
 
 check("the promise and the first fetch are two different numbers", () => {
   if (!/const HISTORY_DAYS = 180;/.test(appJs)) throw new Error("the promise moved or shrank");
-  const open = /const CHART_OPEN_DAYS = (\d+);/.exec(appJs);
+  /* How much a chart opens with is a BAR budget now, not a single
+     period: thirty days was 43 200 bars of M1 and 2 880 of M15, which
+     is seven different loads wearing one number. The check is the
+     same one it always was - the first fetch must not be the whole
+     promise - restated against the budget. */
+  const open = /const PAGE_BARS = (\d+);/.exec(appJs);
   if (!open) throw new Error("nothing says how much a chart opens with");
-  if (Number(open[1]) >= 180) throw new Error("a chart still opens on the whole window: " + open[1]);
+  const m1SixMonths = 180 * 24 * 60;
+  if (Number(open[1]) >= m1SixMonths) throw new Error("a chart still opens on the whole window: " + open[1]);
   const prime = /const CHART_PRIME_BARS = (\d+);/.exec(appJs);
   if (!prime) throw new Error("the background prime has no budget of its own");
   if (Number(prime[1]) > 2000) throw new Error("the prime is not a prime: " + prime[1]);
-  return `open ${open[1]}d, prime ${prime[1]} bars`;
+  return `page ${open[1]} bars, prime ${prime[1]} bars`;
 });
 
 check("the fetch that runs before any chart exists asks for the prime, not the window", () => {
@@ -216,7 +222,7 @@ check("a chart opens on one known period", () => {
      longer exists is a setting nobody can change. */
   const fn = code(body(appJs, "chartDays"));
   if (/localStorage/.test(fn)) throw new Error("it still reads a choice that cannot be made");
-  if (!/return CHART_OPEN_DAYS;/.test(fn)) throw new Error("chartDays no longer answers with the opening period");
+  if (!/return pageDays\(timeframe\);/.test(fn)) throw new Error("chartDays no longer answers with the opening period");
 });
 
 /* ── C. the kill switch, on the press ───────────────────────────────── */

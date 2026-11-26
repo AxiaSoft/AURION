@@ -1349,7 +1349,13 @@
     "engine_replacing": "در حال جایگزینی موتور…",
     "engine_replace_btn": "همین حالا موتور را جایگزین کن",
     "engine_replace_ok": "موتور حالا همان فایل‌های روی دیسک را اجرا می‌کند.",
-    "engine_replace_failed": "موتور جایگزین نشد. به data/logs/desk.log نگاه کنید."
+    "engine_replace_failed": "موتور جایگزین نشد. به data/logs/desk.log نگاه کنید.",
+    "err_retry": "تلاش دوباره",
+    "err_retry_later": "با این حال تلاش کن",
+    "err_finish": "تکمیل به‌روزرسانی",
+    "err_cancel": "لغو به‌روزرسانی",
+    "err_cancel_partial": "با این حال لغو کن",
+    "err_cancel_partial_confirm": "بخشی از فایل‌ها از قبل جایگزین شده‌اند. اگر اکنون لغو کنید، AURION تا تکمیل به‌روزرسانی ترکیبی از نسخهٔ قدیم و جدید را اجرا می‌کند. باز هم لغو شود؟"
   },
   "sup": {
     "warn_days": "{n} روز تا پایان پشتیبانی این نسخه",

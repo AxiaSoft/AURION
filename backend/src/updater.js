@@ -817,11 +817,22 @@ async function applyUpdate(updateId, serverUrl, opts = {}) {
        Restarting is therefore the default and the end of the apply, not
        a suggestion printed afterwards. A caller that genuinely wants the
        files without the restart has to say so, and it is told plainly
-       in the answer which of the two actually happened. */
+       in the answer which of the two actually happened.
+
+       And it is a RELAUNCH, not a restart - the product closes
+       completely and opens again. Asked for in those words, and it is
+       also the only thing that works here. A restart stops the engine
+       and leaves the desk process standing, but Node keeps the modules
+       it required for the life of that process, the shell keeps its
+       loaded assemblies and the service worker keeps a cached
+       index.html. An update rewrites all of those on disk, so after a
+       restart the files would be new and the program running them
+       would still be the old one - which is the whole failure this
+       apply exists to avoid. See hostctl.scheduleRelaunch. */
     const restart = opts.restart !== false;
     let restartScheduled = false;
     if (restart) {
-      try { hostctl.scheduleRestart(); restartScheduled = true; } catch { restartScheduled = false; }
+      try { hostctl.scheduleRelaunch(); restartScheduled = true; } catch { restartScheduled = false; }
     }
 
     setProgress({ active: false, phase: restartScheduled ? "restart" : "done", done: applied.length, file: "" });

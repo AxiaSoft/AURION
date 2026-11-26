@@ -10156,19 +10156,23 @@ const views = {
             <a class="btn ghost" href="guide-backtest.html?v=desk45" target="_blank" rel="noopener">${icon("flask")} ${I18N.t("guide.backtest")}</a>
           </div>
         </div>
-        <div class="card">
-          <h3>${I18N.t("host.restart")}</h3>
-          <p class="sub">${I18N.t("host.restart_hint")}</p>
-          <button class="btn block" id="sys-restart" type="button">${I18N.t("host.restart")}</button>
-        </div>
-        <div class="card danger-zone" id="danger-zone">
-          <h3>${I18N.t("host.factory")}</h3>
-          <p class="sub">${I18N.t("host.factory_hint")}</p>
-          <label class="field"><span>${I18N.t("host.factory_type")}</span>
-            <input id="factory-confirm" autocomplete="off" placeholder="FACTORY" />
-          </label>
-          <button class="btn danger block" id="sys-factory" type="button">${I18N.t("host.factory_go")}</button>
-        </div>`)}
+        ${/* Restart and Factory reset used to sit here, and were
+              removed on request.
+
+              Neither was a setting. Restart was a button that took
+              the desk down and brought it back, offered beside
+              things like the language and the timezone, where the
+              only reason to press it was that something had already
+              gone wrong - and the product now restarts itself when
+              it genuinely needs to, after an update. Factory reset
+              wiped the licence, the users, the database and every
+              log behind a text box, one slip away from the ordinary
+              settings a trader edits every day.
+
+              Support can still do both: scripts/restart-aurion.cmd
+              and the /api/host/* routes are unchanged and are what
+              a recovery actually runs. What has gone is a trading
+              desk offering to erase itself as a menu item. */ ""}`)}
       </div></div>`;
   },
   about() {
@@ -12567,8 +12571,11 @@ function bindView(view) {
       await API.post("/api/prop/unlock", {});
       await reloadSettings();
     };
-    const rst = $("sys-restart"); if (rst) rst.onclick = () => restartSystem();
-    const fac = $("sys-factory"); if (fac) fac.onclick = () => factoryReset();
+    /* No bindings for sys-restart / sys-factory: both cards were
+       removed from the system settings on request. restartSystem()
+       and factoryReset() are kept - the update flow and the recovery
+       paths still call them - but nothing in the settings page
+       reaches them any more. */
     const licGo = $("lic-go");
     if (licGo) licGo.onclick = async () => {
       const key = String($("lic-key")?.value || "").trim();
@@ -16528,7 +16535,7 @@ function bindChartDesk() {
     // in charts.js. Without this test the restore would be undone
     // one line later, every time.
     if (typeof S.chart.showSpan === "function" && !S.pendingMoment && !S.chart.hasStoredView()) {
-      S.chart.showSpan(barsForDays(S.chartFocus.timeframe, chartDays()));
+      S.chart.showSpan(barsForDays(S.chartFocus.timeframe, chartDays(S.chartFocus.timeframe)));
     }
     // A date asked for from the calendar can be honoured now rather
     // than after the refetch: these are bars, and that is all the
@@ -16557,7 +16564,7 @@ function bindChartDesk() {
            back to the live edge here is the jump this is meant to
            stop. */
         if (typeof S.chart.showSpan === "function" && !S.pendingMoment && !held) {
-          S.chart.showSpan(barsForDays(S.chartFocus.timeframe, chartDays()));
+          S.chart.showSpan(barsForDays(S.chartFocus.timeframe, chartDays(S.chartFocus.timeframe)));
         }
         // Now that there are bars to land on - see goPendingMoment.
         if (S.pendingMoment) goPendingMoment();
@@ -16652,13 +16659,69 @@ function barsForDays(timeframe, days) {
  * dragging now carries that job on its own - see loadMoreHistory.
  */
 const CHART_PRIME_BARS = 600;
-const CHART_OPEN_DAYS = 30;
-/* One number now, not a remembered choice from a strip that no longer
-   exists. Kept as a function because a dozen call sites read it and
-   "how much does a chart open with" is still a question worth having
-   one answer to. */
-function chartDays() {
-  return CHART_OPEN_DAYS;
+
+/* ── one page of history ────────────────────────────────────────────
+ *
+ * A page is measured in BARS, not in days, and that is the correction
+ * at the heart of this. "Load a week at a time" is the right
+ * instinct and a week is not one size: a week of M1 is 10 080 bars, a
+ * week of D1 is five. Days are what a trader sees; bars are what the
+ * engine, the wire and the browser actually pay for.
+ *
+ *     M1    7 days    10 080 bars
+ *     M5   30 days     8 640 bars
+ *     M15  90 days     8 640 bars
+ *     M30 180 days     8 640 bars
+ *     H1  180 days     4 320 bars
+ *     H4  180 days     1 080 bars
+ *     D1  180 days       400 bars
+ *
+ * Against the six-month M1 pull this replaces - 259 200 bars, 48 MB
+ * of JSON, 3.26 seconds of engine - one page is 1.9 MB and about a
+ * tenth of a second.
+ *
+ * This single number is now BOTH how much a chart opens with and how
+ * much one drag backwards fetches, because they are the same
+ * question asked twice and keeping two answers is how CHART_OPEN_DAYS
+ * (thirty days, every timeframe) came to mean 43 200 bars on M1 and
+ * 2 880 on M15.
+ *
+ * Mirrors engine/aurion/util/history.py: PAGE_BARS, page_days,
+ * page_window. Both sides must agree or the desk asks for pages the
+ * engine does not cut on the same boundaries.
+ */
+const PAGE_BARS = 10000;
+const PAGE_DAY_STEPS = [1, 2, 3, 5, 7, 14, 30, 45, 60, 90, HISTORY_DAYS];
+
+/* Days of this timeframe that fit the bar budget, rounded to a span a
+   human recognises. NEAREST, not up: rounding up walks off the end of
+   the ladder - M15 wants 104 days and the next step is 180 - and a
+   chart would open on the whole window again. Ties go to the shorter
+   page, because being wrong upward costs a slow chart and downward
+   costs one more round trip. */
+function pageDays(timeframe) {
+  const mins = TF_MINUTES[String(timeframe || "M15").toUpperCase()] || 15;
+  const want = PAGE_BARS / ((24 * 60) / mins);
+  let best = PAGE_DAY_STEPS[0];
+  for (const step of PAGE_DAY_STEPS) {
+    if (Math.abs(step - want) < Math.abs(best - want)) best = step;
+  }
+  return Math.min(best, HISTORY_DAYS);
+}
+
+/* One page in bars, carrying the 400-bar floor that barsForDays
+   applies - so D1, where a page is the whole window, still arrives
+   with enough bars for an indicator to say anything. */
+function pageWindow(timeframe) {
+  return barsForDays(timeframe, pageDays(timeframe));
+}
+
+/* How much a chart opens with. Still a function because a dozen call
+   sites ask "how much does a chart open with", but it now takes the
+   timeframe, because thirty days was never one answer - it was seven
+   different loads wearing one number. */
+function chartDays(timeframe) {
+  return pageDays(timeframe);
 }
 
 /**
@@ -16698,11 +16761,15 @@ const HIST_RETRY_MS = 30000;
  * Now each drag fetches one slab that ENDS where the chart currently
  * begins - and the engine reads it out of AURION's own database, so
  * no download happens at all for bars that have been seen once. A
- * slab is about three weeks, floored so a slow timeframe still gets a
- * useful jump and capped so M1 does not send a month in one reply.
+ * A slab is one PAGE - the same number of bars a chart opens with,
+ * because "how much history arrives at once" has one answer whether
+ * it arrives on open or on a drag. It used to be its own formula
+ * (twenty days, floored at 1000, capped at 8000) which meant a chart
+ * opened on one amount of history and then grew by a different one,
+ * and neither was related to what either costs.
  */
 function historyStep(timeframe) {
-  return Math.max(1000, Math.min(8000, barsForDays(timeframe, 20)));
+  return pageWindow(timeframe);
 }
 
 /** The oldest bar held, as the engine spells times. */
@@ -16710,6 +16777,49 @@ function oldestHeldTime() {
   const first = (S.candles || [])[0];
   const t = first && String(first.time || "");
   return t || "";
+}
+
+/**
+ * Everything held plus everything arriving, as one series.
+ *
+ * Pages that have been loaded are never thrown away - asked for in
+ * those words: "when I come forward again the older candles must not
+ * be deleted, only hidden". Hiding is what the view already does; it
+ * draws a span ending at the newest bar, so bars outside it are off
+ * screen and nothing more. Deleting is what the desk used to do to
+ * them, and from an unexpected direction: a `candles` broadcast
+ * REPLACED the series whenever the arriving set was no shorter than
+ * the one held. A trader who had paged back through three months of
+ * M1 and then sat still held 30 000 bars starting in January; the
+ * next unasked broadcast of the current week is 10 080 bars starting
+ * on Monday, which is shorter, so that was safe - but prime a second
+ * chart, or let the expert finish a deeper stream, and an arriving
+ * set that is merely LONGER wiped out pages that reached further
+ * back. The work of a dozen drags, gone, with no way to tell it had
+ * happened except that the chart would not go back any more.
+ *
+ * Union, therefore, rather than a contest. Overlapping bar times
+ * take the arriving value, because that is the fresher reading of
+ * the same bar; everything either side is kept. Times are normalised
+ * through barTime for the usual reason - the expert and the
+ * MetaTrader5 package spell the same instant two ways, and an
+ * un-normalised union would hold both and draw the bar twice.
+ */
+function mergeSeries(held, incoming) {
+  const have = Array.isArray(held) ? held : [];
+  const rows = Array.isArray(incoming) ? incoming : [];
+  if (!have.length) return rows;
+  if (!rows.length) return have;
+  const by = new Map();
+  for (const b of have) {
+    const t = barTime(b && b.time);
+    if (t) by.set(t, b);
+  }
+  for (const b of rows) {
+    const t = barTime(b && b.time);
+    if (t) by.set(t, b);
+  }
+  return Array.from(by.keys()).sort().map((t) => by.get(t));
 }
 
 /** Older bars in front of what is held, without duplicating the joint. */
@@ -17625,7 +17735,7 @@ async function fetchChartSignals(symbol, timeframe) {
        looking at. The marks have to cover the bars that can be
        scrolled to, and that is exactly how many we hold. */
     const held = (S.candles || []).length;
-    const count = Math.max(400, Math.min(barsForDays(timeframe, chartDays()), held || barsForDays(timeframe, chartDays())));
+    const count = Math.max(400, Math.min(pageWindow(timeframe), held || pageWindow(timeframe)));
     /* Which right-hand edge this pass is being run against - see
        signalsReachHead. */
     const headBar = held ? (S.candles[held - 1] || {}) : {};
@@ -17706,7 +17816,7 @@ async function pickMarket(symbol, timeframe, opts) {
        no chart is on screen, barely anything, because this call also
        runs the moment the socket says hello and that is the load the
        trader was waiting through before the desk appeared. */
-    const count = prime ? CHART_PRIME_BARS : barsForDays(timeframe, chartDays());
+    const count = prime ? CHART_PRIME_BARS : barsForDays(timeframe, chartDays(timeframe));
     const c = await API.get(`/api/candles?symbol=${encodeURIComponent(symbol)}`
       + `&timeframe=${encodeURIComponent(timeframe)}&count=${count}`);
     noteHistoryDepth(symbol, timeframe, c && c.depth);
@@ -17977,6 +18087,12 @@ function onLive(msg) {
       const held = (S.candles || []).length;
       const deeper = !same || !held || incoming.length >= held
         || String((incoming[0] || {}).time || "") < String((S.candles[0] || {}).time || "");
+      /* Nothing arriving may shorten the history on screen. "Deeper
+         wins" was the old rule and it is not enough: deeper by COUNT
+         can still start later, so a long broadcast of recent bars
+         replaced - deleted - the pages a trader had dragged into
+         view. See mergeSeries. */
+      const joined = same ? mergeSeries(S.candles, incoming) : incoming;
       if (deeper && !barsSaySeries(incoming, d.symbol || S.symbol)) {
         /* Same check on the socket path: the broadcast names a
            series, and bars that disown that name are not it. */
@@ -17984,7 +18100,7 @@ function onLive(msg) {
       } else if (deeper) {
         if (d.symbol) S.symbol = d.symbol;
         if (d.timeframe) S.timeframe = d.timeframe;
-        S.candles = incoming;
+        S.candles = joined;
         /* WHICH series these are. Without this the desk held bars it
            could not prove belonged to the chart in front of it, so
            cachedCandlesFor() said no - and the loading veil stayed up
@@ -19036,6 +19152,72 @@ function updateErrorText(res) {
   return text;
 }
 
+/**
+ * What a user can usefully DO about an update that failed.
+ *
+ * Asked for directly: "when an update hits an internet problem or any
+ * other problem, put a try-again option, or get it updated anyway, or
+ * cancel the update - choose the right option for the error."
+ *
+ * The right option is not the same for every error, which is the
+ * whole point. The screen used to print a code and stop, so a dropped
+ * Wi-Fi connection and a server that was never configured ended the
+ * same way: a dead end with nothing to press. Pressing retry against
+ * a misconfiguration is just as useless as having no retry against a
+ * blip, so each error is sorted into one of three kinds.
+ *
+ *   retry     something that may well work on a second attempt - the
+ *             connection dropped, the server was briefly unwell, the
+ *             archive did not come down. Offer it, and offer cancel.
+ *   wait      GitHub's rate limit. Retrying immediately cannot work
+ *             and the reply says when it clears, so the button is
+ *             offered with that time attached rather than inviting a
+ *             pointless press.
+ *   blocked   nothing the user presses here can change the outcome:
+ *             no update server configured, the release does not
+ *             exist, repair needs a source it does not have. Only a
+ *             way out is offered - a retry button would be a lie.
+ *
+ * A PART-APPLIED install overrides all of it. Some files are new and
+ * some are old, which is a worse state than either end, so finishing
+ * is always offered however the failure is otherwise classified -
+ * including when it is blocked, because the files already written
+ * came from somewhere and the half-state has to be resolvable.
+ */
+const UPDATE_RETRY_ERRORS = new Set([
+  "network_error",
+  "server_error",
+  "fetch_failed",
+  "timeout",
+  "download_failed",
+  "repair_failed",
+]);
+
+const UPDATE_BLOCKED_ERRORS = new Set([
+  "update_server_not_configured",
+  "no_server",
+  "update_not_found",
+  "repair_needs_github",
+  "repair_no_files",
+]);
+
+function updateFailureKind(res) {
+  const code = String((res && res.error) || "").trim();
+  if (code === "github_rate_limited") return "wait";
+  if (UPDATE_BLOCKED_ERRORS.has(code)) return "blocked";
+  if (UPDATE_RETRY_ERRORS.has(code)) return "retry";
+  /* The default is retry, deliberately.
+     The codes above are the ones the updater names on purpose;
+     everything else arrives as whatever an exception happened to say,
+     and those are overwhelmingly transient - a socket closed, a file
+     busy, a disk that was briefly unavailable. Treating an unknown
+     failure as permanent leaves the user with no way forward over a
+     message nobody wrote, which is the complaint being fixed. An
+     unnecessary retry button costs one wasted press; a missing one
+     costs the update. */
+  return "retry";
+}
+
 function updateSummaryHtml(res) {
   if (!res.ok) {
     return `<span class="err">${esc(I18N.t("upd.error"))} \u2014 ${esc(updateErrorText(res))}</span>`;
@@ -19241,8 +19423,57 @@ async function runUpdateInstall(upd) {
           total: fmtNum(ar.applied_count + (ar.remaining || 0), 0),
         }))}</p>`
       : "";
-    say(`<p class="err">${esc(I18N.t("upd.install_failed"))} \u2014 ${esc(why)}</p>${partial}`, true);
-    return false;
+    /* ...and what to do about it. See updateFailureKind: the actions
+       follow the error, so a dropped connection offers another go and
+       a server that was never configured does not pretend one would
+       help. */
+    const kind = updateFailureKind(ar);
+    const stuckPartway = Boolean(ar && ar.applied_count);
+    const canRetry = kind !== "blocked" || stuckPartway;
+    const retryLabel = kind === "wait"
+      ? I18N.t("upd.err_retry_later")
+      : (stuckPartway ? I18N.t("upd.err_finish") : I18N.t("upd.err_retry"));
+    const buttons = `
+      <div class="upd-install-acts">
+        ${canRetry ? `<button type="button" class="btn primary" data-upd-retry>${esc(retryLabel)}</button>` : ""}
+        <button type="button" class="btn" data-upd-cancel>${
+          esc(I18N.t(stuckPartway ? "upd.err_cancel_partial" : "upd.err_cancel"))}</button>
+      </div>`;
+    say(`<p class="err">${esc(I18N.t("upd.install_failed"))} \u2014 ${esc(why)}</p>${partial}${buttons}`, true);
+
+    return await new Promise((resolve) => {
+      const done = (value) => { host.remove(); resolve(value); };
+      host.querySelector("[data-upd-cancel]")?.addEventListener("click", async () => {
+        /* A cancel that leaves files half-replaced is not a cancel,
+           and saying nothing about it would let a trader walk away
+           from a desk running two versions at once. The install is
+           still abandoned if they insist - it is their machine - but
+           not silently.
+
+           Through askConfirm, never window.confirm: a browser dialog
+           ignores the theme, cannot be read right to left, and can
+           be suppressed outright by the host. */
+        if (stuckPartway) {
+          const sure = await askConfirm({
+            title: I18N.t("upd.install_failed"),
+            body: I18N.t("upd.err_cancel_partial_confirm"),
+            ok: I18N.t("upd.err_cancel_partial"),
+            cancel: I18N.t("upd.err_finish"),
+            danger: true,
+          });
+          if (!sure) return;
+        }
+        done(false);
+      });
+      host.querySelector("[data-upd-retry]")?.addEventListener("click", async () => {
+        host.remove();
+        /* Straight back into the same install. The apply skips every
+           file that already matches, so a retry after a part-applied
+           failure picks up where it stopped rather than starting the
+           download again. */
+        resolve(await runUpdateInstall(upd));
+      });
+    });
   }
 
   /* The check leaves out every file that already matches, so an install
