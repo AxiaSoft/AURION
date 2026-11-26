@@ -237,6 +237,92 @@ check("...but the recovery paths behind them still work", () => {
   }
 });
 
+/* ── 4. the window really closes, and no blank page is left ───────── */
+
+/* Reported after the relaunch shipped:
+ *   "I asked for the whole program to close after an update - the
+ *    window too - and come back on the new version. The window never
+ *    closes, and when the update finishes an empty html page comes up
+ *    and I have to press F5."
+ * Three separate faults, pinned here one by one. */
+
+const WINDOW = read("installer", "window", "AppWindow.cs");
+const CMD = read("scripts", "relaunch-aurion.cmd");
+
+check("the relaunch does not leave the window standing on a question", () => {
+  /* taskkill without /f is a WM_CLOSE, which the shell answers with
+     the quit confirmation - and nobody is there to press Yes. The
+     polite ask is still right as an opener; what was missing is the
+     part that makes it final. */
+  if (!/taskkill \/f \/im AURION\.exe/.test(CMD)) {
+    throw new Error("a cancelled close leaves AURION.exe alive forever");
+  }
+  const polite = CMD.indexOf("taskkill /im AURION.exe");
+  const forced = CMD.indexOf("taskkill /f /im AURION.exe");
+  if (polite < 0 || forced < polite) {
+    throw new Error("the window is killed before it is ever asked to save its state");
+  }
+  if (!/tasklist \/fi "imagename eq AURION\.exe"/i.test(CMD)) {
+    throw new Error("the force is unconditional rather than a fallback");
+  }
+});
+
+check("the page closes the product instead of reloading itself", () => {
+  if (!/function closeForUpdateRelaunch\(/.test(APP)) {
+    throw new Error("the update still ends in a same-window reload");
+  }
+  if (!/closeForUpdateRelaunch\(host, mark\)/.test(APP)) {
+    throw new Error("finishUpdateRestart never asks the window to close");
+  }
+  const fn = APP.slice(APP.indexOf("function closeForUpdateRelaunch("));
+  if (!/tellHost\(\{ type: "shutdown"/.test(fn.slice(0, 1200))) {
+    throw new Error("nothing tells the shell to go");
+  }
+  /* In a browser tab there is no window to close, so the old ending
+     has to stay reachable. */
+  if (!/return false;/.test(fn.slice(0, 600))) {
+    throw new Error("a browser tab is left with no ending at all");
+  }
+});
+
+check("the update asks for a full relaunch, and the route obeys it", () => {
+  if (!/API\.post\("\/api\/host\/restart", \{ full: true \}\)/.test(APP)) {
+    throw new Error("the update's restart still takes the engine-only path");
+  }
+  const BACKEND = read("backend", "src", "index.js");
+  const route = BACKEND.slice(BACKEND.indexOf('guarded.post("/host/restart"'));
+  if (!/hostctl\.scheduleRelaunch\(\)/.test(route.slice(0, 600))) {
+    throw new Error("the route cannot do a full relaunch at all");
+  }
+  if (!/hostctl\.scheduleRestart\(\)/.test(route.slice(0, 600))) {
+    throw new Error("the engine-only restart was lost");
+  }
+});
+
+check("a failed navigation is retried rather than left on screen", () => {
+  if (!/private async Task RetryNavigationAsync\(\)/.test(WINDOW)) {
+    throw new Error("the blank page has no cure but F5");
+  }
+  if (!/if \(!e\.IsSuccess\)/.test(WINDOW)) {
+    throw new Error("NavigationCompleted still treats a failure as an arrival");
+  }
+  const retry = WINDOW.slice(WINDOW.indexOf("private async Task RetryNavigationAsync()"));
+  if (!/DeskIsAnsweringAsync\(\)/.test(retry.slice(0, 1800))) {
+    throw new Error("the retry navigates blind instead of waiting for the desk");
+  }
+  if (!/Navigate\(DeskUrl\)/.test(retry.slice(0, 1800))) {
+    throw new Error("the retry never reloads the page");
+  }
+});
+
+check("the closing screen says so, in every language", () => {
+  for (const [name, pack] of [["en", EN], ["fa", FA], ["ar", AR]]) {
+    if (!pack.upd || !pack.upd.inst_closing || !pack.upd.inst_closing_sub) {
+      throw new Error(`${name} has no words for the closing screen`);
+    }
+  }
+});
+
 console.log("");
 const bad = results.filter((r) => !r).length;
 console.log(`update-recovery-and-relaunch: ${bad ? bad + " of " + results.length + " checks FAILED" : results.length + " checks passed"}`);

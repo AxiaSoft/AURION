@@ -1436,14 +1436,85 @@ internal sealed class AppWindow : Form
 
         // Hold the splash until the desk has actually painted, so the window
         // never shows an empty white frame between the two.
-        core.NavigationCompleted += (_, _) =>
+        core.NavigationCompleted += async (_, e) =>
         {
+            if (!e.IsSuccess)
+            {
+                // The desk was not there to answer.
+                //
+                // This is the blank page that was reported after every
+                // update: "when the update finishes an empty html page
+                // comes up and I have to press F5". It is WebView2's own
+                // error page, shown because the desk's port went away
+                // underneath this window while the product was being
+                // relaunched - and nothing ever navigated back to it, so
+                // the only way out was a manual refresh.
+                //
+                // A failed navigation is not an ending. The splash goes
+                // back up and the page is fetched again the moment the
+                // desk answers.
+                await RetryNavigationAsync();
+                return;
+            }
             _splash.Progress = 1f;
             _view.Visible = true;
             _splash.Visible = false;
             ReportVisibility();
         };
         _view.Source = new Uri(DeskUrl);
+    }
+
+    /// <summary>True while a failed navigation is being waited out.</summary>
+    private bool _renavigating;
+
+    /// <summary>
+    /// Wait for the desk to come back, then load the page again.
+    ///
+    /// Pressing F5 is not something a product should ask of anybody,
+    /// and it is not even available to a trader who does not know the
+    /// key. The window owns this: it knows the page failed, it already
+    /// knows how to ask whether the desk is answering, and it can
+    /// navigate itself.
+    ///
+    /// Polled rather than timed, because a relaunch is not uniform -
+    /// the desk has to go down, the files have to be replaced, and the
+    /// new one has to open its port. The budget is the same one the
+    /// first start gets.
+    /// </summary>
+    private async Task RetryNavigationAsync()
+    {
+        if (_renavigating || _stopping || _stopped || _sessionEnding) return;
+        _renavigating = true;
+        try
+        {
+            // Back behind the splash. An error page left visible while
+            // this runs is the same blank window with a spinner nobody
+            // can see.
+            _view.Visible = false;
+            _splash.Visible = true;
+            _splash.Progress = -1f;
+
+            var clock = Stopwatch.StartNew();
+            while (clock.Elapsed < StartupBudget)
+            {
+                if (_stopping || _stopped || _sessionEnding) return;
+                await Task.Delay(1500);
+                if (!await DeskIsAnsweringAsync()) continue;
+                try { _view.CoreWebView2?.Navigate(DeskUrl); }
+                catch { /* the next tick tries again */ }
+                return;
+            }
+            // Out of patience. Show the page as it is, error and all,
+            // rather than a splash that will never finish: whatever
+            // WebView2 says about the failure is more use than nothing.
+            _view.Visible = true;
+            _splash.Visible = false;
+            ReportVisibility();
+        }
+        finally
+        {
+            _renavigating = false;
+        }
     }
 
     private static bool IsDesk(string uri) =>
