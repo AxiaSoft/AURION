@@ -238,6 +238,10 @@ class Trader:
     def __init__(self) -> None:
         self.bus = Bus()
         self.store = Store()
+        #: Newest bar time already written to disk, per "symbol:timeframe".
+        #: See _store_candles - it is what keeps a progress push from
+        #: re-writing a whole three-month history for four new bars.
+        self._candles_written: dict[str, str] = {}
         self.bridge = MT5Bridge()
         # Downloaded bars belong to this installation, not to the life of
         # this process. The bridge keeps them in memory; this is where it
@@ -617,10 +621,17 @@ class Trader:
             # commits every row: three thousand bars were three thousand
             # flushes to disk, which is the stall a trader reads as
             # "still downloading candles" long after the download ended.
-            self.store.save_candles(
-                payload.get("symbol") or "", payload.get("timeframe") or "",
-                payload.get("bars") or [],
-            )
+            #
+            # And off the event loop, writing only what is new. This
+            # event carries the WHOLE series every time it fires - a
+            # three-month M5 download is 51 840 bars, measured at
+            # 225 ms of blocking SQLite here on a fast disk and far
+            # worse on a trader's, and the progress pushes meant the
+            # engine re-wrote all of it every few seconds while the
+            # download was still running. The desk allows five seconds
+            # for a health answer, so that was the engine being
+            # declared dead and restarted mid-download.
+            await self._store_candles(payload)
             await self.bus.publish("candles", payload)
             return
         if kind == "account":
@@ -5586,6 +5597,44 @@ class Trader:
                 )
             except asyncio.TimeoutError:
                 continue
+
+    async def _store_candles(self, payload: dict[str, Any]) -> None:
+        """Persist a history push without stopping the engine to do it.
+
+        Two things make this cheap enough to survive a very large
+        download:
+
+        * it runs in a thread. SQLite releases the GIL while it works,
+          so the event loop keeps answering health checks, ticks and
+          the rest of the ingest while the rows go down;
+        * a partial only writes the bars past the newest one already
+          written for that series. The payload is always the whole
+          series, so without this a sixty thousand bar download writes
+          sixty thousand rows per progress push, over and over, for
+          the handful of new bars at the end of it.
+
+        The final push writes the lot regardless. That is the one that
+        has to be complete - it repairs anything a re-stream moved
+        underneath an earlier partial, and it is the only write whose
+        cost is paid once per download.
+        """
+        symbol = str(payload.get("symbol") or "")
+        timeframe = str(payload.get("timeframe") or "")
+        bars = payload.get("bars") or []
+        if not bars:
+            return
+        key = f"{symbol}:{timeframe}"
+        rows = bars
+        if payload.get("partial"):
+            seen = self._candles_written.get(key) or ""
+            if seen:
+                rows = [b for b in bars if str((b or {}).get("time") or "") > seen]
+            if not rows:
+                return
+        await asyncio.to_thread(self.store.save_candles, symbol, timeframe, rows)
+        newest = str((bars[-1] or {}).get("time") or "")
+        if newest:
+            self._candles_written[key] = newest
 
     async def _push_analysis(self, force: bool = False) -> None:
         """Send the live analysis the moment it changes.
