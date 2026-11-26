@@ -91,8 +91,17 @@ console.log("\n=== A. the install restarts the thing it updated ===");
 console.log("\n=== B. stale bytecode is removed, not stepped around ===");
 {
   say(/function purgeBytecode\(/.test(UPDATER), "the updater can delete compiled bytecode");
-  const i = UPDATER.indexOf("const purged = purgeBytecode();");
+  /* The apply calls purgeCaches() now, which clears the bytecode and
+     then everything else the previous version left cached - the
+     scratch directories and the shell's browser cache, where the old
+     app.js was still being served from. The bytecode is still the
+     first thing it does; this check is about it being reached at all
+     and about the ORDER below. */
+  const i = UPDATER.indexOf("const purged = purgeCaches();");
   say(i > 0, "and the apply actually calls it");
+  say(/function purgeCaches\(/.test(UPDATER)
+      && /purgeBytecode\(path\.join\(base, "engine"\)\)/.test(UPDATER),
+    "...through the sweep that also clears every other cache of the old build");
   /* Named for whichever call ends the apply. It is scheduleRelaunch
      now; what this check is actually about is the ORDER - the
      bytecode has to be gone before the product is brought back, or

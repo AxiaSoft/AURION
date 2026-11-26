@@ -17904,13 +17904,19 @@ async function pickMarket(symbol, timeframe, opts) {
       if (empty) empty.textContent = I18N.t("markets.loading_tf");
     }
   }
-  const r = await API.post("/api/market", { symbol, timeframe });
+  /* Tell the engine how much is actually being drawn.
+     Without a count it fell back to the whole six-month promise -
+     51 840 bars on M5 against a page budget of 10 000 - and did it on
+     every symbol and timeframe change, which is what kept knocking
+     the engine offline. */
+  const marketCount = prime ? CHART_PRIME_BARS : barsForDays(timeframe, chartDays(timeframe));
+  const r = await API.post("/api/market", { symbol, timeframe, count: marketCount });
   if (r && r.ok && typeof r.bars === "number") {
     /* Not the whole promise. What this chart is set to show - or, when
        no chart is on screen, barely anything, because this call also
        runs the moment the socket says hello and that is the load the
        trader was waiting through before the desk appeared. */
-    const count = prime ? CHART_PRIME_BARS : barsForDays(timeframe, chartDays(timeframe));
+    const count = marketCount;
     const c = await API.get(`/api/candles?symbol=${encodeURIComponent(symbol)}`
       + `&timeframe=${encodeURIComponent(timeframe)}&count=${count}`);
     noteHistoryDepth(symbol, timeframe, c && c.depth);
@@ -19709,7 +19715,7 @@ async function finishUpdateRestart(host, upd, opts) {
       msg.innerHTML = `<p class="sub">${esc(I18N.t("upd.inst_failed_wait"))}</p>`
         + `<button class="btn" type="button" id="upd-inst-reload">${esc(I18N.t("upd.reload_now"))}</button>`;
       const rb = msg.querySelector("#upd-inst-reload");
-      if (rb) rb.onclick = () => location.replace("/?v=" + Date.now());
+      if (rb) rb.onclick = () => reloadFresh(0);
     }
     return false;
   }
@@ -19775,7 +19781,7 @@ async function finishUpdateRestart(host, upd, opts) {
         const after = ok ? await verifyEngineBuild() : null;
         if (after && !after.stale && !after.differentTree) {
           try { I18N.clearCache(); } catch (e) { /* */ }
-          location.replace("/?v=" + Date.now());
+          reloadFresh(0);
           return;
         }
         swap.disabled = false;
@@ -19801,7 +19807,7 @@ async function finishUpdateRestart(host, upd, opts) {
      be able to fetch the pack the update just shipped. */
   try { I18N.clearCache(); } catch (e) { /* */ }
   if (msg) msg.innerHTML = `<p class="ok">${icon("check")} ${esc(I18N.t("upd.inst_done"))}</p>`;
-  setTimeout(() => location.replace("/?v=" + Date.now()), 700);
+  reloadFresh(700);
   return true;
 }
 
@@ -19966,6 +19972,56 @@ async function verifyEngineBuild() {
 }
 
 /**
+ * Throw away the browser's copy of the previous version, then reload.
+ *
+ * Asked for with the update itself: every cache of the old build has
+ * to go. The engine's bytecode and the shell's browser cache are
+ * cleared on disk (updater.purgeCaches, and the relaunch script for
+ * the ones Windows keeps locked), but the PAGE holds two of its own
+ * that nothing on disk can reach:
+ *
+ *   the Cache Storage entries the service worker filled, which it
+ *   serves whenever a request fails - so a desk that reloads while
+ *   the new engine is still coming up is served last week's app.js
+ *   and keeps it;
+ *
+ *   the service worker registration itself, which outlives the page
+ *   and would re-install the same cache a moment later.
+ *
+ * A cache-busting query string was the whole of the old answer, and
+ * it does not touch either of them.
+ *
+ * Best effort and never blocking: a reload that does not happen is a
+ * desk that looks hung, which is worse than a stale stylesheet.
+ */
+async function dropBrowserCaches() {
+  const jobs = [];
+  try {
+    if (typeof caches !== "undefined" && caches && caches.keys) {
+      jobs.push(caches.keys().then((keys) => Promise.all(keys.map((k) => caches.delete(k)))));
+    }
+  } catch (e) { /* no Cache Storage here */ }
+  try {
+    if (navigator.serviceWorker && navigator.serviceWorker.getRegistrations) {
+      jobs.push(navigator.serviceWorker.getRegistrations()
+        .then((regs) => Promise.all(regs.map((r) => r.unregister()))));
+    }
+  } catch (e) { /* no worker here */ }
+  try { localStorage.removeItem("aurion.view"); } catch (e) { /* */ }
+  try { await Promise.race([Promise.all(jobs), new Promise((r) => setTimeout(r, 2500))]); } catch (e) { /* */ }
+}
+
+/** Reload onto the new build, with nothing of the old one left in the page. */
+function reloadFresh(delayMs) {
+  setTimeout(() => {
+    dropBrowserCaches().then(
+      () => location.replace("/?v=" + Date.now()),
+      () => location.replace("/?v=" + Date.now()),
+    );
+  }, Math.max(0, Number(delayMs) || 0));
+}
+
+/**
  * Write every shipped file again, then restart: the repair install.
  *
  * For the desk whose files look right and behave wrong, where the
@@ -19984,13 +20040,28 @@ async function runRepairInstall() {
 
   const host = document.createElement("div");
   host.className = "upd-install";
+  /* A way out, asked for by name: a repair rewrites every shipped
+     file rather than the few an update differs by, so it is long, and
+     until now the only way to stop one was to kill the desk - which
+     leaves the half-written installation the repair was meant to
+     cure. The button stops it at the next file and puts back
+     everything already written; see updater.cancelApply. */
   host.innerHTML = `
     <div class="auth-card upd-card upd-install-card" role="dialog" aria-modal="true">
       <h2 class="upd-install-title">${esc(I18N.t("upd.repair_running"))}</h2>
       <p class="sub upd-install-msg">${esc(I18N.t("upd.repair_wait"))}</p>
+      <div class="upd-install-actions">
+        <button class="btn ghost" type="button" id="upd-repair-cancel">${esc(I18N.t("upd.repair_cancel"))}</button>
+      </div>
     </div>`;
   document.body.appendChild(host);
   const msg = host.querySelector(".upd-install-msg");
+  const cancelBtn = host.querySelector("#upd-repair-cancel");
+  if (cancelBtn) cancelBtn.onclick = async () => {
+    cancelBtn.disabled = true;
+    if (msg) msg.textContent = I18N.t("upd.repair_cancelling");
+    try { await API.post("/api/system/update/cancel", {}); } catch (e) { /* the repair answers */ }
+  };
 
   let r;
   try {
@@ -19999,6 +20070,17 @@ async function runRepairInstall() {
     r = { ok: false, error: String((err && err.message) || err || "") };
   }
 
+  /* Stopped on request. Not a failure, and nothing is left half
+     done, so it says so plainly rather than in the red the failure
+     path uses. */
+  if (r && r.cancelled) {
+    if (cancelBtn) cancelBtn.remove();
+    if (msg) msg.innerHTML = `<span class="sub">${esc(I18N.t("upd.repair_cancelled"))}</span>`;
+    setTimeout(() => host.remove(), 4000);
+    return false;
+  }
+
+  if (cancelBtn) cancelBtn.remove();
   if (!r || !r.ok) {
     host.classList.add("is-bad");
     if (msg) {
@@ -20020,7 +20102,7 @@ async function runRepairInstall() {
   }
   try { I18N.clearCache(); } catch (e) { /* */ }
   if (msg) msg.innerHTML = `<span class="ok">${icon("check")} ${esc(I18N.t("upd.repair_done"))}</span>`;
-  setTimeout(() => location.replace("/?v=" + Date.now()), 900);
+  reloadFresh(900);
   return true;
 }
 
@@ -20367,7 +20449,7 @@ function showSupportLock(st) {
       /* Already current after all - the lock was standing on a stale
          answer. Reload rather than quietly unlock a half-built desk. */
       say(I18N.t("sup.eos_already"), false);
-      setTimeout(() => location.replace("/?v=" + Date.now()), 1200);
+      reloadFresh(1200);
       return;
     }
     host.classList.add("is-installing");

@@ -499,6 +499,75 @@ function setProgress(patch) {
   applyProgress = { ...applyProgress, ...patch };
 }
 
+/* ── stopping an install that is already running ───────────────────
+ *
+ * Asked for about the repair: "put a cancel button on the repair
+ * install so the operation can be stopped."
+ *
+ * A repair writes EVERY shipped file, not the handful an update
+ * differs by - hundreds of them, over a connection that may be slow -
+ * and until now the only way out was to kill the desk part way
+ * through, which leaves exactly the half-written installation the
+ * repair was supposed to cure.
+ *
+ * So the cancel is cooperative and it UNDOES. The write loop checks
+ * this flag between files, and the files already written are put back
+ * from the backup the same loop has been taking all along. Stopping
+ * therefore returns the machine to the state it was in before the
+ * button was pressed, rather than to some point in the middle - which
+ * is the only kind of cancel worth offering on something that rewrites
+ * an application.
+ *
+ * It is a flag rather than an AbortController because the thing being
+ * interrupted is a loop over files, not one request: aborting the
+ * transfer in flight would stop the download and leave the loop to
+ * carry on with the next file.
+ */
+let cancelRequested = false;
+
+/** Ask the running install to stop at the next file boundary. */
+function cancelApply() {
+  if (!applyProgress.active) return { ok: false, error: "nothing_running" };
+  cancelRequested = true;
+  setProgress({ phase: "cancelling" });
+  return { ok: true, cancelling: true, done: applyProgress.done, total: applyProgress.total };
+}
+
+/** True once, then cleared: the loop asks this between files. */
+function takeCancel() {
+  if (!cancelRequested) return false;
+  cancelRequested = false;
+  return true;
+}
+
+/**
+ * Put back every file this run had already overwritten.
+ *
+ * The apply copies each existing file into the backup directory
+ * before replacing it, so the backup is a complete record of what
+ * this run changed - which makes undoing it a copy in the other
+ * direction. A file that was CREATED by this run has no backup, and
+ * is deleted rather than left behind.
+ */
+function restoreFromBackup(backupDir, applied) {
+  const restored = [];
+  for (const rel of applied || []) {
+    const target = path.join(ROOT, rel);
+    const backup = path.join(backupDir, rel);
+    try {
+      if (fs.existsSync(backup)) {
+        ensureDirSecure(path.dirname(target));
+        fs.copyFileSync(backup, target);
+        restored.push(rel);
+      } else {
+        fs.rmSync(target, { force: true });
+        restored.push(rel);
+      }
+    } catch { /* best effort: a file we cannot put back is reported by count */ }
+  }
+  return restored;
+}
+
 /** What the desk polls while it waits for the apply to come back. */
 function getApplyProgress() {
   return { ...applyProgress };
@@ -632,6 +701,87 @@ function purgeBytecode(root) {
   return removed;
 }
 
+/**
+ * Everything the PREVIOUS version left cached, deleted.
+ *
+ * Asked for in these words: "after every update, every cache of the
+ * old version must be completely cleared - every cache there is."
+ *
+ * purgeBytecode above only ever covered Python. It is the one that
+ * bit hardest, but it was never the only copy of the old build on the
+ * machine, and the others fail in the same way: the files on disk are
+ * new, something is still serving the old ones, and the desk says
+ * "installed" over software that has not changed.
+ *
+ * What is cleared, and why each one is a real hiding place:
+ *
+ *   engine/**\/__pycache__, *.pyc   the compiled modules - see
+ *                                   purgeBytecode.
+ *   data/cache, data/tmp            scratch the engine and desk keep
+ *                                   between runs, keyed by nothing
+ *                                   that changes when the build does.
+ *   data/update_tmp                 part-downloaded archives from an
+ *                                   earlier attempt.
+ *   the WebView2 profile cache      the desk's own HTML, CSS and JS,
+ *                                   held by the shell's browser
+ *                                   engine. This is the one that
+ *                                   survives everything else: the
+ *                                   files are rewritten, the process
+ *                                   restarts, and the window renders
+ *                                   last week's app.js out of
+ *                                   %LOCALAPPDATA%\AxiaSoft\AURION\
+ *                                   Window\EBWebView.
+ *
+ * What is NOT cleared, deliberately: data/update_backups (the way
+ * back from a bad install), the licence, the archive database, the
+ * logs and the user's config. A cache is something that can be
+ * rebuilt from the installation; none of those can.
+ *
+ * Best effort throughout. A file locked by the process that is about
+ * to be relaunched must not fail an install that has already written
+ * every byte to disk - and the relaunch script sweeps the same
+ * directories once the application is actually gone, which is the
+ * only moment the browser cache can be deleted on Windows.
+ */
+function webviewProfileDir() {
+  if (process.platform !== "win32") return "";
+  const local = process.env.LOCALAPPDATA || "";
+  if (!local) return "";
+  // Mirrors AppWindow.ShowDeskAsync, which hands this exact path to
+  // CoreWebView2Environment.CreateAsync.
+  return path.join(local, "AxiaSoft", "AURION", "Window");
+}
+
+function purgeCaches(root) {
+  const base = root || ROOT;
+  const removed = purgeBytecode(path.join(base, "engine"));
+  const rm = (dir) => {
+    if (!dir) return;
+    try {
+      if (!fs.existsSync(dir)) return;
+      fs.rmSync(dir, { recursive: true, force: true });
+      removed.push(dir);
+    } catch { /* locked, or gone between the test and the delete */ }
+  };
+  for (const rel of ["cache", "tmp", "update_tmp"]) rm(path.join(base, "data", rel));
+  /* The shell's browser cache. Only the cache subtrees, never the
+     whole profile: the profile also holds the window's own state,
+     and wiping that would log the trader out of nothing useful and
+     lose their placement. */
+  const profile = webviewProfileDir();
+  if (profile) {
+    for (const rel of [
+      ["EBWebView", "Default", "Cache"],
+      ["EBWebView", "Default", "Code Cache"],
+      ["EBWebView", "Default", "Service Worker"],
+      ["EBWebView", "Default", "GPUCache"],
+      ["EBWebView", "ShaderCache"],
+      ["EBWebView", "GrShaderCache"],
+    ]) rm(path.join(profile, ...rel));
+  }
+  return removed;
+}
+
 async function applyUpdate(updateId, serverUrl, opts = {}) {
   const kind = getSourceKind();
   /* No publication test here, and there never was one that worked:
@@ -724,9 +874,28 @@ async function applyUpdate(updateId, serverUrl, opts = {}) {
   }
 
   setProgress({ phase: "apply" });
+  /* A cancel pressed against a previous run must not kill this one. */
+  cancelRequested = false;
   const applied = [];
   try {
     for (const f of files) {
+      /* Between files, never mid-file: a half-written file is the one
+         state this must not be able to produce. */
+      if (takeCancel()) {
+        const restored = restoreFromBackup(backupDir, applied);
+        setProgress({ active: false, phase: "cancelled", file: "" });
+        return {
+          ok: false,
+          error: "cancelled",
+          cancelled: true,
+          applied_count: applied.length,
+          restored: restored.length,
+          /* Nothing was left changed, so there is nothing to finish
+             and nothing to warn about. The desk shows a plain
+             "stopped", not a part-install. */
+          reverted: restored.length === applied.length,
+        };
+      }
       const fromArchive = snapshot ? takeFromSnapshot(snapshot, f) : null;
       const dl = fromArchive
         ? fromArchive
@@ -799,8 +968,10 @@ async function applyUpdate(updateId, serverUrl, opts = {}) {
 
     /* Before anything restarts, and whether or not this update touched
        Python: stale bytecode is what let an updated installation keep
-       running the old modules. See purgeBytecode. */
-    const purged = purgeBytecode();
+       running the old modules - and it was never the only copy of the
+       old build on the machine. Every cache goes, asked for in those
+       words. See purgeCaches. */
+    const purged = purgeCaches();
     /* The files on disk have just changed, so any cached fingerprint of
        them describes the installation that existed a second ago. */
     try { buildId.invalidate(); } catch { /* */ }
@@ -1043,7 +1214,10 @@ module.exports = {
   checkForUpdates,
   applyUpdate,
   repairInstall,
+  cancelApply,
   purgeBytecode,
+  purgeCaches,
+  webviewProfileDir,
   getUpdateState,
   getApplyProgress,
   collectLocalManifest,

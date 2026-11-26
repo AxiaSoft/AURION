@@ -462,7 +462,11 @@ check(
   );
   check(
     "an already-current machine reloads rather than silently unlocking",
-    /res\.available[\s\S]{0,260}location\.replace/.test(body),
+    /* reloadFresh() rather than location.replace: the reload now
+       drops the page's own copy of the previous build first. Same
+       intent - the lock must not simply disappear on a stale answer,
+       everything is re-read. */
+    /res\.available[\s\S]{0,260}(?:location\.replace|reloadFresh\()/.test(body),
     "the lock was standing on a stale answer; a reload re-reads everything"
   );
 }

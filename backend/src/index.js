@@ -1276,6 +1276,21 @@ guarded.post("/system/update/apply", async (req, res) => {
   res.json(result);
 });
 
+/* Stop an install or repair that is already running.
+ *
+ * Asked for about the repair, which writes every shipped file rather
+ * than the few an update differs by: without this the only way out
+ * was to kill the desk part way through, leaving the half-written
+ * installation a repair exists to cure. It stops at the next file
+ * boundary and puts back everything already written - see
+ * updater.cancelApply. */
+guarded.post("/system/update/cancel", (req, res) => {
+  if (req.user.role !== "owner") return res.status(403).json({ ok:false, error:"owner_only" });
+  const result = updater.cancelApply();
+  if (!result.ok) return res.status(409).json(result);
+  res.json(result);
+});
+
 /* Write every shipped file again, matching or not, then restart.
  *
  * For the installation whose files hash correctly and whose behaviour is
