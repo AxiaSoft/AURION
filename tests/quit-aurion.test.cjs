@@ -119,7 +119,10 @@ ok(!/\["quit",/.test(APP.slice(APP.indexOf("const NAV"), APP.indexOf("const NAV"
   "it is not in NAV - every entry there is somewhere to go, this is the way out");
 
 {
-  const b = body(APP, "async function quitAurion()");
+  // Takes an options argument now: the window's X routes through this
+  // same function so the trader gets AURION's modal rather than a
+  // Win32 MessageBox, and it passes { asked: "window" } to say so.
+  const b = body(APP, "async function quitAurion(opts)");
   ok(/if \(shuttingDown\(\)\) return;/.test(b),
     "pressing it twice does not start two shutdowns");
   ok(/await askConfirm\(/.test(b) && /danger: true/.test(b),
@@ -154,8 +157,20 @@ ok(/raw\.Contains\("\\"shutdown\\""\)/.test(WINDOW),
   ok(/BeginInvoke\(new Action\(Close\)\)/.test(b),
     "and closes the window, which runs the one shutdown path there is");
 }
-ok(/var answer = _askedByDesk \? DialogResult\.Yes : AskToShutDown\(\);/.test(WINDOW),
-  "so the question is never put twice, in two languages, over its own screen");
+{
+  // Same intent, new shape. The X no longer reaches straight for a
+  // MessageBox: it asks the desk first so the trader gets AURION's own
+  // modal, in AURION's language and reading direction. What must still
+  // hold is that a trader the desk has ALREADY asked is not asked
+  // again - whichever of the two routes put the question.
+  const at = WINDOW.indexOf("if (!_askedByDesk)");
+  ok(at > 0, "a trader the desk already asked is not asked a second time");
+  const b = WINDOW.slice(at, at + 1400);
+  ok(/AskTheDeskToConfirmShutdown\(\)/.test(b),
+    "and the question that is put is AURION's own, not a Windows box");
+  ok(b.indexOf("AskTheDeskToConfirmShutdown()") < b.indexOf("AskToShutDown()"),
+    "so the question is never put twice, in two languages, over its own screen");
+}
 
 ok(/POST|post\("\/api\/shutdown"/.test(INDEX) || /app\.post\("\/api\/shutdown"/.test(INDEX),
   "the desk endpoint both paths end at still exists");

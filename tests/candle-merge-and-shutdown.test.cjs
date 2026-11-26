@@ -308,7 +308,13 @@ ok(/private async void OnFormClosing\(object\? sender, FormClosingEventArgs e\)/
      language and puts the shutdown screen up behind it; the host's
      MessageBox appearing on top of that would be the same question
      twice, the second time in English. */
-  ok(/var answer = _askedByDesk \? DialogResult\.Yes : AskToShutDown\(\);/.test(body)
+  /* The question is now AURION's own modal, put inside the desk, with
+     the Win32 box kept only for a page that cannot be asked. What this
+     check is for is unchanged: pressing the X asks SOMETHING, and the
+     window stays open until it has been answered. */
+  ok(/if \(!_askedByDesk\)/.test(body)
+     && /AskTheDeskToConfirmShutdown\(\)/.test(body)
+     && /AskToShutDown\(\)/.test(body)
      && /e\.Cancel = true;/.test(body),
     "a terminate asks first, and the window stays open until it is answered");
   ok(/TellDeskWeAreStopping\(/.test(body),

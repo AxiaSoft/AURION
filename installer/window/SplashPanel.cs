@@ -61,6 +61,58 @@ internal sealed class SplashPanel : Panel
 
     private string _status = "";
 
+    // ---- the shutdown face -------------------------------------------
+    //
+    // The same panel, painted as Windows XP's shutdown screen.
+    //
+    // Asked for by name, and the reason is not nostalgia. Pressing the
+    // X used to put THIS panel back exactly as it looks at start-up -
+    // same mark, same sweeping bar, same wash - so the screen that
+    // means "AURION is stopping" was pixel for pixel the screen that
+    // means "AURION is starting". A trader who glanced at it could not
+    // tell which was happening, and the natural reading of a start-up
+    // screen that will not go away is that the product has hung.
+    //
+    // XP's shutdown screen is the most widely understood picture of "the
+    // machine is stopping, leave it alone" that exists, and - more to
+    // the point here - it looks nothing whatever like this panel's
+    // start-up face. That is the property being bought.
+    private static readonly Color XpDeep = Color.FromArgb(0x05, 0x0F, 0x33);
+    private static readonly Color XpNavy = Color.FromArgb(0x10, 0x38, 0x7A);
+    private static readonly Color XpInk = Color.FromArgb(0xFF, 0xFF, 0xFF);
+    private static readonly Color XpSub = Color.FromArgb(0xB6, 0xC6, 0xE8);
+    private static readonly Color XpBlock = Color.FromArgb(0x8F, 0xE0, 0x6A);
+
+    // Tahoma was XP's interface face. The fallback matters more than the
+    // name: it is not installed everywhere any more, and GDI+ silently
+    // substitutes rather than throwing.
+    private readonly Font _xpTitleFont = new("Tahoma", 19f, FontStyle.Regular, GraphicsUnit.Point);
+    private readonly Font _xpSubFont = new("Tahoma", 9f, FontStyle.Regular, GraphicsUnit.Point);
+
+    private bool _shuttingDown;
+
+    /// <summary>
+    /// Paint the shutdown face instead of the start-up one.
+    ///
+    /// A whole second panel would have to be positioned, shown, hidden
+    /// and disposed in step with this one for no gain: the two never
+    /// appear together, and the shutdown path must not be able to fail
+    /// on a cosmetic step.
+    /// </summary>
+    public bool ShuttingDown
+    {
+        get => _shuttingDown;
+        set
+        {
+            if (_shuttingDown == value) return;
+            _shuttingDown = value;
+            // The cached wash belongs to the other face.
+            _backdrop?.Dispose();
+            _backdrop = null;
+            Invalidate();
+        }
+    }
+
     public SplashPanel(Image? mark)
     {
         _mark = mark;
@@ -130,6 +182,8 @@ internal sealed class SplashPanel : Panel
             _titleFont.Dispose();
             _subFont.Dispose();
             _statusFont.Dispose();
+            _xpTitleFont.Dispose();
+            _xpSubFont.Dispose();
             _inkBrush.Dispose();
             _mutedBrush.Dispose();
             _trackBrush.Dispose();
@@ -152,6 +206,32 @@ internal sealed class SplashPanel : Panel
         g.SmoothingMode = SmoothingMode.AntiAlias;
         g.TextRenderingHint = TextRenderingHint.ClearTypeGridFit;
         g.InterpolationMode = InterpolationMode.HighQualityBicubic;
+
+        if (_shuttingDown)
+        {
+            // XP's field: near-black at the edges lifting to its navy in
+            // the middle. Deliberately NOT the Aurora wash below - the
+            // whole point of this face is that it cannot be mistaken for
+            // the start-up one, and sharing a backdrop would undo that
+            // at a glance. The mark and the wordmark are not baked in
+            // either; PaintShutdown draws what this face needs.
+            using var wash = new LinearGradientBrush(
+                new Rectangle(0, 0, w, Math.Max(1, h)), XpNavy, XpDeep, 90f);
+            g.FillRectangle(wash, 0, 0, w, h);
+            using (var pool = new GraphicsPath())
+            {
+                var r = Math.Max(w, h) * 0.75f;
+                pool.AddEllipse(w / 2f - r, h * 0.42f - r, r * 2, r * 2);
+                using var glow = new PathGradientBrush(pool)
+                {
+                    CenterColor = Color.FromArgb(120, XpNavy),
+                    SurroundColors = new[] { Color.FromArgb(0, XpDeep) },
+                    CenterPoint = new PointF(w / 2f, h * 0.42f),
+                };
+                g.FillEllipse(glow, w / 2f - r, h * 0.42f - r, r * 2, r * 2);
+            }
+            return bmp;
+        }
 
         // The same backdrop the setup wizard and the uninstaller are
         // painted on. Four lights rather than two, a vignette, and a
@@ -231,6 +311,12 @@ internal sealed class SplashPanel : Panel
         g.SmoothingMode = SmoothingMode.AntiAlias;
         g.TextRenderingHint = TextRenderingHint.ClearTypeGridFit;
 
+        if (_shuttingDown)
+        {
+            PaintShutdown(g, w, h);
+            return;
+        }
+
         var centreY = h / 2f;
 
         // Progress track
@@ -269,6 +355,88 @@ internal sealed class SplashPanel : Panel
             var size = g.MeasureString(_status, _statusFont);
             g.DrawString(_status, _statusFont, _mutedBrush, (w - size.Width) / 2f, barY + 18);
         }
+    }
+
+    /// <summary>
+    /// XP's shutdown screen: the plate, the rule, and the marquee.
+    ///
+    /// The marquee is the detail worth getting right. XP showed a short
+    /// train of separate blocks travelling across a sunken trough, and
+    /// it never corresponded to anything measurable - which is the
+    /// honest thing here too, because nothing can know how long the
+    /// engine will take to let go of MetaTrader. A bar that filled
+    /// would be inventing a number.
+    /// </summary>
+    private void PaintShutdown(Graphics g, int w, int h)
+    {
+        var centreY = h / 2f;
+
+        // The mark, above the heading, as XP set its logo.
+        var markSize = Math.Min(96, Math.Max(56, h / 7));
+        if (_mark != null)
+        {
+            var mx = (w - markSize) / 2f;
+            var my = centreY - markSize - 58f;
+            g.DrawImage(_mark, mx, my, markSize, markSize);
+        }
+
+        using var ink = new SolidBrush(XpInk);
+        using var sub = new SolidBrush(XpSub);
+
+        // The heading.
+        var title = _status.Length > 0 ? _status : "AURION is shutting down\u2026";
+        var tSize = g.MeasureString(title, _xpTitleFont);
+        var tY = centreY - 34f;
+        g.DrawString(title, _xpTitleFont, ink, (w - tSize.Width) / 2f, tY);
+
+        // The hairline XP ruled under its heading. Wide enough to read
+        // as a rule rather than as an underline on the words.
+        var ruleW = Math.Min(360, w - 96);
+        var ruleX = (w - ruleW) / 2f;
+        var ruleY = tY + tSize.Height + 10f;
+        using (var pen = new Pen(Color.FromArgb(56, 255, 255, 255)))
+        {
+            g.DrawLine(pen, ruleX, ruleY, ruleX + ruleW, ruleY);
+        }
+
+        g.DrawString(
+            "Please wait. Do not switch your computer off.",
+            _xpSubFont, sub,
+            (w - g.MeasureString("Please wait. Do not switch your computer off.", _xpSubFont).Width) / 2f,
+            ruleY + 12f);
+
+        // The trough.
+        var barW = 210f;
+        var barH = 16f;
+        var barX = (w - barW) / 2f;
+        var barY = ruleY + 52f;
+        using (var trough = new SolidBrush(Color.FromArgb(82, 0, 0, 0)))
+        {
+            g.FillRectangle(trough, barX, barY, barW, barH);
+        }
+        using (var edge = new Pen(Color.FromArgb(90, 255, 255, 255)))
+        {
+            g.DrawRectangle(edge, barX, barY, barW, barH);
+        }
+
+        // The train: three blocks with gaps, travelling left to right and
+        // clipped to the inside of the trough.
+        const float blockW = 10f;
+        const float gap = 4f;
+        var trainW = (blockW * 3) + (gap * 2);
+        var travel = barW + trainW;
+        var x = barX - trainW + (travel * _sweep);
+        var inner = new RectangleF(barX + 2f, barY + 2f, barW - 4f, barH - 4f);
+        var clip = g.Clip;
+        g.SetClip(inner);
+        using (var block = new SolidBrush(XpBlock))
+        {
+            for (var i = 0; i < 3; i++)
+            {
+                g.FillRectangle(block, x + (i * (blockW + gap)), inner.Y, blockW, inner.Height);
+            }
+        }
+        g.Clip = clip;
     }
 
     private static GraphicsPath RoundedRect(RectangleF r, float radius)

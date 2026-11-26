@@ -3064,6 +3064,12 @@ function bindHostBridge() {
          rather than leaving the trader looking at a live-looking
          screen that has in fact stopped being true. */
       if (msg.type === "shutdown") showShutdownScreen(msg.reason || "window");
+      /* The X was pressed, and the window has handed the question
+         over rather than putting a Windows box up in front of a
+         Persian desk. Asked for in those words. It is the SAME
+         question the power button asks - one wording, one modal, one
+         answer - so it runs the same function. */
+      if (msg.type === "ask-shutdown") quitAurion({ asked: "window" });
     });
   } catch (e) {
     /* running in a browser, not the desk window */
@@ -3154,14 +3160,25 @@ function showStoppedScreen() {
  * menu full of harmless ones. Then said, then done - in that order,
  * so the screen is up before the thing that paints it goes away.
  */
-async function quitAurion() {
+async function quitAurion(opts) {
   if (shuttingDown()) return;
+  /* Tell the host the modal is up.
+     Only when the host is the one asking: it cancelled its own close
+     and is waiting a moment to find out whether this page is alive
+     enough to ask at all. Without the acknowledgement it falls back
+     to the Win32 box, which is the thing being replaced - and with
+     it, a crashed page still closes, because the acknowledgement
+     never arrives. */
+  if (opts && opts.asked === "window") tellHost({ type: "ask-shutdown-shown" });
   const yes = await askConfirm({
     title: I18N.t("quit.title"),
     body: I18N.t("quit.body"),
     ok: I18N.t("quit.confirm"),
     danger: true,
   });
+  /* "No" needs no reply. The host cancelled the close before it asked
+     us, so silence leaves the window exactly where the trader wants
+     it: open. */
   if (!yes) return;
   showShutdownScreen("desk");
 
@@ -3169,14 +3186,7 @@ async function quitAurion() {
      close itself, and a window left open over a stopped desk is the
      complaint in reverse. Posting the message gives it the same path
      as the X, minus the question we have just asked. */
-  let host = false;
-  try {
-    const bridge = window.chrome && window.chrome.webview;
-    if (bridge && typeof bridge.postMessage === "function") {
-      bridge.postMessage(JSON.stringify({ type: "shutdown", reason: "desk" }));
-      host = true;
-    }
-  } catch { host = false; }
+  const host = tellHost({ type: "shutdown", reason: (opts && opts.asked) || "desk" });
 
   /* In a browser - or in a window whose host did not answer - the desk
      is asked directly. Doing this as well as the message would be
@@ -3188,6 +3198,25 @@ async function quitAurion() {
     catch { /* a desk that cannot be asked may already be going */ }
   }
   await waitUntilStopped();
+}
+
+/**
+ * Say something to the window hosting this page.
+ *
+ * Returns whether there was a host to say it to, which is the only
+ * way the desk can tell the difference between running inside AURION
+ * and running in a browser tab - and the two want different endings
+ * to a shutdown.
+ */
+function tellHost(msg) {
+  try {
+    const bridge = window.chrome && window.chrome.webview;
+    if (!bridge || typeof bridge.postMessage !== "function") return false;
+    bridge.postMessage(JSON.stringify(msg));
+    return true;
+  } catch (e) {
+    return false;
+  }
 }
 
 /** Watch the desk until it stops answering, then say so. */
