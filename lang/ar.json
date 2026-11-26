@@ -1349,7 +1349,13 @@
     "engine_replacing": "يجري استبدال المحرك…",
     "engine_replace_btn": "استبدل المحرك الآن",
     "engine_replace_ok": "يشغّل المحرك الآن الملفات الموجودة على القرص.",
-    "engine_replace_failed": "تعذّر استبدال المحرك. راجع data/logs/desk.log."
+    "engine_replace_failed": "تعذّر استبدال المحرك. راجع data/logs/desk.log.",
+    "err_retry": "إعادة المحاولة",
+    "err_retry_later": "حاول على أي حال",
+    "err_finish": "إكمال التحديث",
+    "err_cancel": "إلغاء التحديث",
+    "err_cancel_partial": "إلغاء على أي حال",
+    "err_cancel_partial_confirm": "تم استبدال بعض الملفات بالفعل. إذا ألغيت الآن، سيعمل AURION بمزيج من الإصدارين القديم والجديد حتى يكتمل التحديث. هل تريد الإلغاء على أي حال؟"
   },
   "sup": {
     "warn_days": "{n} أيام حتى انتهاء دعم هذه النسخة",

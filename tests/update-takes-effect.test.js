@@ -61,8 +61,18 @@ console.log("\n=== A. the install restarts the thing it updated ===");
 {
   const i = UPDATER.indexOf("async function applyUpdate(");
   const body = UPDATER.slice(i, UPDATER.indexOf("\n}\n", UPDATER.indexOf("copyExpertsToTerminals()", i)));
-  say(/hostctl\.scheduleRestart\(\)/.test(body),
-    "the successful apply schedules the restart itself");
+  /* A RELAUNCH, not a restart. Asked for in those words - "after
+     installing any update the application should shut down once and
+     open again" - and it is also the only thing that works here: a
+     restart leaves the Node desk process alive, and Node keeps the
+     modules it required for the life of that process, so an update
+     that rewrote backend/src would be on disk and not in memory.
+     This check used to name scheduleRestart; it names the stronger
+     one now, and refuses the weaker. */
+  say(/hostctl\.scheduleRelaunch\(\)/.test(body),
+    "the successful apply closes the product and opens it again");
+  say(!/hostctl\.scheduleRestart\(\)/.test(body),
+    "...and not a restart, which would leave the desk running its old modules");
   say(/opts\.restart !== false/.test(body),
     "and it is the default - declining has to be said out loud");
   say(/restarting: restartScheduled/.test(body),
@@ -83,8 +93,14 @@ console.log("\n=== B. stale bytecode is removed, not stepped around ===");
   say(/function purgeBytecode\(/.test(UPDATER), "the updater can delete compiled bytecode");
   const i = UPDATER.indexOf("const purged = purgeBytecode();");
   say(i > 0, "and the apply actually calls it");
-  say(UPDATER.slice(0, i).includes("hostctl") && i < UPDATER.indexOf("hostctl.scheduleRestart()"),
-    "before the restart, so the engine comes up with nothing stale to find");
+  /* Named for whichever call ends the apply. It is scheduleRelaunch
+     now; what this check is actually about is the ORDER - the
+     bytecode has to be gone before the product is brought back, or
+     the new engine imports the old .pyc. */
+  const endsApply = UPDATER.indexOf("hostctl.scheduleRelaunch()");
+  say(endsApply > 0, "the apply ends by bringing the product back");
+  say(UPDATER.slice(0, i).includes("hostctl") && i < endsApply,
+    "and the purge happens first, so the engine comes up with nothing stale to find");
 
   /* Behavioural: it must really delete a __pycache__, not merely exist. */
   const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "aurion-pyc-"));

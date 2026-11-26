@@ -2654,9 +2654,19 @@ body.st-page-open{overflow:hidden}
  * which is the control everyone looks for first.
  *
  * Laid out as a sibling of the scroller and taken out of flow, so a
- * long list of releases slides under it rather than past it. The
- * heading is given room on that side instead of being squeezed, which
- * is why .cal-pop-in carries the padding rather than the title.
+ * long list of releases slides under it rather than past it.
+ *
+ * The room for it is given to the HEADING ALONE, not to the card.
+ * .cal-pop-in carried padding-inline-end:28px at first, which does
+ * keep the title clear of the cross - and also moves every other
+ * thing in the card 28px off-centre, because they all shrink with it:
+ * the "no events" line is text-align:center inside a box that is no
+ * longer the card's width, and the chart button stops at a margin
+ * nothing explains. Reported as the contents sitting away from the
+ * button and not being centred, which is exactly what it was.
+ *
+ * Only the first line is ever beside the cross, so only the first
+ * line pays for it.
  *
  * Logical properties throughout: in Persian and Arabic the popover
  * opens to the left of the day and the cross belongs in the opposite
@@ -2677,8 +2687,11 @@ body.st-page-open{overflow:hidden}
    touch screen, so the target is grown to 44 without growing the
    button - the same trick .sj-close uses. */
 .cal-pop-x::after{content:"";position:absolute;inset:-7px}
-/* Room for the cross, so the day's heading does not run under it. */
-.cal-pop .cal-pop-in{ padding-inline-end:28px }
+/* Room for the cross, so the day's heading does not run under it -
+   and nothing below the heading pays for it. 34px is the button's
+   30px plus its 6px inset, less the 2px the heading may sit under
+   without touching it. */
+.cal-pop .cal-pop-in > .cal-dp-main{ padding-inline-end:34px }
 @keyframes cal-pop-in{ from{opacity:0; transform:translateY(-4px)} to{opacity:1; transform:none} }
 @media (prefers-reduced-motion:reduce){ .cal-pop{animation:none} }
 .cal-day .cal-evs{ overflow:auto; min-block-size:0; padding-inline-end:4px }

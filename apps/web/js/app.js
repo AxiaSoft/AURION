@@ -10156,19 +10156,23 @@ const views = {
             <a class="btn ghost" href="guide-backtest.html?v=desk45" target="_blank" rel="noopener">${icon("flask")} ${I18N.t("guide.backtest")}</a>
           </div>
         </div>
-        <div class="card">
-          <h3>${I18N.t("host.restart")}</h3>
-          <p class="sub">${I18N.t("host.restart_hint")}</p>
-          <button class="btn block" id="sys-restart" type="button">${I18N.t("host.restart")}</button>
-        </div>
-        <div class="card danger-zone" id="danger-zone">
-          <h3>${I18N.t("host.factory")}</h3>
-          <p class="sub">${I18N.t("host.factory_hint")}</p>
-          <label class="field"><span>${I18N.t("host.factory_type")}</span>
-            <input id="factory-confirm" autocomplete="off" placeholder="FACTORY" />
-          </label>
-          <button class="btn danger block" id="sys-factory" type="button">${I18N.t("host.factory_go")}</button>
-        </div>`)}
+        ${/* Restart and Factory reset used to sit here, and were
+              removed on request.
+
+              Neither was a setting. Restart was a button that took
+              the desk down and brought it back, offered beside
+              things like the language and the timezone, where the
+              only reason to press it was that something had already
+              gone wrong - and the product now restarts itself when
+              it genuinely needs to, after an update. Factory reset
+              wiped the licence, the users, the database and every
+              log behind a text box, one slip away from the ordinary
+              settings a trader edits every day.
+
+              Support can still do both: scripts/restart-aurion.cmd
+              and the /api/host/* routes are unchanged and are what
+              a recovery actually runs. What has gone is a trading
+              desk offering to erase itself as a menu item. */ ""}`)}
       </div></div>`;
   },
   about() {
@@ -12567,8 +12571,11 @@ function bindView(view) {
       await API.post("/api/prop/unlock", {});
       await reloadSettings();
     };
-    const rst = $("sys-restart"); if (rst) rst.onclick = () => restartSystem();
-    const fac = $("sys-factory"); if (fac) fac.onclick = () => factoryReset();
+    /* No bindings for sys-restart / sys-factory: both cards were
+       removed from the system settings on request. restartSystem()
+       and factoryReset() are kept - the update flow and the recovery
+       paths still call them - but nothing in the settings page
+       reaches them any more. */
     const licGo = $("lic-go");
     if (licGo) licGo.onclick = async () => {
       const key = String($("lic-key")?.value || "").trim();
@@ -19145,6 +19152,72 @@ function updateErrorText(res) {
   return text;
 }
 
+/**
+ * What a user can usefully DO about an update that failed.
+ *
+ * Asked for directly: "when an update hits an internet problem or any
+ * other problem, put a try-again option, or get it updated anyway, or
+ * cancel the update - choose the right option for the error."
+ *
+ * The right option is not the same for every error, which is the
+ * whole point. The screen used to print a code and stop, so a dropped
+ * Wi-Fi connection and a server that was never configured ended the
+ * same way: a dead end with nothing to press. Pressing retry against
+ * a misconfiguration is just as useless as having no retry against a
+ * blip, so each error is sorted into one of three kinds.
+ *
+ *   retry     something that may well work on a second attempt - the
+ *             connection dropped, the server was briefly unwell, the
+ *             archive did not come down. Offer it, and offer cancel.
+ *   wait      GitHub's rate limit. Retrying immediately cannot work
+ *             and the reply says when it clears, so the button is
+ *             offered with that time attached rather than inviting a
+ *             pointless press.
+ *   blocked   nothing the user presses here can change the outcome:
+ *             no update server configured, the release does not
+ *             exist, repair needs a source it does not have. Only a
+ *             way out is offered - a retry button would be a lie.
+ *
+ * A PART-APPLIED install overrides all of it. Some files are new and
+ * some are old, which is a worse state than either end, so finishing
+ * is always offered however the failure is otherwise classified -
+ * including when it is blocked, because the files already written
+ * came from somewhere and the half-state has to be resolvable.
+ */
+const UPDATE_RETRY_ERRORS = new Set([
+  "network_error",
+  "server_error",
+  "fetch_failed",
+  "timeout",
+  "download_failed",
+  "repair_failed",
+]);
+
+const UPDATE_BLOCKED_ERRORS = new Set([
+  "update_server_not_configured",
+  "no_server",
+  "update_not_found",
+  "repair_needs_github",
+  "repair_no_files",
+]);
+
+function updateFailureKind(res) {
+  const code = String((res && res.error) || "").trim();
+  if (code === "github_rate_limited") return "wait";
+  if (UPDATE_BLOCKED_ERRORS.has(code)) return "blocked";
+  if (UPDATE_RETRY_ERRORS.has(code)) return "retry";
+  /* The default is retry, deliberately.
+     The codes above are the ones the updater names on purpose;
+     everything else arrives as whatever an exception happened to say,
+     and those are overwhelmingly transient - a socket closed, a file
+     busy, a disk that was briefly unavailable. Treating an unknown
+     failure as permanent leaves the user with no way forward over a
+     message nobody wrote, which is the complaint being fixed. An
+     unnecessary retry button costs one wasted press; a missing one
+     costs the update. */
+  return "retry";
+}
+
 function updateSummaryHtml(res) {
   if (!res.ok) {
     return `<span class="err">${esc(I18N.t("upd.error"))} \u2014 ${esc(updateErrorText(res))}</span>`;
@@ -19350,8 +19423,57 @@ async function runUpdateInstall(upd) {
           total: fmtNum(ar.applied_count + (ar.remaining || 0), 0),
         }))}</p>`
       : "";
-    say(`<p class="err">${esc(I18N.t("upd.install_failed"))} \u2014 ${esc(why)}</p>${partial}`, true);
-    return false;
+    /* ...and what to do about it. See updateFailureKind: the actions
+       follow the error, so a dropped connection offers another go and
+       a server that was never configured does not pretend one would
+       help. */
+    const kind = updateFailureKind(ar);
+    const stuckPartway = Boolean(ar && ar.applied_count);
+    const canRetry = kind !== "blocked" || stuckPartway;
+    const retryLabel = kind === "wait"
+      ? I18N.t("upd.err_retry_later")
+      : (stuckPartway ? I18N.t("upd.err_finish") : I18N.t("upd.err_retry"));
+    const buttons = `
+      <div class="upd-install-acts">
+        ${canRetry ? `<button type="button" class="btn primary" data-upd-retry>${esc(retryLabel)}</button>` : ""}
+        <button type="button" class="btn" data-upd-cancel>${
+          esc(I18N.t(stuckPartway ? "upd.err_cancel_partial" : "upd.err_cancel"))}</button>
+      </div>`;
+    say(`<p class="err">${esc(I18N.t("upd.install_failed"))} \u2014 ${esc(why)}</p>${partial}${buttons}`, true);
+
+    return await new Promise((resolve) => {
+      const done = (value) => { host.remove(); resolve(value); };
+      host.querySelector("[data-upd-cancel]")?.addEventListener("click", async () => {
+        /* A cancel that leaves files half-replaced is not a cancel,
+           and saying nothing about it would let a trader walk away
+           from a desk running two versions at once. The install is
+           still abandoned if they insist - it is their machine - but
+           not silently.
+
+           Through askConfirm, never window.confirm: a browser dialog
+           ignores the theme, cannot be read right to left, and can
+           be suppressed outright by the host. */
+        if (stuckPartway) {
+          const sure = await askConfirm({
+            title: I18N.t("upd.install_failed"),
+            body: I18N.t("upd.err_cancel_partial_confirm"),
+            ok: I18N.t("upd.err_cancel_partial"),
+            cancel: I18N.t("upd.err_finish"),
+            danger: true,
+          });
+          if (!sure) return;
+        }
+        done(false);
+      });
+      host.querySelector("[data-upd-retry]")?.addEventListener("click", async () => {
+        host.remove();
+        /* Straight back into the same install. The apply skips every
+           file that already matches, so a retry after a part-applied
+           failure picks up where it stopped rather than starting the
+           download again. */
+        resolve(await runUpdateInstall(upd));
+      });
+    });
   }
 
   /* The check leaves out every file that already matches, so an install

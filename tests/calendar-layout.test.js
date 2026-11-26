@@ -573,6 +573,29 @@ async function boot(viewport, hover) {
     ok(!!x.querySelector("svg"), "...drawn, not typed - a glyph would depend on the theme's font");
     ok(x.closest(".cal-pop-in") === null,
       "...outside the scroller, so a long list of releases slides under it");
+    /* The room made for it comes out of the HEADING, not the card.
+       Reported after the cross landed: "the contents of that window
+       have taken a distance from where the button is, and are not
+       centred". They had. .cal-pop-in carried
+       padding-inline-end:28px, so every child shrank by 28px on one
+       side - and .cal-none is text-align:center, so the "no events"
+       line centred itself inside a box that was no longer the card,
+       landing 14px off. The chart button stopped short of the edge
+       for no visible reason too.
+
+       Checked in the stylesheet rather than on screen: there is no
+       headless browser here, and the fault is a rule, not a render. */
+    ok(!/\.cal-pop \.cal-pop-in\s*\{[^}]*padding-inline-end/.test(css),
+      "...and the card itself is not padded, which would push every line off-centre");
+    ok(/\.cal-pop \.cal-pop-in > \.cal-dp-main\s*\{[^}]*padding-inline-end:\s*(\d+)px/.test(css),
+      "...the heading alone is given room beside the cross");
+    {
+      const pad = Number(/\.cal-pop \.cal-pop-in > \.cal-dp-main\s*\{[^}]*padding-inline-end:\s*(\d+)px/.exec(css)[1]);
+      const size = Number(/\.cal-pop-x\s*\{[^}]*inline-size:\s*(\d+)px/.exec(css)[1]);
+      const inset = Number(/\.cal-pop-x\s*\{[^}]*inset-inline-end:\s*(\d+)px/.exec(css)[1]);
+      ok(pad >= size && pad <= size + inset + 2,
+        "...enough room that the title clears the cross, and no more", `${pad}px for a ${size}px cross at ${inset}px`);
+    }
     /* It must not exist on the card beside the month: that panel is
        the page, not a popover, and _dayPanel draws both. */
     ok(!k.doc.querySelector("#cal-day .cal-pop-x"),

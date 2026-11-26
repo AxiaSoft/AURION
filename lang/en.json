@@ -1349,7 +1349,13 @@
     "engine_replacing": "Replacing the engine…",
     "engine_replace_btn": "Replace the engine now",
     "engine_replace_ok": "The engine is now running the files on disk.",
-    "engine_replace_failed": "The engine could not be replaced. See data/logs/desk.log."
+    "engine_replace_failed": "The engine could not be replaced. See data/logs/desk.log.",
+    "err_retry": "Try again",
+    "err_retry_later": "Try again anyway",
+    "err_finish": "Finish the update",
+    "err_cancel": "Cancel the update",
+    "err_cancel_partial": "Cancel anyway",
+    "err_cancel_partial_confirm": "Some files were already replaced. If you cancel now, AURION will be running a mix of the old and new versions until the update is finished. Cancel anyway?"
   },
   "sup": {
     "warn_days": "{n} days until this version's support ends",
