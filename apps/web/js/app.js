@@ -14859,6 +14859,28 @@ function btBindReplay(cv) {
   });
 }
 
+/**
+ * The period that was asked for, when it is not the period that ran.
+ *
+ * Reported in these words: "when I backtest three months, it should
+ * download as many candles as it needs - it should not just use last
+ * month's candles". It no longer stops early (see the engine's
+ * _pull_history_in_steps), but a broker that genuinely will not serve
+ * the whole period is still possible, and a result over one month
+ * that is presented as a result over three is worse than a short
+ * result. The run stands; the gap is stated.
+ */
+function btShortfallNote(bt) {
+  const info = bt || {};
+  const days = Number(info.short_days || 0);
+  if (!info.period_short || !(days > 0)) return "";
+  return `<p class="sub bt-short">${icon("info")} ${esc(I18N.t("bt.period_short", {
+    asked: String(info.asked_from || ""),
+    have: String(info.from || ""),
+    days: String(days),
+  }))}</p>`;
+}
+
 function renderBacktestCard(bt) {
   bt = bt || S.backtest || {};
   if (bt.running) return "";
@@ -14874,7 +14896,7 @@ function renderBacktestCard(bt) {
   const stopped = bt.cancelled
     ? `<p class="sub bt-cancelled">${icon("close")} ${esc(I18N.t("bt.cancelled_note"))}</p>`
     : "";
-  return stopped + `<div class="tape-banner is-backtest" style="margin:12px 0 10px">${I18N.t("tape.showing_backtest")} · ${esc(bt.symbol || "")} ${esc(bt.timeframe || "")} · ${esc(strategyLabel(bt.strategy))}</div>
+  return stopped + btShortfallNote(bt) + `<div class="tape-banner is-backtest" style="margin:12px 0 10px">${I18N.t("tape.showing_backtest")} · ${esc(bt.symbol || "")} ${esc(bt.timeframe || "")} · ${esc(strategyLabel(bt.strategy))}</div>
     <div class="kv">
       <span>${I18N.t("history.winrate")}</span><b>${fmt(m.win_rate)}%</b>
       <span>${I18N.t("history.pf")}</span><b>${fmt(m.profit_factor,2)}</b>
@@ -15481,7 +15503,16 @@ async function startBacktest(opts) {
     const body = { symbol, timeframe, strategy: { kind, name } };
     if (from) body.from = from;
     if (to) body.to = to;
-    const r = await API.post("/api/backtest", body);
+    const r = await postBacktestWhenHistoryIsReady(body);
+    if (r && r.cancelled_wait) {
+      S.backtest = { ok: false, running: false, mode: "backtest", error: "" };
+      if (S.snap) S.snap.backtest = S.backtest;
+      paintBacktestResults(S.backtest);
+      S._btBusy = false;
+      setBacktestBusy(false);
+      headerState();
+      return false;
+    }
     if (!r || r.ok === false) {
       S.backtest = { ok: false, running: false, mode: "backtest", error: (r && r.error) || "generic" };
       if (S.snap) S.snap.backtest = S.backtest;
@@ -15505,6 +15536,62 @@ async function startBacktest(opts) {
     headerState();
     return false;
   }
+}
+
+/* How long the desk keeps waiting for a period to finish downloading. */
+const BT_HISTORY_WAIT_MS = 300000;
+const BT_HISTORY_POLL_MS = 5000;
+
+/**
+ * Post the run, and keep posting it while the history is on its way.
+ *
+ * Three months of candles do not arrive inside one request - the
+ * engine's reply has to beat the proxy's 25 second patience, so it
+ * answers "the period is still downloading" and finishes the download
+ * behind that answer. Making the trader press the button again every
+ * few seconds until it happens to succeed is not a design; this is the
+ * same thing, done by the desk, with the wait visible and a way out.
+ *
+ * Only the download refusals are retried. Anything else - no expert on
+ * the symbol, an invalid strategy, a broker with no history at all -
+ * is an answer, and repeating the question would not change it.
+ */
+async function postBacktestWhenHistoryIsReady(body) {
+  const until = Date.now() + BT_HISTORY_WAIT_MS;
+  let waiting = false;
+  for (;;) {
+    const r = await API.post("/api/backtest", body);
+    const code = String((r && r.code) || "");
+    const filling = Boolean(r) && r.ok === false
+      && (r.downloading === true || r.filling === true
+          || code === "history_downloading" || code.endsWith("_filling"));
+    if (!filling) {
+      S._btWaitingHistory = false;
+      if (waiting) setBacktestBusy(true, 0);
+      return r;
+    }
+    if (S._btCancelling || Date.now() >= until) {
+      S._btWaitingHistory = false;
+      return S._btCancelling ? { cancelled_wait: true } : r;
+    }
+    waiting = true;
+    // The Stop button has nothing to cancel in the engine yet - no run
+    // has been accepted - so it stops the waiting instead. See
+    // cancelBacktest.
+    S._btWaitingHistory = true;
+    // Say what is happening, in the line the run already uses, so the
+    // trader is not watching a spinner that means nothing.
+    btSayWaiting(r);
+    await new Promise((done) => setTimeout(done, BT_HISTORY_POLL_MS));
+  }
+}
+
+/** Put the downloading message where the run's own progress line goes. */
+function btSayWaiting(r) {
+  const load = $("bt-load");
+  const say = load ? load.querySelector("span") : null;
+  if (load) load.classList.remove("hidden");
+  if (say) say.textContent = errText(r, "history.backtest_wait");
 }
 
 // Published for calendar.js, which starts a run for a picked period.
@@ -15561,6 +15648,15 @@ async function cancelBacktest() {
   if (S._btCancelling) return false;
   S._btCancelling = true;
   setBacktestBusy(true, bt.progress, true);
+  // Still waiting for the period to come down: there is no run in the
+  // engine to call off, and asking it to cancel one would be answered
+  // "nothing is running" - which used to clear the cancelling flag and
+  // leave the desk waiting on a trader who had asked it to stop.
+  if (S._btWaitingHistory) {
+    S._btWaitingHistory = false;
+    toast(I18N.t("bt.cancel_sent"));
+    return true;
+  }
   try {
     const r = await API.post("/api/backtest/cancel", {});
     if (!r || r.ok === false) {

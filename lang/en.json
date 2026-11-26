@@ -1501,6 +1501,7 @@
     "cancel_sent": "Stopping the backtest…",
     "cancelled_toast": "Backtest stopped",
     "cancelled_note": "You stopped this run. The figures below cover only the bars that were replayed before it stopped, not the whole period.",
+    "period_short": "Only {have} onwards could be downloaded for this period — {days} days of what you asked for, starting {asked}, are not in the terminal. The figures below cover the shorter period.",
     "why_cancelled": "Run stopped"
   },
   "chart": {
@@ -2062,6 +2063,7 @@
     "backtest_idle": "No backtest is running.",
     "unknown_endpoint": "This desk's server is older than the page it gave you, so it does not know this request yet. Close AURION and start it again — the update is already on disk.",
     "history_downloading": "The {timeframe} candles for {symbol} are still coming down from MetaTrader — this timeframe had not been opened before, so the terminal is building it now. Give it a moment and run the backtest again.",
+    "history_filling_period": "The {timeframe} candles for {symbol} back to {asked} are still coming down from MetaTrader — {days} more days of the period are on their way, and the download is running now. The desk will try again on its own in a moment.",
     "no_bars_in_period_filling": "There are no {timeframe} bars in the period you picked yet — this timeframe is still downloading. Try again in a moment.",
     "no_bars_in_period_have_filling": "This terminal holds {timeframe} bars for {symbol} only from {oldest} to {newest} so far, and is still downloading more. Wait a moment and try again, or pick a period inside that range."
   },

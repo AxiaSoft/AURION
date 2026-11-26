@@ -197,8 +197,13 @@ def test_the_run_uses_the_timeframe_it_was_given() -> None:
         return []
 
     t.bridge.pull_candles = pull
+    t.BACKTEST_SETTLE_S = 0.0
     asyncio.run(t.backtest({"symbol": "EURUSD", "timeframe": "M5"}))
-    assert seen == ["M5"], f"the H1 chart dragged the run onto {seen}"
+    # Several asks now, not one: a cold timeframe is asked for again
+    # rather than written off on the first empty answer, which is what
+    # made a three-month backtest test one month. Every one of them
+    # must still be about the timeframe the run named.
+    assert seen and set(seen) == {"M5"}, f"the H1 chart dragged the run onto {seen}"
 
 
 def test_a_period_outside_a_filling_series_says_it_is_filling() -> None:
@@ -215,13 +220,21 @@ def test_a_period_outside_a_filling_series_says_it_is_filling() -> None:
 
     t.bridge.pull_candles = pull
     t.bridge.hist_depth = lambda *_a, **_k: {}
+    t.BACKTEST_SETTLE_S = 0.0
     out = asyncio.run(t.backtest({
         "symbol": "EURUSD", "timeframe": "M5",
         "from": "2025-01-01", "to": "2025-01-31",
     }))
     assert out["ok"] is False
-    assert out["code"].endswith("_filling"), f"reported {out['code']} as settled fact"
-    assert out["args"].get("filling") is True
+    # Either filling answer will do. The period-level one is newer and
+    # says more - it names the days still missing and the download it
+    # has just started for them - but what this test is about is that
+    # the refusal is not phrased as a settled fact about the broker's
+    # archive.
+    assert out.get("filling") is True or out["code"].endswith("_filling"), (
+        f"reported {out['code']} as settled fact"
+    )
+    assert out.get("filling") is True or out["args"].get("filling") is True
 
 
 # ─────────────────── which candles, precisely, and which next ─────────

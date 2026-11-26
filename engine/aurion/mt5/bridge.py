@@ -125,6 +125,9 @@ class MT5Bridge:
         #: is quadratic, which is the second way a long download took
         #: the engine down.
         self._bucket_maps: dict[int, list[Any]] = {}
+        #: What was last written to the archive, per series: how many
+        #: bars, and the first and last bar time. See archive_candles.
+        self._archived_mark: dict[tuple[str, str], tuple[int, str, str]] = {}
         self._agent_owner: dict[int, asyncio.StreamWriter | None] = {}
         self._purge_gen: dict[int, int] = {}
         self._http_seen: dict[int, float] = {}
@@ -254,6 +257,24 @@ class MT5Bridge:
         """
         if not rows or not self._tape_save:
             return
+        # Not the same series twice.
+        #
+        # A backtest asks for its window in rounds, and a round that
+        # brought nothing still arrived here with the whole series: up
+        # to fifty rewrites of the same quarter of a million rows for
+        # one download, each a couple of seconds of disk. The bars are
+        # identified by how many there are and where they start and
+        # end - enough to tell a series that grew from one that was
+        # handed over again unchanged.
+        key = (symbol, self._norm_tf(timeframe))
+        mark = (
+            len(rows),
+            str(getattr(rows[0], "time", "") or ""),
+            str(getattr(rows[-1], "time", "") or ""),
+        )
+        if self._archived_mark.get(key) == mark:
+            return
+        self._archived_mark[key] = mark
         await asyncio.to_thread(self._archive, symbol, timeframe, list(rows))
 
     async def warm_candles_from_disk(
