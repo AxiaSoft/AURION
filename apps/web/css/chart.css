@@ -615,6 +615,12 @@ html[dir="rtl"] .tv-flyout { transform: translateX(6px) }
    announcing that it is fetching another one is a lie, however well
    it is covered. Width and height are untouched, so nothing reflows
    and the chart reappears exactly where it was. */
+/* The backtest replay box is not a .chart-box, but it carries the
+   same veil and must hide its canvas the same way - otherwise the
+   loading state and a half-drawn replay would be on screen together,
+   which is the exact fault this rule was written for. */
+.bt-live-chart.is-waiting > canvas,
+.bt-live-chart.is-waiting > .bt-replay-at,
 .chart-box.is-waiting > canvas,
 .chart-box.is-waiting > .chart-overlay,
 .chart-box.is-waiting > .chart-marks,

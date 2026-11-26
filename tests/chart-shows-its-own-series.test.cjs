@@ -291,11 +291,11 @@ ok(/\$\("cv"\)/.test(veils), "and the markets chart, which had none, now has one
   cv.parentElement = box;
 
   const S = { symbol: "XAUUSD", timeframe: "M15", histProgress: {}, histDepth: {} };
-  const enoughDays = /const VEIL_ENOUGH_DAYS = (\d+);/.exec(APP);
-  if (!enoughDays) throw new Error("app.js no longer states VEIL_ENOUGH_DAYS");
+  const freshMs = /const HIST_FRESH_MS = (\d+);/.exec(APP);
+  if (!freshMs) throw new Error("app.js no longer states HIST_FRESH_MS");
 
-  /* VEIL_ENOUGH_DAYS is read out of app.js rather than restated, or
-     this harness would keep passing after the real number moved. */
+  /* HIST_FRESH_MS is read out of app.js rather than restated, or this
+     harness would keep passing after the real number moved. */
   const kitWith = (cached) => new Function("__S", "__mk", "__byId", "__cached",
     'const S = __S;\n'
     + 'const I18N = { t: (k, v) => k + "|" + JSON.stringify(v || {}) };\n'
@@ -305,11 +305,12 @@ ok(/\$\("cv"\)/.test(veils), "and the markets chart, which had none, now has one
     + "const $ = (id) => __byId[id] || null;\n"
     + "const cachedCandlesFor = __cached;\n"
     + "const TF_MINUTES = { M1: 1, M5: 5, M15: 15, M30: 30, H1: 60, H4: 240, D1: 1440 };\n"
-    + "const VEIL_ENOUGH_DAYS = " + enoughDays[1] + ";\n"
+    + "const HIST_FRESH_MS = " + freshMs[1] + ";\n"
     + grab(APP, "veilOf") + "\n" + grab(APP, "historyProgressOf") + "\n"
     + grab(APP, "historyDepthOf") + "\n" + grab(APP, "veilState") + "\n"
     + grab(APP, "paintVeil") + "\n" + grab(APP, "clearVeil") + "\n"
-    + grab(APP, "haveBarsFor") + "\n" + grab(APP, "enoughBarsFor") + "\n"
+    + grab(APP, "haveBarsFor") + "\n" + grab(APP, "historyRunning") + "\n"
+    + grab(APP, "seriesReady") + "\n" + grab(APP, "enoughBarsFor") + "\n"
     + grab(APP, "paintChartVeils")
     + "\nreturn { paintChartVeils };")(S, mk, { cv }, cached);
 
@@ -319,8 +320,10 @@ ok(/\$\("cv"\)/.test(veils), "and the markets chart, which had none, now has one
   ok(/veil_loading|veil_getting/.test(String(veil && veil.innerHTML)),
     "...and says it is downloading, rather than sitting empty");
 
-  /* And it lifts once the bars are really there. A veil that never
-     comes down is the same bug wearing a different hat. */
+  /* And it lifts once the bars are really there AND nothing is still
+     coming - S.histProgress is empty here, so no download is running.
+     A veil that never comes down is the same bug wearing a different
+     hat, which is why "nothing is arriving" counts as finished. */
   kitWith(() => [{ time: "t", open: 1, high: 1, low: 1, close: 1 }]).paintChartVeils();
   ok(!box.querySelector(":scope > .chart-veil"),
     "...and comes down once the chart has its own candles");
