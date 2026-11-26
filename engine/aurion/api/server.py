@@ -1005,6 +1005,57 @@ async def i18n(lang: str) -> dict[str, Any]:
     return {"ok": True, "data": pack(lang)}
 
 
+#: Above this many rows in a payload, the frame is encoded in a thread
+#: rather than on the event loop. A three-month M5 history is 51 840
+#: bars - 7.8 MB of JSON, measured at 109 ms to encode, per client,
+#: per push, with the engine unable to answer anything meanwhile.
+#: Below it the thread handover costs more than the encoding.
+BIG_FRAME_ROWS = 2_000
+
+
+def _frame_rows(payload: Any) -> int:
+    """How many rows this event carries, without encoding it.
+
+    The decision about where to encode has to be made before the
+    encoding, so it is made on the shape of the payload: the only
+    events that are ever large are the ones carrying a list of bars
+    or deals, and counting a list is free.
+    """
+    if not isinstance(payload, dict):
+        return 0
+    data = payload.get("data")
+    body = data if isinstance(data, dict) else payload
+    biggest = 0
+    for value in body.values():
+        if isinstance(value, list):
+            biggest = max(biggest, len(value))
+    return biggest
+
+
+async def _send(ws: WebSocket, payload: Any) -> None:
+    """Send one event, keeping a large one off the event loop.
+
+    send_json encodes inline. That is right for a tick and wrong for
+    a history push, which is the largest message this engine produces
+    and which arrives while the ingest is already busy. json.dumps
+    releases the GIL around its C encoder, so handing the big ones to
+    a thread gives the loop back to the health check the desk uses to
+    decide whether the engine is still alive.
+
+    A payload that will not encode still raises TypeError, because
+    the caller treats that as "drop this one event" rather than as a
+    reason to disconnect a desk.
+    """
+    def encode() -> str:
+        return json.dumps(payload, separators=(",", ":"))
+
+    if _frame_rows(payload) >= BIG_FRAME_ROWS:
+        text = await asyncio.to_thread(encode)
+    else:
+        text = encode()
+    await ws.send_text(text)
+
+
 @app.websocket("/v1/stream")
 async def stream(ws: WebSocket) -> None:
     """The desk's live feed.
@@ -1052,7 +1103,7 @@ async def stream(ws: WebSocket) -> None:
             while True:
                 payload = await queue.get()
                 try:
-                    await ws.send_json(payload)
+                    await _send(ws, payload)
                 except (WebSocketDisconnect, asyncio.CancelledError):
                     raise
                 except TypeError:

@@ -27,6 +27,59 @@ QUEUE_MAX = 500
 DROPPABLE = frozenset({"tick", "ticks", "analysis", "prop", "ai", "status", "agents", "live_signal"})
 
 
+def _series_key(message: Any) -> tuple[str, str] | None:
+    """Identify a message that is a complete series, not an increment.
+
+    A "candles" message carries every bar of one symbol and timeframe,
+    which means two of them queued for the same series are not two
+    pieces of news: the older one is simply a worse copy of the newer.
+    Anything else - a tick, an order result, a log line - says
+    something that happened once and is not identified here.
+    """
+    if not isinstance(message, dict) or message.get("type") != "candles":
+        return None
+    data = message.get("data")
+    if not isinstance(data, dict):
+        return None
+    return (str(data.get("symbol") or ""), str(data.get("timeframe") or ""))
+
+
+def _supersede(queue: asyncio.Queue, message: dict[str, Any]) -> bool:
+    """Replace a queued series with a newer copy of the same series.
+
+    This is the difference between a backlog and an out-of-memory
+    kill. A three-month M5 history is about 52 000 bars - roughly
+    18 MB as Python objects, 8 MB as JSON - and it is republished
+    every few seconds while the download runs. A client that reads
+    slower than that used to accumulate those messages, up to
+    QUEUE_MAX of them, each one a full copy of a series that only the
+    last of which anybody would ever draw. Five hundred of those is
+    not a backlog, it is the engine gone from the task manager.
+
+    Replacing in place also removes the work of encoding and sending
+    every superseded copy, which is 109 ms of event loop each.
+
+    Returns True when a queued copy was replaced, in which case the
+    caller must not also enqueue the new message.
+    """
+    key = _series_key(message)
+    pending = getattr(queue, "_queue", None)
+    if key is None or pending is None:
+        return False
+    for index, held in enumerate(pending):
+        if _series_key(held) != key:
+            continue
+        # A partial must never overwrite the finished series. The
+        # download ends with a non-partial push and the desk takes
+        # that as the last word; letting a straggling progress copy
+        # land on top of it would leave the chart loading forever.
+        if message.get("data", {}).get("partial") and not held.get("data", {}).get("partial"):
+            return True
+        pending[index] = message
+        return True
+    return False
+
+
 class Bus:
     def __init__(self) -> None:
         self._subs: dict[str, list[Handler]] = {}
@@ -65,6 +118,11 @@ class Bus:
             except Exception:
                 pass
         for queue in list(self._clients):
+            # A whole-series message supersedes the one it is catching
+            # up with, so a slow client gets the newest rather than a
+            # pile of them. See _supersede.
+            if _series_key(message) and _supersede(queue, message):
+                continue
             try:
                 queue.put_nowait(message)
                 continue

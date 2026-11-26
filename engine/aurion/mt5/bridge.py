@@ -120,6 +120,11 @@ class MT5Bridge:
         #: Series with a bar known to be out of time order. See
         #: _order_bucket: the ingest marks, one place sorts.
         self._hist_unsorted: set[tuple[str, str]] = set()
+        #: Bar time -> position, per candle buffer. See _bucket_map:
+        #: without it, re-streaming a window the engine already holds
+        #: is quadratic, which is the second way a long download took
+        #: the engine down.
+        self._bucket_maps: dict[int, list[Any]] = {}
         self._agent_owner: dict[int, asyncio.StreamWriter | None] = {}
         self._purge_gen: dict[int, int] = {}
         self._http_seen: dict[int, float] = {}
@@ -317,6 +322,7 @@ class MT5Bridge:
         bucket = self._tape_store("live")["candles"][(symbol, timeframe)]
         bucket.clear()
         bucket.extend(fresh)
+        self._forget_bucket(bucket)
         log.info("warmed %s %s with %d stored bars", symbol, timeframe, len(fresh))
         return list(bucket)
 
@@ -997,6 +1003,38 @@ class MT5Bridge:
         merged.volume = max(held.volume or 0.0, fresh.volume or 0.0)
         return merged
 
+    def _forget_bucket(self, bucket: list[Candle]) -> None:
+        """Drop the position index for a buffer that was rewritten.
+
+        Any wholesale swap - a sort, a warm from disk, a series
+        replaced by what the terminal just handed over - moves every
+        bar without necessarily changing how many there are, and a
+        length check cannot see that. The index is cheap to rebuild
+        and catastrophic to trust when it is wrong, so these paths say
+        so explicitly.
+        """
+        self._bucket_maps.pop(id(bucket), None)
+
+    def _bucket_map(self, bucket: list[Candle]) -> dict[str, int]:
+        """Where each bar time sits in this buffer.
+
+        Built once per buffer and kept in step by the append paths.
+        Every path that swaps a buffer wholesale says so through
+        _forget_bucket; the length check here is the backstop for a
+        future one that forgets to, because a stale index does not
+        fail loudly - it appends a second bar at a time that already
+        had one.
+
+        The buffer object itself is held alongside the index so that a
+        recycled id() can never match the wrong list.
+        """
+        cached = self._bucket_maps.get(id(bucket))
+        if cached is not None and cached[0] is bucket and cached[1] == len(bucket):
+            return cached[2]
+        where = {str(c.time): i for i, c in enumerate(bucket)}
+        self._bucket_maps[id(bucket)] = [bucket, len(bucket), where]
+        return where
+
     def _put_candle(self, candle: Candle, tape: str = "") -> None:
         if not candle.symbol or not candle.close:
             return
@@ -1024,12 +1062,39 @@ class MT5Bridge:
                 return
             if candle.time > newest.time:
                 bucket.append(candle)
+                cached = self._bucket_maps.get(id(bucket))
+                if (cached is not None and cached[0] is bucket
+                        and cached[1] == len(bucket) - 1):
+                    # Keep the index in step rather than throwing it
+                    # away: a download is almost entirely this branch,
+                    # and rebuilding per bar would be the quadratic
+                    # cost all over again. Updated in place - a bar of
+                    # history must not cost a tuple.
+                    cached[2][candle.time] = cached[1]
+                    cached[1] = len(bucket)
                 return
-        for i, old in enumerate(bucket):
-            if old.time == candle.time:
-                bucket[i] = self._merged_candle(old, candle)
-                return
+        # The backfill case: a bar that is neither new nor the newest.
+        #
+        # This used to be a linear scan of the buffer, which is fine
+        # for the odd late bar and ruinous for the case that actually
+        # happens on a long backtest: the expert re-streams a window
+        # it has already sent, so EVERY bar takes the scan. Measured
+        # at 8.7 seconds of event loop to re-stream 20 000 bars, and
+        # it is quadratic, so three months of M5 is about a minute of
+        # an engine that cannot answer anything. The desk calls that
+        # dead after fifteen.
+        #
+        # A position index over the buffer makes it a dict lookup.
+        where = self._bucket_map(bucket)
+        at = where.get(candle.time)
+        if at is not None and at < len(bucket) and bucket[at].time == candle.time:
+            bucket[at] = self._merged_candle(bucket[at], candle)
+            return
+        where[candle.time] = len(bucket)
         bucket.append(candle)
+        cached = self._bucket_maps.get(id(bucket))
+        if cached is not None and cached[0] is bucket:
+            cached[1] = len(bucket)
         if len(bucket) >= 2 and str(bucket[-1].time) < str(bucket[-2].time):
             # Out of order. NOTED rather than fixed here: sorting on
             # arrival is what made a long download quadratic - see
@@ -1070,6 +1135,9 @@ class MT5Bridge:
         ordered = sorted(bucket, key=lambda c: (str(c.time), int(c.time_msc or 0)))
         bucket.clear()
         bucket.extend(ordered)
+        # Every position just moved, and the length did not change, so
+        # the index cannot detect this for itself.
+        self._forget_bucket(bucket)
 
     async def _mark_positions_from_tick(self, tick: Tick) -> None:
         if not self.positions or not tick.symbol:
@@ -1749,6 +1817,7 @@ class MT5Bridge:
                 bucket = self._tape_store("live")["candles"][(symbol, tf)]
                 bucket.clear()
                 bucket.extend(rows)
+                self._forget_bucket(bucket)
                 await self.archive_candles(symbol, tf, rows)
                 changed = True
         if not rows:
@@ -1840,6 +1909,7 @@ class MT5Bridge:
                 bucket = live_store["candles"][(symbol, tf)]
                 bucket.clear()
                 bucket.extend(rows)
+                self._forget_bucket(bucket)
                 await self.archive_candles(symbol, tf, rows)
                 wire = await self._wire_bars(rows)
                 await self.emit("candles", {"symbol": symbol, "timeframe": tf, "bars": wire, "depth": self.hist_depth(symbol, tf)})
