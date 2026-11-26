@@ -1159,9 +1159,25 @@ guarded.get("/symbols", passthrough("GET", "/v1/symbols"));
 // the engine's local-only /v1/telegram/admin directly.
 guarded.get("/robot", passthrough("GET", "/v1/robot"));
 guarded.post("/persist", passthrough("POST", "/v1/persist"));
-guarded.post("/host/restart", (_req, res) => {
-  res.json({ ok: true, restarting: true });
-  hostctl.scheduleRestart();
+/* Bring the product back.
+ *
+ * Two different things, and the caller says which. `full` closes
+ * AURION completely - engine, desk and window - and opens it from
+ * nothing; anything else stops the engine and leaves the window
+ * standing.
+ *
+ * An update must use `full`, and this is where that used to be lost:
+ * the update's "Restart now" button posted here, this handler called
+ * scheduleRestart() with no argument, and scheduleRestart defaults to
+ * the weak one. So an update applied this way left the old desk
+ * process, the old shell assemblies and the old service worker
+ * running - which is the state the whole relaunch exists to avoid,
+ * and which the trader sees as "the window never closed". */
+guarded.post("/host/restart", (req, res) => {
+  const full = Boolean((req.body || {}).full);
+  res.json({ ok: true, restarting: true, full });
+  if (full) hostctl.scheduleRelaunch();
+  else hostctl.scheduleRestart();
 });
 
 /* Replace the engine process without restarting the product.

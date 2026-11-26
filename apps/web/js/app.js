@@ -19757,6 +19757,48 @@ async function runUpdateInstall(upd) {
 }
 
 /**
+ * Close AURION at the end of an update, so it can open again new.
+ *
+ * Asked for in these words: "after any update I wanted the whole
+ * program to close - the window and everything - shut down, and come
+ * back up on the new version". It did not. The relaunch script asked
+ * the window to close with a plain taskkill, which is a WM_CLOSE and
+ * therefore the same thing as pressing the X - a QUESTION. The shell
+ * cancelled it and put the quit confirmation up, so the window stayed
+ * open with a modal on it while the desk underneath was stopped, and
+ * the page went blank. The only way out was F5.
+ *
+ * The page is the one part of this that knows an update has just
+ * finished and that nobody needs to be asked anything. Posting the
+ * shutdown message gives the shell the same path as the X with the
+ * question already answered: it saves the window placement, tells the
+ * desk, stops the engine and closes. The relaunch script, already
+ * running, finds a quiet machine and starts the product from nothing.
+ *
+ * Returns true when the window has been asked to go - in which case
+ * this page has nothing left to do. False in a browser tab, where
+ * there is no window and the caller's own ending still applies.
+ */
+function closeForUpdateRelaunch(host, mark) {
+  if (!tellHost({ type: "shutdown", reason: "update" })) return false;
+  if (typeof mark === "function") mark("wait", "doing");
+  const phaseEl = host ? host.querySelector(".upd-bar-phase") : null;
+  if (phaseEl) phaseEl.textContent = I18N.t("upd.inst_closing");
+  const msg = host ? host.querySelector(".upd-install-msg") : null;
+  if (msg) msg.innerHTML = `<p class="sub">${esc(I18N.t("upd.inst_closing_sub"))}</p>`;
+  /* The same curtain the power button uses, for the same reason: the
+     feed and the pollers are stopped so they do not spend the
+     shutdown painting a red engine light behind it. */
+  const veil = showShutdownScreen("update");
+  const title = $("sd-title");
+  const sub = $("sd-sub");
+  if (title) title.textContent = I18N.t("upd.inst_closing");
+  if (sub) sub.textContent = I18N.t("upd.inst_closing_sub");
+  if (veil) veil.hidden = false;
+  return true;
+}
+
+/**
  * The second half, once the user says go: restart, wait, come back.
  *
  * Split out from the install so that pressing "Later" and pressing
@@ -19795,10 +19837,22 @@ async function finishUpdateRestart(host, upd, opts) {
      against an install that deferred, has to ask. */
   if (!(opts && opts.scheduled)) {
     try {
-      await API.post("/api/host/restart", {});
+      /* `full`, always. This is the end of an update, and an update
+         that leaves the desk process, the shell's loaded assemblies
+         and the service worker in place has changed the files and not
+         the program. The route defaults to the weaker restart for
+         everything else that calls it. */
+      await API.post("/api/host/restart", { full: true });
     } catch (err) { /* it may well die mid-reply; that IS the restart */ }
   }
   mark("restart", "done");
+
+  /* Inside the AURION window, this is where the page bows out.
+     See closeForUpdateRelaunch - the product closes and opens itself
+     again, which is what was asked for, and there is no page left to
+     wait, verify or reload. In a browser tab there is no window to
+     close, so the old ending below still runs. */
+  if (closeForUpdateRelaunch(host, mark)) return true;
 
   mark("wait", "doing");
   if (phaseEl) phaseEl.textContent = I18N.t("upd.inst_wait");

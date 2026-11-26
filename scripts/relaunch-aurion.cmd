@@ -40,9 +40,32 @@ REM The window itself. Nothing else closes it: it is a WinForms shell
 REM hosting WebView2, not a browser tab, and killing the ports beneath
 REM it would leave an empty frame on screen saying it cannot reach the
 REM desk - which looks exactly like the crash this is meant to avoid.
-REM Asked politely first so it can save its own state; the port sweep
-REM below is what guarantees it is gone.
+REM
+REM Asked politely first so it can save its placement, and then made
+REM to go.
+REM
+REM The polite request on its own was the reported fault: "I asked for
+REM the whole application to close and come back after an update, and
+REM the window never closes". taskkill without /f is a WM_CLOSE, which
+REM is the same thing as pressing the X - and the X is a QUESTION. The
+REM shell cancels it and puts the quit confirmation up, so the window
+REM sat there with a modal on screen while everything underneath it
+REM was stopped, and the page went blank because the desk it was
+REM talking to had gone. Nobody was there to answer the question,
+REM because the answer was given two minutes earlier by pressing
+REM Install.
+REM
+REM So: ask, give it a few seconds to save and go, then end it. A
+REM relaunch is not a request to the window; it is something already
+REM decided.
 taskkill /im AURION.exe >nul 2>nul
+timeout /t 4 /nobreak >nul
+tasklist /fi "imagename eq AURION.exe" 2>nul | find /i "AURION.exe" >nul
+if not errorlevel 1 (
+  >>"%LOG%" echo {"msg":"relaunch: the window did not close on request - ending it"}
+  taskkill /f /im AURION.exe >nul 2>nul
+  timeout /t 1 /nobreak >nul
+)
 
 REM Everything, this time - "-Scope all" includes the desk's own port,
 REM which is the whole point of using this script instead of the other.
