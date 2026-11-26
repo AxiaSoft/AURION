@@ -117,6 +117,9 @@ class MT5Bridge:
         #: the first readable month instead of after the last bar of
         #: six months.
         self._hist_shown: dict[tuple[str, str], tuple[float, str]] = {}
+        #: Series with a bar known to be out of time order. See
+        #: _order_bucket: the ingest marks, one place sorts.
+        self._hist_unsorted: set[tuple[str, str]] = set()
         self._agent_owner: dict[int, asyncio.StreamWriter | None] = {}
         self._purge_gen: dict[int, int] = {}
         self._http_seen: dict[int, float] = {}
@@ -577,7 +580,11 @@ class MT5Bridge:
         await self.emit("deals", [d.to_dict() for d in self.deals[-400:]])
         for (symbol, tf), rows in self.candles.items():
             if rows:
-                await self.emit("candles", {"symbol": symbol, "timeframe": tf, "bars": [c.to_dict() for c in rows], "depth": self.hist_depth(symbol, tf)})
+                # Every series held, at once. On a desk with four
+                # charts open this is the single largest thing the
+                # engine ever emits, and it used to be built inline.
+                wire = await self._wire_bars(rows)
+                await self.emit("candles", {"symbol": symbol, "timeframe": tf, "bars": wire, "depth": self.hist_depth(symbol, tf)})
         await self.emit("agents", {"items": [a.to_dict() for a in self.online_agents()]})
         await self.emit("status", self.snapshot_status)
 
@@ -1024,9 +1031,45 @@ class MT5Bridge:
                 return
         bucket.append(candle)
         if len(bucket) >= 2 and str(bucket[-1].time) < str(bucket[-2].time):
-            ordered = sorted(bucket, key=lambda c: (str(c.time), int(c.time_msc or 0)))
-            bucket.clear()
-            bucket.extend(ordered)
+            # Out of order. NOTED rather than fixed here: sorting on
+            # arrival is what made a long download quadratic - see
+            # _order_bucket, which does it once when it matters.
+            self._hist_unsorted.add((candle.symbol, candle.timeframe))
+
+    #: Series whose buffer is known to have a bar out of time order.
+    #:
+    #: The expert streams history oldest bar first, so a download is
+    #: already in order by construction and sorting it is pure cost.
+    #: The exceptions - a gap backfilled, two charts feeding the same
+    #: series, a bar re-sent late - are rare and are exactly what this
+    #: set records.
+    def _order_bucket(self, symbol: str, timeframe: str, bucket: list[Candle]) -> None:
+        """Put a series in time order, if anything has disturbed it.
+
+        The measurement this exists for: a six-month M5 download is
+        51 840 bars in about a hundred chunks, and the ingest sorted
+        the WHOLE buffer after every chunk - 987 ms of event loop for
+        one series, climbing with each chunk because the buffer keeps
+        growing. Several charts download at once and a three-month
+        backtest asks in rounds, so that figure multiplies.
+
+        The desk's health check gives the engine five seconds and the
+        supervisor restarts it after three misses, which is the
+        "engine connects, disconnects, connects, then dies" that was
+        reported while a long backtest pulled its history.
+
+        Sorting is still done - a series out of order would draw as a
+        scribble - but once, when a bar actually arrived out of
+        sequence, rather than a hundred times on the chance that one
+        did.
+        """
+        key = (symbol, timeframe)
+        if key not in self._hist_unsorted:
+            return
+        self._hist_unsorted.discard(key)
+        ordered = sorted(bucket, key=lambda c: (str(c.time), int(c.time_msc or 0)))
+        bucket.clear()
+        bucket.extend(ordered)
 
     async def _mark_positions_from_tick(self, tick: Tick) -> None:
         if not self.positions or not tick.symbol:
@@ -1210,6 +1253,50 @@ class MT5Bridge:
     #: free either.
     _PARTIAL_EVERY_S = 3.0
 
+    #: Above this many bars, building the wire payload goes to a
+    #: thread instead of running inline.
+    #:
+    #: Below it the handover costs more than the work: a few hundred
+    #: bars is well under a millisecond. Above it the figures are the
+    #: ones that took the engine down - 51 840 M5 bars measured at
+    #: 22 ms of to_dict and 120 ms of JSON, 9.6 MB on the wire.
+    _OFFLOAD_BARS = 2000
+
+    async def _wire_bars(self, rows: list[Candle]) -> list[dict[str, Any]]:
+        """`rows` as plain dicts, off the event loop when that is worth it.
+
+        Every path that hands a whole series to the desk goes through
+        here. It is pure CPU over a list that can be a quarter of a
+        million long, and doing it inline is one of the measured
+        reasons a health check missed its five second window while a
+        three-month backtest pulled its history.
+
+        The list is copied before it leaves: the buffer it comes from
+        is appended to by the ingest, and iterating it from a thread
+        while that happens is how a RuntimeError ends a download.
+        """
+        if len(rows) < self._OFFLOAD_BARS:
+            return [c.to_dict() for c in rows]
+        snapshot = list(rows)
+        return await asyncio.to_thread(lambda: [c.to_dict() for c in snapshot])
+
+    def _partial_interval(self, held: int) -> float:
+        """How often a half-finished download may be pushed to the desk.
+
+        Flat three seconds was right when a partial was a few hundred
+        bars. It is not right for fifty thousand: each one is 9.6 MB
+        of JSON that has to be encoded once per listener, so a sixty
+        second download spent about three seconds of its life inside
+        the encoder, on top of everything else the ingest was doing.
+
+        So the interval grows with the series. A chart that is nearly
+        there does not need twenty updates a minute; it needs an
+        engine that is still answering.
+        """
+        if held <= 2000:
+            return self._PARTIAL_EVERY_S
+        return min(20.0, self._PARTIAL_EVERY_S * (held / 2000.0))
+
     async def _maybe_partial_candles(self, symbol: str, timeframe: str) -> None:
         """Let the desk draw what has arrived, while the rest arrives.
 
@@ -1251,17 +1338,18 @@ class MT5Bridge:
         newest = str(getattr(rows[-1], "time", "") or "")
         when, shown = self._hist_shown.get(key, (0.0, ""))
         now = time.time()
-        if now - when < self._PARTIAL_EVERY_S:
+        if now - when < self._partial_interval(len(rows)):
             return
         if shown and newest < shown:
             return
         self._hist_shown[key] = (now, newest)
+        wire = await self._wire_bars(rows)
         await self.emit(
             "candles",
             {
                 "symbol": symbol,
                 "timeframe": tf,
-                "bars": [c.to_dict() for c in rows],
+                "bars": wire,
                 "depth": self.hist_depth(symbol, tf),
                 # The desk keeps the download status up while this is
                 # true, instead of treating the bars as the last word.
@@ -1711,7 +1799,7 @@ class MT5Bridge:
         # over the same bars - the broadcast's copy and the caller's -
         # and on a six-month M5 window that is 52 000 dictionaries
         # built twice for one request.
-        out = [c.to_dict() for c in rows]
+        out = await self._wire_bars(rows)
         # Broadcast only what is NEWS.
         #
         # Every call used to push the whole series to every connected
@@ -1753,7 +1841,8 @@ class MT5Bridge:
                 bucket.clear()
                 bucket.extend(rows)
                 await self.archive_candles(symbol, tf, rows)
-                await self.emit("candles", {"symbol": symbol, "timeframe": tf, "bars": [c.to_dict() for c in rows], "depth": self.hist_depth(symbol, tf)})
+                wire = await self._wire_bars(rows)
+                await self.emit("candles", {"symbol": symbol, "timeframe": tf, "bars": wire, "depth": self.hist_depth(symbol, tf)})
                 self._resolve_hist(symbol, tf)
         except Exception:
             log.exception("prime agent %s %s failed", symbol, tf)
@@ -2002,7 +2091,7 @@ class MT5Bridge:
             # costs nothing measurable and takes the whole class of
             # problem away.
             for index, row in enumerate(message.get("bars") or []):
-                if index and index % 500 == 0:
+                if index and index % 250 == 0:
                     await asyncio.sleep(0)
                 self._put_candle(
                     Candle(
@@ -2029,23 +2118,20 @@ class MT5Bridge:
                 # them to be worth looking at. A download that has
                 # already delivered a readable month should be behind a
                 # chart, not behind a loading panel.
-                ordered = sorted(bucket, key=lambda c: (str(c.time), int(c.time_msc or 0)))
-                bucket.clear()
-                bucket.extend(ordered)
+                self._order_bucket(symbol, tf, bucket)
                 await self._maybe_partial_candles(symbol, tf)
             if final:
-                ordered = sorted(bucket, key=lambda c: (str(c.time), int(c.time_msc or 0)))
-                bucket.clear()
-                bucket.extend(ordered)
+                self._order_bucket(symbol, tf, bucket)
                 self._note_hist_depth(symbol, tf, message)
                 self._hist_shown.pop((symbol, tf), None)
                 if tape == self.active_tape():
+                    wire = await self._wire_bars(list(bucket))
                     await self.emit(
                         "candles",
                         {
                             "symbol": symbol,
                             "timeframe": tf,
-                            "bars": [c.to_dict() for c in bucket],
+                            "bars": wire,
                             "depth": self.hist_depth(symbol, tf),
                         },
                     )
