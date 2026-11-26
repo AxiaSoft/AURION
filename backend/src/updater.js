@@ -10,6 +10,7 @@ const { load: loadConfig } = require("./config");
 const github = require("./github-update");
 const hostctl = require("./host");
 const buildId = require("./build-id");
+const buildStamp = require("./build-stamp");
 
 const UPDATE_SETTINGS_FILE = path.join(DATA, "update-settings.json");
 const UPDATE_STATE_FILE = path.join(DATA, "update-state.json");
@@ -372,6 +373,21 @@ async function checkGithub() {
     };
     writeSecure(UPDATE_STATE_FILE, state);
     saveSettings({ last_check: state.last_check, last_check_result: state });
+    /* Nothing to install means this machine IS the target - which is
+       also the only moment a fresh install from the MSI can learn
+       which build it is. Without it the installer's copy of the sixth
+       build would keep calling itself the first one, because nothing
+       local can tell the difference. The stamp is tied to the files on
+       disk, so it cannot outlive them. */
+    if (!behind && res.update) {
+      try {
+        buildStamp.record({
+          date: res.update.build_date || "",
+          seq: res.update.build_seq || "",
+          version: res.update.version || "",
+        });
+      } catch { /* a check must not fail over a stamp */ }
+    }
     return { ok: true, ...state };
   } catch (e) {
     const err = (e && e.message) || "network_error";
@@ -975,6 +991,20 @@ async function applyUpdate(updateId, serverUrl, opts = {}) {
     /* The files on disk have just changed, so any cached fingerprint of
        them describes the installation that existed a second ago. */
     try { buildId.invalidate(); } catch { /* */ }
+
+    /* And this installation is now a different build, so it is now a
+       different build NUMBER - taken from the release that was just
+       written rather than counted from how many updates this machine
+       happens to have watched. That local count was the reported
+       fault: the same build read 06 here and 01 on a machine freshly
+       installed from the MSI. See backend/src/build-stamp.js. */
+    try {
+      buildStamp.record({
+        date: state.latest.build_date || "",
+        seq: state.latest.build_seq || "",
+        version: state.latest.version || "",
+      });
+    } catch { /* a stamp is never worth failing an install over */ }
 
     /* And now actually finish the job.
 

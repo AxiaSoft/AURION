@@ -27,6 +27,7 @@ const supervisor = require("./engine-supervisor");
 const support = require("./support-window");
 const buildId = require("./build-id");
 const buildSeq_ = require("./build-seq");
+const buildStamp = require("./build-stamp");
 
 ensureDirs();
 auth.boot();
@@ -424,20 +425,37 @@ app.get("/api/meta", async (req, res) => {
   try {
     if (supervisor.state().gave_up) supervisor.resume("a desk page opening");
   } catch { /* never fail /api/meta over this */ }
+  /* The build stamp: which build is this, as a fact about the build.
+   *
+   * First choice is what the build itself says - the date and the
+   * daily number the release carries, recorded when it was installed
+   * or when a check confirmed this machine was already on it. That is
+   * the same answer on every installation of the same build, which is
+   * the whole point of an identifier a trader reads back to support.
+   *
+   * Everything below it is a local guess, kept for the case where
+   * there is no stamp yet - an installation that has never reached
+   * GitHub. The date is this machine's config mtime and the number is
+   * counted off the fingerprints this machine has seen today, so two
+   * desks on the same build can disagree. That disagreement was the
+   * reported fault; it now only survives where there is no better
+   * answer at all. See build-stamp.js. */
   let buildDate = "";
-  try {
-    const fs = require("fs");
-    const path = require("path");
-    const stat = fs.statSync(path.join(__dirname, "..", "..", "config", "aurion.json"));
-    buildDate = stat.mtime.toISOString().slice(0,10);
-  } catch { buildDate = new Date().toISOString().slice(0,10); }
-  /* The release number within that day - the last two digits of the
-     build stamp. Counted off the engine-source fingerprint rather than
-     off this file's mtime, because config/aurion.json is rewritten
-     every time a setting is saved and a trader changing their risk cap
-     is not a new build. See build-seq.js. */
   let buildSeq = "01";
-  try { buildSeq = buildSeq_.seqFor(buildDate, buildId.diskBuildId()); } catch { /* 01 */ }
+  let stamped = null;
+  try { stamped = buildStamp.current(); } catch { stamped = null; }
+  if (stamped) {
+    buildDate = stamped.date;
+    buildSeq = stamped.seq;
+  } else {
+    try {
+      const fs = require("fs");
+      const path = require("path");
+      const stat = fs.statSync(path.join(__dirname, "..", "..", "config", "aurion.json"));
+      buildDate = stat.mtime.toISOString().slice(0,10);
+    } catch { buildDate = new Date().toISOString().slice(0,10); }
+    try { buildSeq = buildSeq_.seqFor(buildDate, buildId.diskBuildId()); } catch { /* 01 */ }
+  }
   res.json({
     ok: true,
     data: {

@@ -469,6 +469,53 @@ async function containedInMain(src, ref) {
   }
 }
 
+/**
+ * Which build of its day is this one?
+ *
+ * The last two digits of the build stamp - AURION-YY<M>DD<NN> - and
+ * the only part of it that is not a restatement of the date. It has
+ * to be the SAME two digits on every machine running this build, or
+ * it identifies nothing; that is what went wrong when it was counted
+ * locally (see backend/src/build-stamp.js for the report).
+ *
+ * So it is counted here, off the one history both delivery paths share:
+ * the commits published to the release branch on that calendar day,
+ * in the order GitHub lists them. The first commit of the day is 01,
+ * the sixth is 06, and every installation of the sixth build says 06
+ * whether it arrived by update or by installer.
+ *
+ * Returns "" when it cannot be established. Every caller treats "" as
+ * no statement, never as 01 - a guess that looks like a fact is the
+ * fault being fixed.
+ */
+async function dailySeq(src, isoWhen, sha) {
+  const day = String(isoWhen || "").slice(0, 10);
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(day)) return "";
+  try {
+    const list = await request(
+      src,
+      `/repos/${src.owner}/${src.repo}/commits` +
+        `?sha=${encodeURIComponent(UPDATE_BRANCH)}` +
+        `&since=${day}T00:00:00Z&until=${day}T23:59:59Z&per_page=100`,
+      20000
+    );
+    if (!Array.isArray(list) || !list.length) return "";
+    /* GitHub answers newest first, and the stamp counts from the start
+       of the day, so the position is measured from the far end. */
+    const want = String(sha || "");
+    const at = want ? list.findIndex((c) => String((c && c.sha) || "") === want) : -1;
+    /* A tag resolves to a commit that may not be in this window (an
+       annotated tag, a release cut from an earlier commit). The build
+       being offered is then the newest one of that day, which is what
+       the full count says. */
+    const n = at < 0 ? list.length : list.length - at;
+    return String(Math.max(1, Math.min(99, n))).padStart(2, "0");
+  } catch {
+    /* A rate limit or a network fault is not a build number. */
+    return "";
+  }
+}
+
 async function resolveTarget(src) {
   try {
     const rel = await request(src, `/repos/${src.owner}/${src.repo}/releases/latest`);
@@ -488,6 +535,7 @@ async function resolveTarget(src) {
         changelog: String(rel.body || rel.name || "").slice(0, 4000),
         published_at: when,
         build_date: String(when).slice(0, 10),
+        build_seq: await dailySeq(src, when, ""),
         html_url: rel.html_url || "",
       };
     }
@@ -532,6 +580,7 @@ async function resolveTarget(src) {
     changelog: "",
     published_at: when,
     build_date: String(when).slice(0, 10),
+    build_seq: await dailySeq(src, when, sha),
     html_url: head.html_url || "",
   };
 }
@@ -676,6 +725,11 @@ async function check(cfg, opts = {}) {
       version_changed: versionChanged,
       local_version: localVersion,
       build_date: target.build_date || "",
+      /* Counted at the source - see dailySeq. Carried with the offer
+         so the update panel names the build it is OFFERING, which was
+         the first half of the reported fault: the screen showed the
+         number of the build already installed. */
+      build_seq: target.build_seq || "",
       changelog: target.changelog,
       published_at: target.published_at,
       html_url: target.html_url,
