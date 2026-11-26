@@ -174,6 +174,31 @@ def _as_float(value: Any) -> float:
     return out if out == out and out not in (float("inf"), float("-inf")) else 0.0
 
 
+def _period_shortfall(asked_from: Any, tested_from: Any) -> int:
+    """Days of the requested period that no bar could be found for.
+
+    Weekends and holidays are not a shortfall - a Monday-to-Friday
+    market has nothing to show for a period that begins on a Saturday
+    - so anything inside a long weekend is reported as none. Beyond
+    that the gap is real history that did not arrive, which is the
+    difference between "three months were tested" and "three months
+    were asked for".
+    """
+    lo = str(asked_from or "").strip()[:10]
+    have = str(tested_from or "").strip()[:10]
+    if len(lo) != 10 or len(have) != 10 or have <= lo:
+        return 0
+    from datetime import date
+
+    try:
+        a = date(*(int(p) for p in lo.split("-")))
+        b = date(*(int(p) for p in have.split("-")))
+    except (TypeError, ValueError):
+        return 0
+    gap = (b - a).days
+    return gap if gap > 4 else 0
+
+
 def _slice_bars(
     bars: list[dict[str, Any]],
     start: Any,
@@ -238,6 +263,13 @@ class Trader:
     def __init__(self) -> None:
         self.bus = Bus()
         self.store = Store()
+        #: Series whose history is being filled in behind an answer,
+        #: and the tasks doing it. See _keep_filling_history.
+        self._filling_history: set[tuple[str, str]] = set()
+        self._fill_tasks: set[asyncio.Task] = set()
+        #: Series whose background fill has run its course, and the
+        #: day it was trying to reach. See _keep_filling_history.
+        self._fill_exhausted: dict[tuple[str, str], str] = {}
         #: Newest bar time already written to disk, per "symbol:timeframe".
         #: See _store_candles - it is what keeps a progress push from
         #: re-writing a whole three-month history for four new bars.
@@ -6635,13 +6667,104 @@ class Trader:
     #: expert, which is the other half of the same agreement.
     BACKTEST_STEP_DAYS = 31
 
-    #: Enough steps for half a year, and a hard stop either way: a
-    #: loop that asks the terminal for history is exactly the kind
-    #: that must not be able to run for ever.
-    BACKTEST_MAX_STEPS = 8
+    #: Enough steps for a year and a half, and a hard stop either
+    #: way: a loop that asks the terminal for history is exactly the
+    #: kind that must not be able to run for ever.
+    #:
+    #: It was eight, which is eight months in theory and was far less
+    #: in practice - see the barren-round handling below, which used
+    #: to end the loop on the first round that brought nothing.
+    BACKTEST_MAX_STEPS = 18
+
+    #: How many rounds in a row may bring nothing before the loop
+    #: accepts that there is nothing more to bring.
+    #:
+    #: This is the fix for "I ask for three months and it tests one".
+    #: A round brings nothing new far more often because the download
+    #: it just started has not landed than because the broker has no
+    #: more history: the expert answers a period it does not hold by
+    #: asking MetaTrader for it and returning what it has meanwhile,
+    #: and the engine's own wait for that reply is 8 to 25 seconds
+    #: while the terminal can take a minute and a half. One barren
+    #: round was treated as a verdict, the loop stopped, and the bars
+    #: that arrived ten seconds later were never asked for again.
+    BACKTEST_BARREN_ROUNDS = 4
+
+    #: Seconds to let the terminal's own fetch land before asking the
+    #: same question again. Long enough to be worth waiting for, short
+    #: enough that a trader watching the progress line sees it move.
+    BACKTEST_SETTLE_S = 3.0
+
+    #: How long the backtest REQUEST may spend fetching history.
+    #:
+    #: The desk's proxy gives any one request 25 seconds, and a reply
+    #: that arrives after that is read as "the engine is offline" - a
+    #: perfectly healthy engine declared dead because it was doing
+    #: exactly what it was asked to do. So the request's own fetch is
+    #: bounded well inside that, and a window that needs longer is
+    #: finished by _keep_filling_history after the answer has gone
+    #: back. Nothing is lost: the refusal says the download is
+    #: running, and the desk asks again while it watches it.
+    BACKTEST_FETCH_BUDGET_S = 17.0
+
+    #: And the background continuation's own ceiling. Three months of
+    #: M5 over a slow link is minutes, not seconds; a loop that asks
+    #: MetaTrader for history is still not allowed to run for ever.
+    BACKTEST_FILL_BUDGET_S = 420.0
+
+    async def _keep_filling_history(
+        self, symbol: str, timeframe: str, want: int, asked_from: str,
+    ) -> None:
+        """Finish a download the backtest request did not have time for.
+
+        Asked for in these words: "when I backtest three months, or
+        pick a range of several months, it has to download as many
+        candles as it needs - it must not just use last month's".
+
+        The request itself cannot wait that long; the desk's proxy
+        gives it 25 seconds. So it answers "still downloading", and
+        this carries on behind that answer. The trader's next attempt
+        - the desk makes it automatically - finds the bars there.
+
+        One of these per series at a time. A trader pressing the
+        button four times must not start four downloads of the same
+        history.
+        """
+        key = (symbol, self.bridge._norm_tf(timeframe))
+        if key in self._filling_history:
+            return
+        self._filling_history.add(key)
+        try:
+            await self._pull_history_in_steps(
+                symbol, timeframe, want, asked_from,
+                budget_s=self.BACKTEST_FILL_BUDGET_S,
+            )
+        except asyncio.CancelledError:
+            raise
+        except Exception:
+            log.exception("background history fill failed for %s %s", symbol, timeframe)
+        finally:
+            self._filling_history.discard(key)
+            # Whatever it managed is the broker's answer. One of these
+            # per series: a trader who asks again for a period this
+            # terminal will not serve gets the shorter run, labelled,
+            # rather than "still downloading" for ever.
+            self._fill_exhausted[key] = asked_from
+
+    def _fill_history_later(
+        self, symbol: str, timeframe: str, want: int, asked_from: str,
+    ) -> None:
+        """Start :meth:`_keep_filling_history` and keep a handle on it."""
+        task = asyncio.get_running_loop().create_task(
+            self._keep_filling_history(symbol, timeframe, want, asked_from),
+            name=f"aurion-fill-{symbol}-{timeframe}",
+        )
+        self._fill_tasks.add(task)
+        task.add_done_callback(self._fill_tasks.discard)
 
     async def _pull_history_in_steps(
         self, symbol: str, timeframe: str, want: int, asked_from: str = "",
+        budget_s: float = 0.0,
     ) -> list[dict[str, Any]]:
         """Fetch a long window as a series of short ones.
 
@@ -6661,9 +6784,17 @@ class Trader:
         from ..util.history import bars_for_days
 
         step = max(1, int(bars_for_days(timeframe, self.BACKTEST_STEP_DAYS)))
+        started_at = time.monotonic()
         bars: list[dict[str, Any]] = []
         reach = 0
+        barren = 0
         for _ in range(self.BACKTEST_MAX_STEPS):
+            if budget_s and time.monotonic() - started_at >= budget_s:
+                # Out of time for THIS caller, not out of history. See
+                # BACKTEST_FETCH_BUDGET_S: the request has to answer
+                # before the desk's proxy gives up on it, and the rest
+                # of the window is fetched behind the answer.
+                break
             reach = min(int(want), reach + step) if want else reach + step
             got = await self.bridge.pull_candles(
                 symbol, timeframe, reach, need_from=asked_from, tries=3,
@@ -6677,10 +6808,33 @@ class Trader:
                 oldest = str((bars[0] or {}).get("time") or "")[:10] if bars else ""
                 if oldest and oldest <= asked_from:
                     break
-            if not gained:
-                # The terminal has stopped finding more. Asking again
-                # would only repeat the same download.
+            if gained:
+                barren = 0
+                continue
+            # Nothing new this round.
+            #
+            # That is the normal appearance of a download still in
+            # flight, and it is NOT evidence that the broker has no
+            # more history - MetaTrader answers a period it does not
+            # hold by starting a fetch and returning what it has
+            # meanwhile. Nothing either side of this loop can tell
+            # those two apart in the moment: SERIES_BARS_COUNT only
+            # grows when bars land, so it reads the same during a
+            # fetch as it does when there is nothing to fetch.
+            #
+            # So the loop does not try to guess. It asks again, a
+            # bounded number of times, with time in between - and the
+            # answer to "is there more" is simply whether more
+            # arrives. This is the line that used to be `break`, and
+            # it is the whole of "three months tested one month".
+            barren += 1
+            if barren >= self.BACKTEST_BARREN_ROUNDS:
                 break
+            # Do not widen the ask on a round that brought nothing -
+            # ask the same question again, after giving the terminal
+            # time to answer the one it is already working on.
+            reach = max(0, reach - step)
+            await asyncio.sleep(self.BACKTEST_SETTLE_S)
         return bars
 
     async def chart_signals(self, symbol: str, timeframe: str = "M15", count: int = 0, strict: bool = True) -> dict[str, Any]:
@@ -6845,6 +6999,7 @@ class Trader:
             # report on a download that had just started.
             bars = await self._pull_history_in_steps(
                 symbol, timeframe, want, asked_from,
+                budget_s=self.BACKTEST_FETCH_BUDGET_S,
             ) or bars
         if not bars:
             # Still nothing. Say which of the two it is, because they
@@ -6883,6 +7038,58 @@ class Trader:
                               f"downloaded from MetaTrader — none have arrived yet"),
                     "build_id": BUILD_ID}
 
+        # The period was asked for; is it here?
+        #
+        # This is the reported fault in one check: "I ask for three
+        # months and it uses last month's candles". The history comes
+        # down a month per round and the request cannot wait for all
+        # of it, so a window that is still short is finished behind
+        # this answer and the trader is told to wait - instead of
+        # being handed a confident result about a quarter of the
+        # period they chose.
+        #
+        # Only when more is actually coming. A broker that will not
+        # serve the period is a fact, not a delay, and refusing
+        # forever over it would make the shorter run impossible to
+        # get at all; that case falls through and is labelled on the
+        # result instead. See _period_shortfall.
+        held_from = str((bars[0] or {}).get("time") or "")[:10] if bars else ""
+        missing_days = _period_shortfall(asked_from, held_from)
+        if missing_days:
+            depth = {}
+            try:
+                depth = self.bridge.hist_depth(symbol, timeframe) or {}
+            except Exception:
+                depth = {}
+            # Has this already been tried to the end for this series?
+            #
+            # Nothing MetaTrader reports distinguishes "fetching" from
+            # "there is no more" in the moment, so the distinction is
+            # made by having tried: the background fill runs the
+            # window to its own ceiling, and once it has finished the
+            # answer it reached IS the broker's answer. Asking the
+            # trader to wait a second time would be waiting for
+            # nothing.
+            key = (symbol, self.bridge._norm_tf(timeframe))
+            tried = self._fill_exhausted.get(key, "")
+            coming = not (tried and tried <= asked_from)
+            if coming:
+                self._fill_history_later(symbol, timeframe, want, asked_from)
+                return {
+                    "ok": False,
+                    "code": "history_filling_period",
+                    "args": {"symbol": symbol, "timeframe": timeframe,
+                             "asked": asked_from, "have": held_from,
+                             "days": int(missing_days)},
+                    "depth": depth,
+                    "downloading": True,
+                    "filling": True,
+                    "error": (f"{symbol} {timeframe}: history back to {asked_from} is "
+                              f"still downloading — {missing_days} day(s) of the chosen "
+                              f"period have not arrived yet"),
+                    "build_id": BUILD_ID,
+                }
+
         # A run over one month, one week or one day, chosen from the
         # calendar. Without this the only testable period was "all the
         # history there is", which over six months of M1 is 259 200 bars
@@ -6920,6 +7127,16 @@ class Trader:
         bars = window["bars"]
         tested_from = window["from"]
         tested_to = window["to"]
+        # Did the download actually reach the day that was asked for?
+        #
+        # Until now a three-month run whose history only came down as
+        # far as last month was replayed over last month and reported
+        # as a finished backtest. Nothing was wrong with the numbers;
+        # they were just answers about a different period than the one
+        # on screen, and the trader had no way to know. The run still
+        # goes ahead - a month of a result beats a refusal - but it
+        # carries the shortfall so the desk can say so plainly.
+        shortfall = _period_shortfall(body.get("from"), tested_from)
 
         spec = body.get("strategy") or {"kind": "builtin", "name": "ema_rsi", "params": body.get("params") or {}}
         # The robot on its own, with no strategy underneath it. Its one
@@ -6962,6 +7179,13 @@ class Trader:
             # trader picked, not the period it assumes was used.
             "from": tested_from,
             "to": tested_to,
+            # What was asked for, beside what is being replayed. Equal
+            # on a complete run; different when the broker would not
+            # serve the whole period.
+            "asked_from": str(body.get("from") or "")[:10],
+            "asked_to": str(body.get("to") or "")[:10],
+            "short_days": shortfall,
+            "period_short": bool(shortfall),
             "progress": 0,
             "started": started,
             # Stated, so the result can be read against the settings it
@@ -7193,6 +7417,18 @@ class Trader:
         result = dict(result or {})
         result["mode"] = "backtest"
         result["running"] = False
+        # Carry the period facts from the accepted run into the
+        # result. The backtester answers about the bars it was handed
+        # and knows nothing about the period that was asked for, so
+        # without this the shortfall is announced while the run is
+        # going and silently forgotten the moment it finishes - which
+        # is precisely when the trader reads the numbers.
+        accepted = self.backtest_run or {}
+        for field in ("asked_from", "asked_to", "short_days", "period_short"):
+            if field in accepted and field not in result:
+                result[field] = accepted[field]
+        result.setdefault("from", accepted.get("from", ""))
+        result.setdefault("to", accepted.get("to", ""))
         # A run that was called off reports what it replayed, labelled.
         # The flag is read before it is cleared, and the result is
         # trusted first: the backtester sets `cancelled` itself when it

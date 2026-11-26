@@ -100,7 +100,13 @@ check("startBacktest navigates with a function that exists", () => {
 check("the navigation happens before the request is sent, so a throw there kills the run", () => {
   const fn = body(appJs, "startBacktest");
   const nav = fn.indexOf('show("backtest")');
-  const post = fn.indexOf('API.post("/api/backtest"');
+  // The request itself now goes through postBacktestWhenHistoryIsReady,
+  // which posts the same thing and keeps posting it while the period is
+  // still downloading. Either spelling is "the request is sent"; what
+  // this check is about is the order.
+  const direct = fn.indexOf('API.post("/api/backtest"');
+  const waited = fn.indexOf("postBacktestWhenHistoryIsReady(");
+  const post = direct === -1 ? waited : (waited === -1 ? direct : Math.min(direct, waited));
   if (nav === -1 || post === -1) throw new Error("cannot find both halves");
   if (nav > post) return "navigation now follows the POST";
   return "still above the POST - which is why it must not throw";

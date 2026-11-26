@@ -185,13 +185,28 @@ def test_the_walk_stops_when_the_broker_has_no_more() -> None:
     Without this the loop would spend its whole budget re-requesting
     history that does not exist - which is the shape of the original
     fault, just relocated.
+
+    The number of asks it takes to reach that conclusion went up, on
+    purpose. It used to be one: a single round that brought nothing
+    ended the walk, and because a download in flight looks exactly
+    like a broker with nothing left, a three-month backtest regularly
+    stopped after one month and replayed that instead. The walk now
+    asks again, a bounded number of times, with time in between - see
+    Trader.BACKTEST_BARREN_ROUNDS. What this test pins is unchanged:
+    it stops, and soon.
     """
+    from aurion.runtime.trader import Trader
+
     month = 2000
     bridge = _StepBridge(month_bars=month, available=month)   # only one month exists
     trader = _trader_with(bridge)
+    trader.BACKTEST_SETTLE_S = 0.0
     bars = asyncio.run(trader._pull_history_in_steps("XAUUSD", "M15", month * 6))
     assert len(bars) == month
-    assert len(bridge.asks) <= 3, f"kept asking for history that is not there: {bridge.asks}"
+    ceiling = Trader.BACKTEST_BARREN_ROUNDS + 2
+    assert len(bridge.asks) <= ceiling, (
+        f"kept asking for history that is not there: {bridge.asks}"
+    )
 
 
 def test_the_walk_is_bounded_even_if_nothing_satisfies_it() -> None:
