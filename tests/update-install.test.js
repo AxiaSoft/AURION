@@ -423,21 +423,26 @@ console.log("\n=== the restart is the user's to make ===");
     "pressing restart is what calls the restart",
     /finishUpdateRestart\(host, upd\)/.test(runBody) && /API\.post\("\/api\/host\/restart"/.test(finBody)
   );
+  /* The reload is reloadFresh() now, not a bare location.replace: it
+     drops the Cache Storage and unregisters the service worker first,
+     because a cache-busting query string does not touch either and
+     they are where the previous version was still being served from.
+     The ordering this check exists for is unchanged. */
   check(
     "and the wait for the engine still happens before the reload",
     finBody.indexOf("waitForEngine(") > 0
-      && finBody.lastIndexOf("location.replace") > finBody.indexOf("waitForEngine("),
+      && finBody.lastIndexOf("reloadFresh(") > finBody.indexOf("waitForEngine("),
     "the fix for the raw keys must survive this change"
   );
   check(
     "the packs are still dropped only after the engine answers",
     finBody.indexOf("I18N.clearCache()") > finBody.indexOf("waitForEngine(")
-      && finBody.indexOf("I18N.clearCache()") < finBody.lastIndexOf("location.replace")
+      && finBody.indexOf("I18N.clearCache()") < finBody.lastIndexOf("reloadFresh(")
   );
   check(
     "deferring does not reload the page",
     /upd-inst-later[\s\S]{0,400}host\.remove\(\)/.test(runBody)
-      && !/upd-inst-later[\s\S]{0,400}location\.replace/.test(runBody),
+      && !/upd-inst-later[\s\S]{0,400}(?:location\.replace|reloadFresh)/.test(runBody),
     "a new desk against an old engine is the one pairing nobody tested"
   );
 }

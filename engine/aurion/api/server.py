@@ -307,7 +307,15 @@ async def set_market(body: dict[str, Any]) -> dict[str, Any]:
     timeframe = str(body.get("timeframe") or "M15")
     if not symbol:
         return {"ok": False, "error": "symbol is required"}
-    return await trader.set_market(symbol, timeframe)
+    # The desk says how much of the series it is about to draw, exactly
+    # as it does on /v1/candles. Without this the engine fell back to
+    # the whole six-month promise - 51 840 bars on M5 - for a chart
+    # that was opening on one page of 10 000.
+    try:
+        count = int(body.get("count") or body.get("bars") or 0)
+    except (TypeError, ValueError):
+        count = 0
+    return await trader.set_market(symbol, timeframe, count)
 
 
 @app.post("/v1/mt5/connect")

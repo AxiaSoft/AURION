@@ -49,9 +49,38 @@ REM which is the whole point of using this script instead of the other.
 powershell -NoProfile -ExecutionPolicy Bypass -File "%~dp0stop-engine.ps1" -Root "%~dp0.." -Scope all >>"%LOG%" 2>&1
 if errorlevel 1 goto :HELD
 
+REM Now that nothing is running, throw away every cache of the version
+REM that just went.
+REM
+REM Asked for alongside the relaunch: "all the caches must be cleared
+REM too, and then it comes back up on the new version automatically."
+REM The updater clears what it can from inside the running process
+REM (see purgeCaches), but the one cache that matters most cannot be
+REM deleted from there - Windows holds the WebView2 cache open for as
+REM long as AURION.exe is alive, and that cache is the desk's own
+REM HTML, CSS and JavaScript. Deleting it here, in the gap between the
+REM taskkill above and the start below, is the only moment it is
+REM possible. Miss that gap and the new build comes up rendering the
+REM old app.js, which is the whole complaint.
+call :WIPE "%LOCALAPPDATA%\AxiaSoft\AURION\Window\EBWebView\Default\Cache"
+call :WIPE "%LOCALAPPDATA%\AxiaSoft\AURION\Window\EBWebView\Default\Code Cache"
+call :WIPE "%LOCALAPPDATA%\AxiaSoft\AURION\Window\EBWebView\Default\Service Worker"
+call :WIPE "%LOCALAPPDATA%\AxiaSoft\AURION\Window\EBWebView\Default\GPUCache"
+call :WIPE "%LOCALAPPDATA%\AxiaSoft\AURION\Window\EBWebView\ShaderCache"
+call :WIPE "%LOCALAPPDATA%\AxiaSoft\AURION\Window\EBWebView\GrShaderCache"
+call :WIPE "%~dp0..\data\cache"
+call :WIPE "%~dp0..\data\tmp"
+
 REM Quiet. Start the product as if it were being opened for the first
 REM time today.
 call "%~dp0..\start-aurion.cmd"
+exit /b 0
+
+:WIPE
+REM A cache that will not delete is not a reason to refuse to start -
+REM the worst it costs is one stale file, and refusing would leave the
+REM trader with nothing running at all.
+if exist %1 rd /s /q %1 >nul 2>nul
 exit /b 0
 
 :HELD

@@ -44,6 +44,18 @@ for _ in $(seq 1 20); do
   sleep 0.5
 done
 
+# Every cache of the version that just went, now that nothing is
+# holding them open. Asked for with the relaunch: the app shuts down,
+# the caches are cleared, and it comes back on the new build.
+# purgeCaches in the updater does what it can from inside the running
+# process; the browser cache cannot be deleted from there while the
+# window is alive, so it is done here, in the gap.
+rm -rf data/cache data/tmp data/update_tmp 2>/dev/null || true
+rm -rf "$HOME/.config/AxiaSoft/AURION/Window/EBWebView/Default/Cache" \
+       "$HOME/.config/AxiaSoft/AURION/Window/EBWebView/Default/Code Cache" \
+       "$HOME/.config/AxiaSoft/AURION/Window/EBWebView/Default/Service Worker" 2>/dev/null || true
+find engine -name '__pycache__' -type d -prune -exec rm -rf {} + 2>/dev/null || true
+
 PY="${AURION_PYTHON:-}"
 if [ -z "$PY" ]; then
   if command -v python3 >/dev/null 2>&1; then PY=python3

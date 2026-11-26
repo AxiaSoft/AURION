@@ -46,7 +46,13 @@ from ..strategy.loader import (
 from ..license.guard import Guard
 from ..util.clock import utc_iso
 from ..util.errors import readable_error
-from ..util.history import HISTORY_DAYS, at_least_window, bars_to_cover, requested_window
+from ..util.history import (
+    HISTORY_DAYS,
+    at_least_window,
+    bars_to_cover,
+    page_window,
+    requested_window,
+)
 from ..build_id import BUILD_ID
 from ..util.market import block_reason as market_block_reason, session as market_session
 from ..util.log import RING, get
@@ -6132,7 +6138,34 @@ class Trader:
         await self.bus.publish("strategy", self.strategy_meta)
         return {"ok": True, "factory": True}
 
-    async def set_market(self, symbol: str, timeframe: str) -> dict[str, Any]:
+    async def set_market(self, symbol: str, timeframe: str, count: int = 0) -> dict[str, Any]:
+        """Point the engine at a series, and fetch ONE page of it.
+
+        `count` is the desk saying how much it is about to draw, and it
+        is believed - the same contract /v1/candles already has.
+
+        What this used to do was ask for at_least_window(), which is
+        the floor for the whole six-month promise: on M5 that is 51 840
+        bars, every time the trader switched symbol or timeframe. The
+        page budget is 10 000 (util.history.PAGE_BARS), so this one
+        call was asking for five times the entire budget and the desk
+        reported exactly that - "I said download 10 000 candles and on
+        M5 it is downloading 51 840".
+
+        It was also why the engine kept dropping. The desk posts
+        /api/market immediately before every /api/candles, so every
+        chart that opened put a full-window pull AND a synchronous AI
+        inference over 51 840 bars on the event loop. Health checks
+        time out at 5 s (HEALTH_TIMEOUT_MS), so the desk declared the
+        engine offline, settings could not be saved, and the
+        supervisor saw a stalled process - all from one request doing
+        far more work than anything had asked it to.
+
+        The floor is gone. A caller that names a number gets it; one
+        that does not gets a page. Nothing is lost: the six months are
+        still there to be paged in by dragging, which is what
+        PAGE_BARS was introduced for.
+        """
         symbol = str(symbol or "").strip()
         timeframe = str(timeframe or "M15")
         if not symbol:
@@ -6143,12 +6176,26 @@ class Trader:
             return {"ok": False, "error": "attach AurionBridge first — AURION will not load a market-watch chart"}
         self.active_symbol = symbol
         self.active_timeframe = timeframe
-        bars = await self.bridge.pull_candles(
-            symbol, timeframe, at_least_window(timeframe, load()["engine"].get("candle_lookback"))
-        )
+        try:
+            asked = int(count or 0)
+        except (TypeError, ValueError):
+            asked = 0
+        if asked <= 0:
+            try:
+                asked = int(load()["engine"].get("candle_lookback") or 0)
+            except (TypeError, ValueError):
+                asked = 0
+        want = max(1, asked) if asked > 0 else page_window(timeframe)
+        # exact: this is a window somebody named, not the promise. The
+        # promise is paged in behind it.
+        bars = await self.bridge.pull_candles(symbol, timeframe, want, exact=True)
         if bars:
             try:
-                self.ai.infer(bars, symbol, timeframe)
+                # Off the event loop. Inference over a page of bars is
+                # numpy work measured in hundreds of milliseconds, and
+                # it ran inline - so the engine stopped answering its
+                # own health check while it thought about a chart.
+                await asyncio.to_thread(self.ai.infer, bars, symbol, timeframe)
             except Exception:
                 log.exception("AI infer failed")
             if not self.ai.models.ready and len(bars) >= int(load()["ai"]["min_bars_to_train"]):
