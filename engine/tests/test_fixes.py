@@ -170,7 +170,14 @@ def test_candle_upsert_dedupes_and_sorts() -> None:
     bridge._put_candle(b)
     bridge._put_candle(a)
     bridge._put_candle(a2)
-    rows = list(bridge.candles[("XAUUSD", "M15")])
+    bucket = bridge.candles[("XAUUSD", "M15")]
+    # Ordering no longer happens on arrival - sorting the whole buffer
+    # once per bar is quadratic over a long download, which is what
+    # took the engine off during a three-month backtest. The out-of-
+    # order arrival is marked instead and the sort happens once,
+    # before the series goes anywhere.
+    bridge._order_bucket("XAUUSD", "M15", bucket)
+    rows = list(bucket)
     assert [c.time for c in rows] == ["2026-08-19T10:00:00", "2026-08-19T10:15:00"]
     assert rows[0].close == 1.8
 
