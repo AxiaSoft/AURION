@@ -122,17 +122,18 @@ function veilKit(opts) {
     const cachedCandlesFor = __cached;
     const TF_MINUTES = { M1: 1, M5: 5, M15: 15, M30: 30, H1: 60, H4: 240, D1: 1440 };
   `;
-  /* VEIL_ENOUGH_DAYS is taken from app.js rather than restated, or
-     this harness could keep passing after the real number moved. */
-  const enoughDays = /const VEIL_ENOUGH_DAYS = (\d+);/.exec(APP);
-  if (!enoughDays) throw new Error("app.js no longer states VEIL_ENOUGH_DAYS");
+  /* HIST_FRESH_MS is taken from app.js rather than restated, or this
+     harness could keep passing after the real number moved. */
+  const freshMs = /const HIST_FRESH_MS = (\d+);/.exec(APP);
+  if (!freshMs) throw new Error("app.js no longer states HIST_FRESH_MS");
   return new Function("__S", "__mk", "__minis", "__byId", "__cached",
     stub
-    + "const VEIL_ENOUGH_DAYS = " + enoughDays[1] + ";\n"
+    + "const HIST_FRESH_MS = " + freshMs[1] + ";\n"
     + grab(APP, "veilOf") + "\n" + grab(APP, "historyProgressOf") + "\n"
     + grab(APP, "historyDepthOf") + "\n"
     + grab(APP, "veilState") + "\n" + grab(APP, "paintVeil") + "\n"
     + grab(APP, "clearVeil") + "\n" + grab(APP, "haveBarsFor") + "\n"
+    + grab(APP, "historyRunning") + "\n" + grab(APP, "seriesReady") + "\n"
     + grab(APP, "enoughBarsFor") + "\n"
     + grab(APP, "paintChartVeils")
     + "\nreturn { paintChartVeils, clearVeil, veilState, S };")(
@@ -170,22 +171,30 @@ const inner = (box) => { const el = veilOn(box); return el ? String(el.innerHTML
     "with the two numbers the trader is waiting on");
   ok(/width:24%/.test(inner(box)), "and a bar at the right place");
 
-  /* The first bars arrive - but only a few hundred of them, and the
-     download says it is still running. Asked for in the next round:
-     "once the candles reach about a month back the loading can go
-     away, and the download carries on in the corner." A few hundred
-     M5 bars is a day and a half, so the veil stays. */
+  /* The first bars arrive - but the download says it is still
+     running. A partial series is not a chart: asked for in the round
+     after the one that relaxed this, "until the download operation is
+     finalised the chart must not open by any means". */
   const few = Array.from({ length: 300 }, (_, i) => ({ time: "t" + i, close: 1 }));
   const kitFew = veilKit({ S, byId: { "tv-chartbox": box }, cached: () => few });
   kitFew.paintChartVeils();
   ok(Boolean(veilOn(box)), "a day and a half of a running download is not yet a chart");
 
-  // A month of M5 is 8 640 bars. That is a chart, and the rest can
-  // arrive behind it.
+  /* A month of M5 is 8 640 bars, and it used to be enough to let the
+     trader in while the rest arrived. It no longer is: the window
+     would slide under them as the older bars were prepended, and an
+     indicator over a partial series is an indicator over a different
+     series. */
   const month = Array.from({ length: 9000 }, (_, i) => ({ time: "t" + i, close: 1 }));
+  const kitMonth = veilKit({ S, byId: { "tv-chartbox": box }, cached: () => month });
+  kitMonth.paintChartVeils();
+  ok(Boolean(veilOn(box)), "a month of a running download is still not a chart");
+
+  // The expert says it has finished. NOW there is a chart.
+  S.histProgress["XAUUSD.M5"] = { have: 51840, want: 51840, done: true, at: Date.now() };
   const kit2 = veilKit({ S, byId: { "tv-chartbox": box }, cached: () => month });
   kit2.paintChartVeils();
-  ok(!veilOn(box), "a month of candles lifts the veil while the download carries on");
+  ok(!veilOn(box), "a finished download lifts the veil");
   ok(!box.classList.contains("is-waiting"), "and the box stops saying it is waiting");
 
   /* ...and a series that can never reach a month must not sit behind

@@ -3064,6 +3064,12 @@ function bindHostBridge() {
          rather than leaving the trader looking at a live-looking
          screen that has in fact stopped being true. */
       if (msg.type === "shutdown") showShutdownScreen(msg.reason || "window");
+      /* The X was pressed, and the window has handed the question
+         over rather than putting a Windows box up in front of a
+         Persian desk. Asked for in those words. It is the SAME
+         question the power button asks - one wording, one modal, one
+         answer - so it runs the same function. */
+      if (msg.type === "ask-shutdown") quitAurion({ asked: "window" });
     });
   } catch (e) {
     /* running in a browser, not the desk window */
@@ -3154,14 +3160,25 @@ function showStoppedScreen() {
  * menu full of harmless ones. Then said, then done - in that order,
  * so the screen is up before the thing that paints it goes away.
  */
-async function quitAurion() {
+async function quitAurion(opts) {
   if (shuttingDown()) return;
+  /* Tell the host the modal is up.
+     Only when the host is the one asking: it cancelled its own close
+     and is waiting a moment to find out whether this page is alive
+     enough to ask at all. Without the acknowledgement it falls back
+     to the Win32 box, which is the thing being replaced - and with
+     it, a crashed page still closes, because the acknowledgement
+     never arrives. */
+  if (opts && opts.asked === "window") tellHost({ type: "ask-shutdown-shown" });
   const yes = await askConfirm({
     title: I18N.t("quit.title"),
     body: I18N.t("quit.body"),
     ok: I18N.t("quit.confirm"),
     danger: true,
   });
+  /* "No" needs no reply. The host cancelled the close before it asked
+     us, so silence leaves the window exactly where the trader wants
+     it: open. */
   if (!yes) return;
   showShutdownScreen("desk");
 
@@ -3169,14 +3186,7 @@ async function quitAurion() {
      close itself, and a window left open over a stopped desk is the
      complaint in reverse. Posting the message gives it the same path
      as the X, minus the question we have just asked. */
-  let host = false;
-  try {
-    const bridge = window.chrome && window.chrome.webview;
-    if (bridge && typeof bridge.postMessage === "function") {
-      bridge.postMessage(JSON.stringify({ type: "shutdown", reason: "desk" }));
-      host = true;
-    }
-  } catch { host = false; }
+  const host = tellHost({ type: "shutdown", reason: (opts && opts.asked) || "desk" });
 
   /* In a browser - or in a window whose host did not answer - the desk
      is asked directly. Doing this as well as the message would be
@@ -3188,6 +3198,25 @@ async function quitAurion() {
     catch { /* a desk that cannot be asked may already be going */ }
   }
   await waitUntilStopped();
+}
+
+/**
+ * Say something to the window hosting this page.
+ *
+ * Returns whether there was a host to say it to, which is the only
+ * way the desk can tell the difference between running inside AURION
+ * and running in a browser tab - and the two want different endings
+ * to a shutdown.
+ */
+function tellHost(msg) {
+  try {
+    const bridge = window.chrome && window.chrome.webview;
+    if (!bridge || typeof bridge.postMessage !== "function") return false;
+    bridge.postMessage(JSON.stringify(msg));
+    return true;
+  } catch (e) {
+    return false;
+  }
 }
 
 /** Watch the desk until it stops answering, then say so. */
@@ -12182,7 +12211,7 @@ function bindView(view) {
       // this page shows the chart at once instead of an empty box
       // while the bars are fetched again.
       const heldM = cachedCandlesFor(S.symbol, S.timeframe);
-      if (heldM && eaLive()) S.chart.setBars(heldM);
+      if (eaLive() && seriesReady(S.symbol, S.timeframe, heldM)) S.chart.setBars(heldM);
       const t = S.snap?.ticks?.[S.symbol]; if (t) S.chart.setTick(t);
       applyChartLevels(true);
       bindChartTicket();
@@ -14208,6 +14237,26 @@ function btPannableBars(bt, fallback) {
 function paintReplay(box, bt, snap) {
   const note = box.querySelector("#bt-replay-note");
   btWatchReplaySize(box);
+
+  /* The backtest chart waits on the download too.
+   *
+   * Named in the instruction alongside the EA chart and the markets
+   * page. It is not an exception just because the engine can send
+   * its own replay bars: a run started while MetaTrader is still
+   * building the timeframe is a run over a window that is still
+   * growing, and the frame drawn from it would be redrawn over a
+   * different span a moment later. The same veil, the same numbers,
+   * the same wording as everywhere else. */
+  const btBox = box.querySelector(".bt-live-chart");
+  if (btBox && bt && bt.symbol
+      && historyRunning(bt.symbol, bt.timeframe || S.timeframe || "M15")) {
+    paintVeil(btBox, bt.symbol, bt.timeframe || S.timeframe || "M15");
+    if (note) { note.hidden = true; note.textContent = ""; }
+    S._btReplay = null;
+    return;
+  }
+  if (btBox) clearVeil(btBox);
+
   const win = btReplayWindow(bt, snap);
   const source = win.source;
   const bars = (bt && !bt.running) ? btPannableBars(bt, win.bars) : win.bars;
@@ -16529,7 +16578,12 @@ function bindChartDesk() {
    * catches up. Nothing is shown that is not real - these are the
    * same bars the engine sent, only earlier. */
   const held = cachedCandlesFor(S.chartFocus.symbol, S.chartFocus.timeframe);
-  if (held) {
+  /* Held bars are only worth painting if they are the whole series.
+     The veil hides the canvas either way, but putting a partial
+     series into the chart is what made it JUMP when the rest landed -
+     the window the trader was looking at slides as bars are
+     prepended. Nothing goes in until the download is finished. */
+  if (held && seriesReady(S.chartFocus.symbol, S.chartFocus.timeframe, held)) {
     S.chart.setBars(held);
     // A remembered window wins over the default span: see saveView()
     // in charts.js. Without this test the restore would be undone
@@ -16551,7 +16605,7 @@ function bindChartDesk() {
   (async () => {
     try {
       await pickMarket(S.chartFocus.symbol, S.chartFocus.timeframe);
-      if (S.chart && S.candles.length) {
+      if (S.chart && seriesReady(S.chartFocus.symbol, S.chartFocus.timeframe, S.candles)) {
         S.chart.setBars(S.candles);
         /* Open on the period the trader last picked, not on the
            120-bar default: holding six months and showing a day and a
@@ -17125,18 +17179,33 @@ function clearVeil(box) {
   box.classList.remove("is-waiting");
 }
 
-/* Enough chart to be worth looking at, in days.
+/* Nothing opens until the download has finished.
  *
- * Asked for in these words: "once the candles go back at least a
- * month it is fine for that loading to go away - but let the
- * download carry on, the way the download status in the corner of
- * the chart does."
+ * Asked for in these words: until the chart download operation is
+ * finalised, the chart must not open by any means - not the EA chart
+ * or the cards in its list, not the markets page, and not the
+ * backtest.
  *
- * So the veil is not a gate on the whole six-month window any more.
- * It comes down at the first month, and the download line above the
- * chart keeps counting while the rest arrives behind the candles the
- * trader is already reading. */
-const VEIL_ENOUGH_DAYS = 30;
+ * This replaces a month-is-enough rule (VEIL_ENOUGH_DAYS = 30) that
+ * came from an earlier request: let the trader in at the first month
+ * and leave the rest arriving behind the candles. That turned out to
+ * be the wrong trade. A chart that is still filling MOVES - bars keep
+ * being prepended, the window the trader scrolled to slides, the
+ * indicators recompute over a different span, and the analysis on a
+ * partial series is an analysis of a different series. A trader
+ * reading a month of M5 while five more months land underneath is
+ * reading something that will not be true in thirty seconds, and
+ * cannot tell that from the finished article. Being made to wait is
+ * the lesser harm.
+ *
+ * "Finished" is the expert's own word for it - the hist_progress
+ * event's done flag - never a bar count and never a timer.
+ */
+
+/* How long a download report is taken as describing the present.
+   Past this, the series is treated as settled rather than running:
+   nothing is arriving, so no more bars are coming. */
+const HIST_FRESH_MS = 60000;
 
 /** Does the desk hold bars it could draw for this series right now? */
 function haveBarsFor(symbol, timeframe) {
@@ -17144,33 +17213,45 @@ function haveBarsFor(symbol, timeframe) {
 }
 
 /**
- * Enough of this series to drop the loading state.
+ * Is MetaTrader still sending this series?
  *
- * Four ways to be enough, and the last three matter as much as the
- * first - a chart that can never reach a month must not sit behind a
- * veil for ever:
+ * The three ways to be finished all matter. Only the first is the
+ * happy one, and without the other two a chart could sit behind the
+ * loading state for ever - which is the failure this gate could
+ * cause if it were written carelessly, and it is worse than the one
+ * it fixes:
  *
- *   * a month of candles is held;
- *   * the download says it has finished;
- *   * we hold everything the terminal says it has;
- *   * nothing is downloading, so no more are coming anyway.
+ *   * the download says it is done;
+ *   * nothing has reported in a minute, so nothing is arriving;
+ *   * everything the terminal says it holds has been sent.
  */
-function enoughBarsFor(symbol, timeframe, bars) {
+function historyRunning(symbol, timeframe) {
+  const p = historyProgressOf(symbol, timeframe);
+  if (!p || (Date.now() - p.at) >= HIST_FRESH_MS) return false;
+  if (p.done) return false;
+  const available = Number((historyDepthOf(symbol, timeframe) || {}).available || 0);
+  if (available > 0 && Number(p.have || 0) >= available) return false;
+  return true;
+}
+
+/**
+ * May this series be drawn at all?
+ *
+ * Bars in hand AND the download finished. Both halves are load
+ * bearing: bars alone is the partial chart this gate exists to keep
+ * off the screen, and "finished" alone would uncover an empty box.
+ */
+function seriesReady(symbol, timeframe, bars) {
   const held = Array.isArray(bars) ? bars.length : 0;
   if (!held) return false;
-  /* Not barsForDays(): that has a 400-bar floor for the analysis, and
-     a month of D1 is thirty candles. The question here is only
-     "does this reach back a month", so it is asked plainly. */
-  const mins = TF_MINUTES[String(timeframe || "M15").toUpperCase()] || 15;
-  const month = Math.ceil((VEIL_ENOUGH_DAYS * 24 * 60) / mins);
-  if (held >= month) return true;
-  const p = historyProgressOf(symbol, timeframe);
-  const fresh = p && (Date.now() - p.at) < 60000;
-  /* Nothing is arriving, so these are all the bars there will be. */
-  if (!fresh || p.done) return true;
-  const available = Number((historyDepthOf(symbol, timeframe) || {}).available || 0);
-  if (available > 0 && held >= available) return true;
-  return false;
+  return !historyRunning(symbol, timeframe);
+}
+
+/* The old name, kept because it reads well at the call sites: the
+   question each of them is asking is still "is there enough here to
+   show". What counts as enough is what changed. */
+function enoughBarsFor(symbol, timeframe, bars) {
+  return seriesReady(symbol, timeframe, bars);
 }
 
 /**
@@ -17204,8 +17285,11 @@ function paintChartVeils() {
   const mktCv = $("cv");
   const mktBox = mktCv && mktCv.parentElement;
   if (mktBox) {
+    /* Same gate as the chart desk, and for the same reason. This used
+       to lift at the first bar, so the markets page was the one place
+       a half-downloaded series was still drawn. */
     const held = cachedCandlesFor(S.symbol, S.timeframe);
-    if (held && held.length) clearVeil(mktBox);
+    if (seriesReady(S.symbol, S.timeframe, held)) clearVeil(mktBox);
     else paintVeil(mktBox, S.symbol, S.timeframe);
   }
   for (const cv of document.querySelectorAll("canvas[data-mini]")) {
@@ -17213,11 +17297,15 @@ function paintChartVeils() {
     if (!box) continue;
     const symbol = cv.getAttribute("data-mini") || "";
     const tf = cv.getAttribute("data-tf") || S.timeframe || "M15";
-    /* A card is a thumbnail of the last few hours - MINI_BARS of
-       them - so "enough" there is simply "any", and asking it for a
-       month would leave every card behind a spinner for ever. */
+    /* A card is a thumbnail of the last few hours - MINI_BARS of them
+       - but it is still a chart of that symbol, and the instruction
+         covers the expert list by name. So a card waits on the same
+         thing the full chart waits on: the download being finished.
+         What it does NOT wait on is holding a month, which is why the
+         readiness test takes the bars it is asked about rather than
+         going to the cache for the full series. */
     const held = (S._mini || {})[symbol + "|" + tf];
-    if (held && held.length) clearVeil(box);
+    if (seriesReady(symbol, tf, held)) clearVeil(box);
     else paintVeil(box, symbol, tf);
   }
 }
@@ -17470,7 +17558,7 @@ async function paintMiniCharts() {
     if (!symbol) continue;
     const key = symbol + "|" + tf;
     const held = S._mini[key];
-    if (held && held.length) paintMiniChart(cv, symbol, held);
+    if (seriesReady(symbol, tf, held)) paintMiniChart(cv, symbol, held);
     want.push({ cv, symbol, tf, key });
   }
   /* Until a card has candles it shows that it is waiting for them,
@@ -17486,6 +17574,12 @@ async function paintMiniCharts() {
       S._mini[key] = bars;
       // The trader may have left the page while this was in the air.
       if (cv.isConnected === false) return;
+      /* Bars arriving is not the download finishing. Drawing here
+         unconditionally - and clearing the veil with it - was how a
+         card got a quarter of a chart while the rest was still on its
+         way. paintChartVeils puts the card through the same gate as
+         everything else, and the next hist_progress event repaints. */
+      if (!seriesReady(symbol, tf, bars)) { paintChartVeils(); return; }
       paintMiniChart(cv, symbol, bars);
       clearVeil(cv.parentElement);
     } catch { /* keep whatever is in the box */ }
@@ -17838,8 +17932,12 @@ async function pickMarket(symbol, timeframe, opts) {
   if (S.view === "markets") {
     const lbl = $("tick-lbl");
     if (lbl) lbl.textContent = tickLabel();
-    if (S.chart) S.chart.setBars(S.candles);
+    if (S.chart && seriesReady(symbol, timeframe, S.candles)) S.chart.setBars(S.candles);
     if (S.chart && S.signalsEnabled) fetchChartSignals(symbol, timeframe);
+    /* The markets canvas is gated too, so the box has to be told the
+       download moved on - otherwise the veil would only lift on the
+       next hist_progress event. */
+    paintChartVeils();
     const empty = document.querySelector(".chart-box .empty");
     if (empty && S.candles.length) empty.remove();
     else if (!S.candles.length && $("cv") && !$("cv").parentElement.querySelector(".empty")) {

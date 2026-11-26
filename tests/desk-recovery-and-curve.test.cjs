@@ -133,6 +133,7 @@ function grab(src, name) {
        that is DOM work and has its own suite. */
     const paintChartVeils = () => {};
     const clearVeil = () => {};
+    const HIST_FRESH_MS = 60000;
   `;
   const mk = (sym, tf) => ({
     getAttribute: (k) => (k === "data-mini" ? sym : tf),
@@ -149,7 +150,13 @@ function grab(src, name) {
   };
   const S = { _mini: { "EURUSD|M15": [{ time: "t0", close: 1 }] }, snap: {} };
   const api = new Function("__S", "__nodes", "__get", "__made",
-    stub + grab(APP, "paintMiniChart") + "\n" + grab(APP, "paintMiniCharts")
+    /* The download gate is real here, not stubbed. A card is a chart
+       and waits for its candles like every other one; S.histProgress
+       is empty below, so nothing is downloading and the cards draw -
+       which is what the rest of this section is about. */
+    stub + grab(APP, "historyProgressOf") + "\n" + grab(APP, "historyDepthOf") + "\n"
+    + grab(APP, "historyRunning") + "\n" + grab(APP, "seriesReady") + "\n"
+    + grab(APP, "paintMiniChart") + "\n" + grab(APP, "paintMiniCharts")
     + "\nconst MINI_BARS = 240;"
     + "\nreturn { paintMiniCharts, S };")(S, nodes, get, made);
 

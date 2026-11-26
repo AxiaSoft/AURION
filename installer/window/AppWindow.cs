@@ -205,11 +205,31 @@ internal sealed class AppWindow : Form
         if (_stopping) { e.Cancel = true; return; }
 
         e.Cancel = true;
+
         // The desk asked the question itself and is already showing the
         // shutdown screen; asking a second time in a different dialog is
         // the same request twice.
-        var answer = _askedByDesk ? DialogResult.Yes : AskToShutDown();
-        if (answer != DialogResult.Yes) return;
+        if (!_askedByDesk)
+        {
+            // Ask inside AURION, not in a Windows box.
+            //
+            // Requested in those words, and the reason is visible the
+            // moment the two are put side by side. A MessageBox is grey
+            // Win32 chrome in the system font and the system language,
+            // with "Yes"/"No" that no part of AURION says, laid out
+            // left-to-right over a desk that may be entirely Persian.
+            // The desk already owns this exact question - the power
+            // button in its menu asks it - so the X now routes to that
+            // one instead of carrying a second, uglier copy.
+            if (AskTheDeskToConfirmShutdown()) return;
+
+            // ...and if the desk cannot be asked, the Win32 box is still
+            // the right answer. It is the fallback, not the default: a
+            // page that has crashed, a WebView that never came up or a
+            // desk too busy to answer must never leave a window that
+            // cannot be closed. See AskTheDeskToConfirmShutdown.
+            if (AskToShutDown() != DialogResult.Yes) return;
+        }
 
         _stopping = true;
         _tray.Visible = false;
@@ -225,6 +245,69 @@ internal sealed class AppWindow : Form
             _stopped = true;
         }
         Close();
+    }
+
+    /// <summary>True while the desk has been asked to put its own quit modal up.</summary>
+    private bool _deskAsking;
+
+    /// <summary>Set when the desk confirms its modal is on screen.</summary>
+    private bool _deskAskAcked;
+
+    /// <summary>
+    /// How long to wait for the desk to say "my modal is up".
+    ///
+    /// This is NOT how long the trader has to answer - they may take as
+    /// long as they like. It is only how long the host waits to learn
+    /// whether the desk is alive enough to ask at all, so a page that
+    /// has crashed falls back to the Win32 box within a moment rather
+    /// than leaving a window that will not close.
+    /// </summary>
+    private const int DeskAskAckMs = 1200;
+
+    /// <summary>
+    /// Hand the question to the desk, and say whether it took it.
+    ///
+    /// Returns true when the desk has the question - in which case this
+    /// close is abandoned and nothing more happens here. The trader
+    /// answers inside AURION; "yes" comes back as the ordinary
+    /// {"type":"shutdown"} message, which sets _askedByDesk and closes
+    /// the window through the one path in OnFormClosing, and "no" comes
+    /// back as nothing at all, which is exactly right - the window was
+    /// already told not to close.
+    ///
+    /// Returns false when the desk is not in a state to be asked, and
+    /// the caller falls back to the host's own dialog.
+    /// </summary>
+    private bool AskTheDeskToConfirmShutdown()
+    {
+        var core = _view?.CoreWebView2;
+        if (core == null) return false;
+
+        _deskAsking = true;
+        _deskAskAcked = false;
+        try
+        {
+            core.PostWebMessageAsString("{\"type\":\"ask-shutdown\"}");
+        }
+        catch
+        {
+            _deskAsking = false;
+            return false;
+        }
+
+        // Pumped rather than awaited: OnFormClosing is already running
+        // on the UI thread and the acknowledgement arrives on it, so a
+        // blocking wait here would deadlock against the very message it
+        // is waiting for.
+        var until = Environment.TickCount + DeskAskAckMs;
+        while (!_deskAskAcked && Environment.TickCount < until)
+        {
+            Application.DoEvents();
+            System.Threading.Thread.Sleep(15);
+        }
+
+        _deskAsking = false;
+        return _deskAskAcked;
     }
 
     /// <summary>The question, asked once, in the trader's own words.</summary>
@@ -248,8 +331,20 @@ internal sealed class AppWindow : Form
         try
         {
             _view.Visible = false;
-            _splash.Status = "Shutting AURION down\u2026";
-            _splash.Progress = 0.5f;
+            // The shutdown face, not the start-up one.
+            //
+            // This used to put the splash back exactly as it looks
+            // while AURION is starting - same mark, same sweeping bar,
+            // same wash - so "stopping" and "starting" were the same
+            // picture, and a start-up screen that will not go away
+            // reads as a product that has hung. See
+            // SplashPanel.ShuttingDown.
+            _splash.ShuttingDown = true;
+            _splash.Status = "AURION is shutting down\u2026";
+            // Indeterminate on purpose: nothing here can know how long
+            // the engine will take to let go of MetaTrader, and a bar
+            // that filled would be inventing the number.
+            _splash.Progress = -1f;
             _splash.Visible = true;
             _splash.BringToFront();
             Refresh();
@@ -1281,6 +1376,18 @@ internal sealed class AppWindow : Form
             // which runs the one shutdown path in OnFormClosing. Doing the
             // work here instead would be a second teardown to keep in step
             // with the first.
+            // "My quit modal is on screen." The X handed the question
+            // over; this is the desk saying it has it, which is what
+            // lets the host stand down instead of showing its own box.
+            // Checked BEFORE the shutdown test: the string "shutdown"
+            // is a substring of "ask-shutdown-shown", so the other way
+            // round this acknowledgement would quit the application.
+            if (raw.Contains("\"ask-shutdown-shown\""))
+            {
+                _deskAskAcked = true;
+                return;
+            }
+
             if (raw.Contains("\"shutdown\""))
             {
                 _askedByDesk = true;

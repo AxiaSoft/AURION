@@ -126,6 +126,14 @@ const stub = `
   const ResizeObserver=class{observe(){}disconnect(){}};
   const fetchCount=()=>fetches;
   const S_=S;
+  // The replay box waits on the symbol's download like every other
+  // chart does. historyRunning below is the real rule; these two are
+  // only the paint, and are counted so a panel that put the veil up
+  // over a finished download would show here.
+  let veilPaints=0, veilClears=0;
+  const paintVeil=()=>{veilPaints++;};
+  const clearVeil=()=>{veilClears++;};
+  const veils=()=>({veilPaints, veilClears});
 `;
 /* paintReplay and the window it chooses are real here. Stubbing them
    would have let the panel fall back to the live feed -- which is the
@@ -146,6 +154,10 @@ const api = new Function(
              source: stubbing them would hide a paint that forgets to
              reset either between runs. */
           'btResetReplayView', 'btPannableBars',
+          /* The download gate, real rather than stubbed: a backtest
+             chart that stopped waiting for its candles is the fault
+             this pulls in, and a stub would hide it. */
+          'historyProgressOf', 'historyDepthOf', 'historyRunning',
           'paintReplay', 'renderBacktestLive', 'paintBacktestLive', 'barsForDays',
           /* The live panel titles itself with the strategy, and a run can
              now name the robot rather than a strategy - which has a label
@@ -156,8 +168,9 @@ const api = new Function(
   '\n' + konst('TF_MINUTES', '{ M15: 15 }') +
   '\n' + konst('HISTORY_DAYS', '30') +
   '\n' + konst('HISTORY_MAX', '60000') +
+  '\nconst HIST_FRESH_MS = ' + (src.match(/HIST_FRESH_MS = (\d+)/) || [, '60000'])[1] + ';' +
   '\nconst BT_REPLAY_SPAN = ' + (src.match(/BT_REPLAY_SPAN = (\d+)/) || [, '160'])[1] + ';' +
-  '\nreturn {renderBacktestLive, paintBacktestLive, btReplayWindow, btNormBar, barsForDays, S, counts, fetchCount, rafDefer, rafFlush};'
+  '\nreturn {renderBacktestLive, paintBacktestLive, btReplayWindow, btNormBar, barsForDays, S, counts, fetchCount, rafDefer, rafFlush, veils};'
 )();
 
 /* ------------------------------------------------ 1. one container */
@@ -473,6 +486,33 @@ ok(!/EURUSD|XAUUSD|gold/i.test(JSON.stringify([en.bt, fa.bt, ar.bt])),
   ok(/barsForDays\(/.test(call.slice(0, call.indexOf('\n}'))),
     'ensureBacktestBars derives its depth instead of naming a number');
 }
+
+/* ------------------------------- the replay waits for the download too
+ *
+ * Asked for alongside the EA chart and the markets page: until the
+ * candles have finished downloading, no chart opens - and the
+ * backtest was named. A run started while MetaTrader is still
+ * building the timeframe is a run over a window that is still
+ * growing, so the frame drawn from it would be redrawn over a
+ * different span a moment later. */
+{
+  const waiting = makeEl();
+  waiting.attrs.id = 'bt-live';
+  const before = api.veils();
+  api.S.histProgress = { 'EURUSD.M15': { have: 900, want: 17280, done: false, at: Date.now() } };
+  api.paintBacktestLive(waiting, mid, true);
+  const during = api.veils();
+  ok(during.veilPaints > before.veilPaints,
+    'a backtest whose candles are still downloading shows that, not a chart');
+  api.S.histProgress = { 'EURUSD.M15': { have: 17280, want: 17280, done: true, at: Date.now() } };
+  api.paintBacktestLive(makeEl(), mid, true);
+  ok(api.veils().veilClears > during.veilClears,
+    '...and the loading state comes down once the download reports itself finished');
+  ok(api.veils().veilPaints === during.veilPaints,
+    'and it is not put back up over a finished series');
+  api.S.histProgress = {};
+}
+
 
 console.log(fails ? `\n${fails} failed` : '\nall good');
 process.exit(fails ? 1 : 0);
