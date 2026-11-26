@@ -221,12 +221,77 @@ class MT5Bridge:
             # A chart must never fail to draw because a write failed.
             log.exception("could not archive %s %s", symbol, timeframe)
 
+    async def archive_candles(self, symbol: str, timeframe: str, rows: list[Candle]) -> None:
+        """:meth:`_archive`, off the event loop. Use this from a coroutine.
+
+        Writing a series to SQLite is not a quick call. Six months of
+        M1 is 259 200 bars and was measured at 2.44 seconds of
+        `executemany` - and every one of those seconds was spent
+        inside `async def`, so the event loop ran nothing at all: not
+        the /health route the desk polls, not the tick broadcast, not
+        the socket the expert is streaming down.
+
+        That is the whole of "the engine goes connected, disconnected,
+        connected", "no setting can be touched - the engine is off",
+        and "dropping the expert on a chart blocks the desk and the
+        prices stop". The desk calls the engine offline after fifteen
+        seconds of silence; an attaching expert archives several
+        series back to back, and on a slow disk the stalls reach it.
+
+        The write still happens, still in full, still before anything
+        depends on it having happened - in a worker thread, where
+        taking a while costs nobody anything. See
+        tests/test_history_does_not_stall_the_engine.py, which fails
+        if this ever goes back on the loop.
+        """
+        if not rows or not self._tape_save:
+            return
+        await asyncio.to_thread(self._archive, symbol, timeframe, list(rows))
+
+    async def warm_candles_from_disk(
+        self, symbol: str, timeframe: str, count: int
+    ) -> list[Candle]:
+        """:meth:`_warm_from_disk`, off the event loop.
+
+        The read is the same hazard as the write and on a hotter
+        path: it runs for every chart opened after a restart. Only
+        the database read goes to the thread; deciding what to do
+        with the answer, and replacing the series, stay on the loop
+        so no other coroutine can see the deque half-swapped.
+        """
+        if not self._tape_load:
+            return []
+        key = (symbol, timeframe)
+        if key in self._tape_warmed:
+            return self._candles_for(symbol, timeframe)
+        # Claimed BEFORE the await. Two charts opening at once would
+        # otherwise both find the series unwarmed, both read it, and
+        # both rewrite the same deque.
+        self._tape_warmed.add(key)
+        if self.active_tape() != "live":
+            return []
+        rows = await asyncio.to_thread(self._read_archive, symbol, timeframe, count)
+        return self._apply_warmed(symbol, timeframe, rows)
+
+    def _read_archive(self, symbol: str, timeframe: str, count: int) -> list[Any]:
+        """The blocking half of a warm: the database read, and nothing else."""
+        if not self._tape_load:
+            return []
+        try:
+            return list(self._tape_load(symbol, timeframe, max(0, int(count or 0))) or [])
+        except Exception:
+            log.exception("could not read stored candles for %s %s", symbol, timeframe)
+            return []
+
     def _warm_from_disk(self, symbol: str, timeframe: str, count: int) -> list[Candle]:
         """Fill an empty series from what this installation already has.
 
         Only when the live cache is genuinely short of the ask: a
         warmed series must never be allowed to overwrite bars the
         terminal just sent. Read once per series per run.
+
+        Blocking, so it must not be called from a coroutine - use
+        :meth:`warm_candles_from_disk` there.
         """
         if not self._tape_load:
             return []
@@ -236,11 +301,11 @@ class MT5Bridge:
         self._tape_warmed.add(key)
         if self.active_tape() != "live":
             return []
-        try:
-            rows = self._tape_load(symbol, timeframe, max(0, int(count or 0))) or []
-        except Exception:
-            log.exception("could not read stored candles for %s %s", symbol, timeframe)
-            return []
+        rows = self._read_archive(symbol, timeframe, count)
+        return self._apply_warmed(symbol, timeframe, rows)
+
+    def _apply_warmed(self, symbol: str, timeframe: str, rows: list[Any]) -> list[Candle]:
+        """The loop-side half of a warm: decide, and swap the series in."""
         held = self._candles_for(symbol, timeframe)
         fresh = [c for c in (self._candle_from_row(symbol, timeframe, r) for r in rows) if c]
         fresh = self._one_bar_per_time(fresh)
@@ -1573,7 +1638,7 @@ class MT5Bridge:
         # chart after a restart takes six months to open": the bars were
         # on the disk and nothing read them.
         if self._short_of(cached, count):
-            cached = self._warm_from_disk(symbol, tf, count) or cached
+            cached = await self.warm_candles_from_disk(symbol, tf, count) or cached
         rows: list[Candle] = []
         # Did anything actually change? See the emit at the end: a
         # cached answer has nothing to tell the other desks.
@@ -1596,7 +1661,7 @@ class MT5Bridge:
                 bucket = self._tape_store("live")["candles"][(symbol, tf)]
                 bucket.clear()
                 bucket.extend(rows)
-                self._archive(symbol, tf, rows)
+                await self.archive_candles(symbol, tf, rows)
                 changed = True
         if not rows:
             rows = cached
@@ -1639,7 +1704,7 @@ class MT5Bridge:
                 rows = fetched
             else:
                 rows = self._candles_for(symbol, tf)
-            self._archive(symbol, tf, rows)
+            await self.archive_candles(symbol, tf, rows)
             self._note_history_answer(symbol, tf, count, len(rows))
             changed = True
         # Built once. This used to be two separate list comprehensions
@@ -1687,7 +1752,7 @@ class MT5Bridge:
                 bucket = live_store["candles"][(symbol, tf)]
                 bucket.clear()
                 bucket.extend(rows)
-                self._archive(symbol, tf, rows)
+                await self.archive_candles(symbol, tf, rows)
                 await self.emit("candles", {"symbol": symbol, "timeframe": tf, "bars": [c.to_dict() for c in rows], "depth": self.hist_depth(symbol, tf)})
                 self._resolve_hist(symbol, tf)
         except Exception:

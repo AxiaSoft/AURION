@@ -280,11 +280,22 @@ const inner = (box) => { const el = veilOn(box); return el ? String(el.innerHTML
      the line used to be written; it is now built through seriesKey()
      so that a half-named broadcast yields no identity instead of a
      plausible-looking one like "|M15". The thing worth guarding is
-     that the bars are stamped at all. */
+     that the bars are stamped at all.
+
+     Matched on the ASSIGNMENT rather than on what is assigned, for
+     the same reason again: this read /S\.candles = incoming;/ and
+     broke when the branch stopped overwriting the series and started
+     merging into it, which it must - an arriving set that is merely
+     longer used to delete history the trader had paged in. What the
+     bars are called on the way in is not this test's business. */
   {
     const at = APP.indexOf('if (msg.type === "candles")');
-    const branch = APP.slice(at, at + 3000);
-    ok(/S\.candles = incoming;/.test(branch) && /S\.candlesKey = /.test(branch),
+    /* Wide enough to contain the whole branch including its
+       comments - a window measured in characters silently stops
+       covering what it was pointed at the moment anything above is
+       explained at length. */
+    const branch = APP.slice(at, at + 6000);
+    ok(/S\.candles = \w+;/.test(branch) && /S\.candlesKey = /.test(branch),
       "bars pushed over the socket are stamped with their series, or the veil would never lift");
   }
   for (const key of ["veil_loading", "veil_getting", "veil_none"]) {

@@ -16528,7 +16528,7 @@ function bindChartDesk() {
     // in charts.js. Without this test the restore would be undone
     // one line later, every time.
     if (typeof S.chart.showSpan === "function" && !S.pendingMoment && !S.chart.hasStoredView()) {
-      S.chart.showSpan(barsForDays(S.chartFocus.timeframe, chartDays()));
+      S.chart.showSpan(barsForDays(S.chartFocus.timeframe, chartDays(S.chartFocus.timeframe)));
     }
     // A date asked for from the calendar can be honoured now rather
     // than after the refetch: these are bars, and that is all the
@@ -16557,7 +16557,7 @@ function bindChartDesk() {
            back to the live edge here is the jump this is meant to
            stop. */
         if (typeof S.chart.showSpan === "function" && !S.pendingMoment && !held) {
-          S.chart.showSpan(barsForDays(S.chartFocus.timeframe, chartDays()));
+          S.chart.showSpan(barsForDays(S.chartFocus.timeframe, chartDays(S.chartFocus.timeframe)));
         }
         // Now that there are bars to land on - see goPendingMoment.
         if (S.pendingMoment) goPendingMoment();
@@ -16652,13 +16652,69 @@ function barsForDays(timeframe, days) {
  * dragging now carries that job on its own - see loadMoreHistory.
  */
 const CHART_PRIME_BARS = 600;
-const CHART_OPEN_DAYS = 30;
-/* One number now, not a remembered choice from a strip that no longer
-   exists. Kept as a function because a dozen call sites read it and
-   "how much does a chart open with" is still a question worth having
-   one answer to. */
-function chartDays() {
-  return CHART_OPEN_DAYS;
+
+/* ── one page of history ────────────────────────────────────────────
+ *
+ * A page is measured in BARS, not in days, and that is the correction
+ * at the heart of this. "Load a week at a time" is the right
+ * instinct and a week is not one size: a week of M1 is 10 080 bars, a
+ * week of D1 is five. Days are what a trader sees; bars are what the
+ * engine, the wire and the browser actually pay for.
+ *
+ *     M1    7 days    10 080 bars
+ *     M5   30 days     8 640 bars
+ *     M15  90 days     8 640 bars
+ *     M30 180 days     8 640 bars
+ *     H1  180 days     4 320 bars
+ *     H4  180 days     1 080 bars
+ *     D1  180 days       400 bars
+ *
+ * Against the six-month M1 pull this replaces - 259 200 bars, 48 MB
+ * of JSON, 3.26 seconds of engine - one page is 1.9 MB and about a
+ * tenth of a second.
+ *
+ * This single number is now BOTH how much a chart opens with and how
+ * much one drag backwards fetches, because they are the same
+ * question asked twice and keeping two answers is how CHART_OPEN_DAYS
+ * (thirty days, every timeframe) came to mean 43 200 bars on M1 and
+ * 2 880 on M15.
+ *
+ * Mirrors engine/aurion/util/history.py: PAGE_BARS, page_days,
+ * page_window. Both sides must agree or the desk asks for pages the
+ * engine does not cut on the same boundaries.
+ */
+const PAGE_BARS = 10000;
+const PAGE_DAY_STEPS = [1, 2, 3, 5, 7, 14, 30, 45, 60, 90, HISTORY_DAYS];
+
+/* Days of this timeframe that fit the bar budget, rounded to a span a
+   human recognises. NEAREST, not up: rounding up walks off the end of
+   the ladder - M15 wants 104 days and the next step is 180 - and a
+   chart would open on the whole window again. Ties go to the shorter
+   page, because being wrong upward costs a slow chart and downward
+   costs one more round trip. */
+function pageDays(timeframe) {
+  const mins = TF_MINUTES[String(timeframe || "M15").toUpperCase()] || 15;
+  const want = PAGE_BARS / ((24 * 60) / mins);
+  let best = PAGE_DAY_STEPS[0];
+  for (const step of PAGE_DAY_STEPS) {
+    if (Math.abs(step - want) < Math.abs(best - want)) best = step;
+  }
+  return Math.min(best, HISTORY_DAYS);
+}
+
+/* One page in bars, carrying the 400-bar floor that barsForDays
+   applies - so D1, where a page is the whole window, still arrives
+   with enough bars for an indicator to say anything. */
+function pageWindow(timeframe) {
+  return barsForDays(timeframe, pageDays(timeframe));
+}
+
+/* How much a chart opens with. Still a function because a dozen call
+   sites ask "how much does a chart open with", but it now takes the
+   timeframe, because thirty days was never one answer - it was seven
+   different loads wearing one number. */
+function chartDays(timeframe) {
+  return pageDays(timeframe);
 }
 
 /**
@@ -16698,11 +16754,15 @@ const HIST_RETRY_MS = 30000;
  * Now each drag fetches one slab that ENDS where the chart currently
  * begins - and the engine reads it out of AURION's own database, so
  * no download happens at all for bars that have been seen once. A
- * slab is about three weeks, floored so a slow timeframe still gets a
- * useful jump and capped so M1 does not send a month in one reply.
+ * A slab is one PAGE - the same number of bars a chart opens with,
+ * because "how much history arrives at once" has one answer whether
+ * it arrives on open or on a drag. It used to be its own formula
+ * (twenty days, floored at 1000, capped at 8000) which meant a chart
+ * opened on one amount of history and then grew by a different one,
+ * and neither was related to what either costs.
  */
 function historyStep(timeframe) {
-  return Math.max(1000, Math.min(8000, barsForDays(timeframe, 20)));
+  return pageWindow(timeframe);
 }
 
 /** The oldest bar held, as the engine spells times. */
@@ -16710,6 +16770,49 @@ function oldestHeldTime() {
   const first = (S.candles || [])[0];
   const t = first && String(first.time || "");
   return t || "";
+}
+
+/**
+ * Everything held plus everything arriving, as one series.
+ *
+ * Pages that have been loaded are never thrown away - asked for in
+ * those words: "when I come forward again the older candles must not
+ * be deleted, only hidden". Hiding is what the view already does; it
+ * draws a span ending at the newest bar, so bars outside it are off
+ * screen and nothing more. Deleting is what the desk used to do to
+ * them, and from an unexpected direction: a `candles` broadcast
+ * REPLACED the series whenever the arriving set was no shorter than
+ * the one held. A trader who had paged back through three months of
+ * M1 and then sat still held 30 000 bars starting in January; the
+ * next unasked broadcast of the current week is 10 080 bars starting
+ * on Monday, which is shorter, so that was safe - but prime a second
+ * chart, or let the expert finish a deeper stream, and an arriving
+ * set that is merely LONGER wiped out pages that reached further
+ * back. The work of a dozen drags, gone, with no way to tell it had
+ * happened except that the chart would not go back any more.
+ *
+ * Union, therefore, rather than a contest. Overlapping bar times
+ * take the arriving value, because that is the fresher reading of
+ * the same bar; everything either side is kept. Times are normalised
+ * through barTime for the usual reason - the expert and the
+ * MetaTrader5 package spell the same instant two ways, and an
+ * un-normalised union would hold both and draw the bar twice.
+ */
+function mergeSeries(held, incoming) {
+  const have = Array.isArray(held) ? held : [];
+  const rows = Array.isArray(incoming) ? incoming : [];
+  if (!have.length) return rows;
+  if (!rows.length) return have;
+  const by = new Map();
+  for (const b of have) {
+    const t = barTime(b && b.time);
+    if (t) by.set(t, b);
+  }
+  for (const b of rows) {
+    const t = barTime(b && b.time);
+    if (t) by.set(t, b);
+  }
+  return Array.from(by.keys()).sort().map((t) => by.get(t));
 }
 
 /** Older bars in front of what is held, without duplicating the joint. */
@@ -17625,7 +17728,7 @@ async function fetchChartSignals(symbol, timeframe) {
        looking at. The marks have to cover the bars that can be
        scrolled to, and that is exactly how many we hold. */
     const held = (S.candles || []).length;
-    const count = Math.max(400, Math.min(barsForDays(timeframe, chartDays()), held || barsForDays(timeframe, chartDays())));
+    const count = Math.max(400, Math.min(pageWindow(timeframe), held || pageWindow(timeframe)));
     /* Which right-hand edge this pass is being run against - see
        signalsReachHead. */
     const headBar = held ? (S.candles[held - 1] || {}) : {};
@@ -17706,7 +17809,7 @@ async function pickMarket(symbol, timeframe, opts) {
        no chart is on screen, barely anything, because this call also
        runs the moment the socket says hello and that is the load the
        trader was waiting through before the desk appeared. */
-    const count = prime ? CHART_PRIME_BARS : barsForDays(timeframe, chartDays());
+    const count = prime ? CHART_PRIME_BARS : barsForDays(timeframe, chartDays(timeframe));
     const c = await API.get(`/api/candles?symbol=${encodeURIComponent(symbol)}`
       + `&timeframe=${encodeURIComponent(timeframe)}&count=${count}`);
     noteHistoryDepth(symbol, timeframe, c && c.depth);
@@ -17977,6 +18080,12 @@ function onLive(msg) {
       const held = (S.candles || []).length;
       const deeper = !same || !held || incoming.length >= held
         || String((incoming[0] || {}).time || "") < String((S.candles[0] || {}).time || "");
+      /* Nothing arriving may shorten the history on screen. "Deeper
+         wins" was the old rule and it is not enough: deeper by COUNT
+         can still start later, so a long broadcast of recent bars
+         replaced - deleted - the pages a trader had dragged into
+         view. See mergeSeries. */
+      const joined = same ? mergeSeries(S.candles, incoming) : incoming;
       if (deeper && !barsSaySeries(incoming, d.symbol || S.symbol)) {
         /* Same check on the socket path: the broadcast names a
            series, and bars that disown that name are not it. */
@@ -17984,7 +18093,7 @@ function onLive(msg) {
       } else if (deeper) {
         if (d.symbol) S.symbol = d.symbol;
         if (d.timeframe) S.timeframe = d.timeframe;
-        S.candles = incoming;
+        S.candles = joined;
         /* WHICH series these are. Without this the desk held bars it
            could not prove belonged to the chart in front of it, so
            cachedCandlesFor() said no - and the loading veil stayed up

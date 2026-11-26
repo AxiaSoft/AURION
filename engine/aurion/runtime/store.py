@@ -17,6 +17,24 @@ log = get("store")
 from ..util.clock import utc_iso
 from ..util.history import at_least_window
 
+#: How many bars one candle write holds the database lock for.
+#:
+#: One `executemany` over a whole series is the right shape - the
+#: alternative, a commit per row, was itself a reported stall - but
+#: six months of M1 is 259 200 rows and holds this lock for seconds.
+#: The write no longer blocks the event loop (see
+#: MT5Bridge.archive_candles), yet anything ELSE that wants the
+#: database in that window still waits, and some of those callers are
+#: serving the desk.
+#:
+#: Chunking keeps the cheap part - a few hundred commits for a whole
+#: series instead of a quarter of a million - while letting a reader
+#: in between them. Bars are idempotent upserts keyed on
+#: (symbol, timeframe, ts), so a write interrupted halfway leaves
+#: real bars behind rather than a corrupt series, and the next
+#: archive of that series simply writes them again.
+CANDLE_WRITE_CHUNK = 2_000
+
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS ticks (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -356,16 +374,18 @@ class Store:
             ))
         if not payload:
             return 0
-        with self._lock:
-            self._conn.executemany(
-                """INSERT INTO candles(symbol, timeframe, ts, open, high, low, close, volume, spread)
-                   VALUES (?,?,?,?,?,?,?,?,?)
-                   ON CONFLICT(symbol, timeframe, ts) DO UPDATE SET
-                     open=excluded.open, high=excluded.high, low=excluded.low,
-                     close=excluded.close, volume=excluded.volume, spread=excluded.spread""",
-                payload,
-            )
-            self._conn.commit()
+        for start in range(0, len(payload), CANDLE_WRITE_CHUNK):
+            chunk = payload[start:start + CANDLE_WRITE_CHUNK]
+            with self._lock:
+                self._conn.executemany(
+                    """INSERT INTO candles(symbol, timeframe, ts, open, high, low, close, volume, spread)
+                       VALUES (?,?,?,?,?,?,?,?,?)
+                       ON CONFLICT(symbol, timeframe, ts) DO UPDATE SET
+                         open=excluded.open, high=excluded.high, low=excluded.low,
+                         close=excluded.close, volume=excluded.volume, spread=excluded.spread""",
+                    chunk,
+                )
+                self._conn.commit()
         return len(payload)
 
     def candle_span(self, symbol: str, timeframe: str) -> dict[str, Any]:

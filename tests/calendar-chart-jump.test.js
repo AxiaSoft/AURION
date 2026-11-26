@@ -300,7 +300,9 @@ check("the walk back keeps going until the day is covered", () => {
   vm.runInContext(
     (consts ? consts[0] : "") + "\n" + (days ? days[0] : "") + "\n" + (cap ? cap[0] : "") + "\n"
     + /const HIST_RETRY_MS = \d+;/.exec(APP)[0] + "\n"
-    + /const CHART_OPEN_DAYS = \d+;/.exec(APP)[0] + "\n"
+    + /const PAGE_BARS = \d+;/.exec(APP)[0] + "\n"
+    + /const PAGE_DAY_STEPS = \[[^\]]*\];/.exec(APP)[0] + "\n"
+    + liftFn(APP, "pageDays") + "\n" + liftFn(APP, "pageWindow") + "\n"
     + liftFn(APP, "barsForDays") + "\n" + liftFn(APP, "chartDays") + "\n"
     + liftFn(APP, "historyStep") + "\n" + liftFn(APP, "oldestHeldTime") + "\n"
 /* barTime lives in charts.js, which the page loads first; this
@@ -351,7 +353,9 @@ check("the walk stops when the history genuinely runs out", () => {
     (consts ? consts[0] : "") + "\n" + /const HISTORY_DAYS = \d+;/.exec(APP)[0] + "\n"
     + /const HISTORY_MAX = \d+;/.exec(APP)[0] + "\n"
     + /const HIST_RETRY_MS = \d+;/.exec(APP)[0] + "\n"
-    + /const CHART_OPEN_DAYS = \d+;/.exec(APP)[0] + "\n"
+    + /const PAGE_BARS = \d+;/.exec(APP)[0] + "\n"
+    + /const PAGE_DAY_STEPS = \[[^\]]*\];/.exec(APP)[0] + "\n"
+    + liftFn(APP, "pageDays") + "\n" + liftFn(APP, "pageWindow") + "\n"
     + liftFn(APP, "barsForDays") + "\n" + liftFn(APP, "chartDays") + "\n"
     + liftFn(APP, "historyStep") + "\n" + liftFn(APP, "oldestHeldTime") + "\n"
 /* barTime lives in charts.js, which the page loads first; this

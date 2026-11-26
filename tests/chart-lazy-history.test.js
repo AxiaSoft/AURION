@@ -81,16 +81,26 @@ check("the slab is bounded on every timeframe, including M1", () => {
     /const TF_MINUTES = \{[^}]*\};/.exec(APP)[0] + "\n"
     + /const HISTORY_DAYS = \d+;/.exec(APP)[0] + "\n"
     + /const HISTORY_MAX = \d+;/.exec(APP)[0] + "\n"
-    + liftFn(APP, "barsForDays") + "\n" + liftFn(APP, "historyStep")
-    + "\nthis.historyStep = historyStep;", box);
+    + /const PAGE_BARS = \d+;/.exec(APP)[0] + "\n"
+    + /const PAGE_DAY_STEPS = \[[^\]]*\];/.exec(APP)[0] + "\n"
+    + liftFn(APP, "barsForDays") + "\n" + liftFn(APP, "pageDays") + "\n"
+    + liftFn(APP, "pageWindow") + "\n" + liftFn(APP, "historyStep")
+    + "\nthis.historyStep = historyStep; this.PAGE_BARS = PAGE_BARS;", box);
   for (const tf of ["M1", "M5", "M15", "M30", "H1", "H4", "D1"]) {
     const n = box.historyStep(tf);
     if (!Number.isFinite(n)) throw new Error(tf + " gives " + n);
     /* Big enough that a drag is worth making, small enough that no
        single reply is the quarter-million-bar download that caused
        the complaint. */
-    if (n < 500) throw new Error(tf + " only fetches " + n + " bars a drag");
-    if (n > 8000) throw new Error(tf + " still fetches " + n + " bars at once");
+    if (n < 400) throw new Error(tf + " only fetches " + n + " bars a drag");
+    /* The bound is the page budget now, not a number of its own. A
+       drag used to have its own formula - twenty days, floored at
+       1000, capped at 8000 - unrelated to what a chart opens with or
+       to what either actually costs. One budget, both paths; see
+       tests/chart-history-paging.test.js. */
+    if (n > box.PAGE_BARS * 1.1) {
+      throw new Error(tf + " fetches " + n + " bars at once, over the " + box.PAGE_BARS + " budget");
+    }
   }
   return "M1 " + box.historyStep("M1") + ", D1 " + box.historyStep("D1");
 });
