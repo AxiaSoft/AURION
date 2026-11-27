@@ -132,5 +132,72 @@ for (const sig of ["void TradeMarket(const string line)",
   }
 }
 
+/* --- the two rejects that only came up on some symbols --------------
+ *
+ *   "I want to enter manually and I get strange errors:
+ *    retcode 10017 trade disabled, retcode 10016 stop or target too
+ *    close to price. The errors come on certain symbols."
+ *
+ * 10017 is the SYMBOL being close-only, long-only, or disabled - not
+ * the account and not the terminal, both of which were already
+ * checked. Nothing asked, so the order went to the server to be
+ * refused and came back as a number.
+ *
+ * 10016 is a stop nearer the price than SYMBOL_TRADE_STOPS_LEVEL
+ * allows, or a price off the SYMBOL_TRADE_TICK_SIZE grid. The expert
+ * had been REPORTING both fields to the engine since 1.29 and never
+ * applied either to its own requests - so on any symbol with a wide
+ * stops level, every stop a sane strategy produces is inside it.
+ */
+{
+  ok(/string WhyNotTradable\(const string symbol, const bool buy\)/.test(EA),
+    "nothing asks the symbol whether it may be traded at all");
+  const why = bodyOf("string WhyNotTradable(const string symbol, const bool buy)");
+  for (const mode of ["SYMBOL_TRADE_MODE_DISABLED", "SYMBOL_TRADE_MODE_CLOSEONLY",
+                      "SYMBOL_TRADE_MODE_LONGONLY", "SYMBOL_TRADE_MODE_SHORTONLY"]) {
+    ok(why.includes(mode), `${mode} is not recognised, so it still returns 10017`);
+  }
+  ok(/long-only[\s\S]*!buy|!buy[\s\S]*long-only/.test(why),
+    "long-only refuses buys as well as sells, or neither");
+
+  ok(/double SnapToTick\(const string symbol, const double price\)/.test(EA),
+    "prices are never put on the broker's tick grid");
+  const snap = bodyOf("double SnapToTick(const string symbol, const double price)");
+  ok(/SYMBOL_TRADE_TICK_SIZE/.test(snap), "the tick grid is not read from the symbol");
+  ok(/step <= 0\.0/.test(snap), "a symbol that reports no tick size divides by zero");
+
+  const fixAt = EA.indexOf("void FixStops(");
+  const fix = fixAt < 0 ? "" : EA.slice(fixAt, EA.indexOf("\n  }\n", fixAt));
+  ok(Boolean(fix), "there is no stop-distance fixer");
+  ok(/SYMBOL_TRADE_STOPS_LEVEL|StopsGapPoints/.test(fix + EA),
+    "the broker's minimum stop distance is still ignored");
+  ok(/StopsGapPoints\(symbol\) \+ 2/.test(fix),
+    "the minimum is used with no cushion, so price moving a point refuses the order again");
+  ok(/if\(sl > 0\.0\)/.test(fix) && /if\(tp > 0\.0\)/.test(fix),
+    "a stop of zero is pushed away from the price as though it were real");
+  ok(/SnapToTick\(symbol, sl\)/.test(fix) && /SnapToTick\(symbol, tp\)/.test(fix),
+    "the corrected levels are not put back on the tick grid");
+
+  /* Both corrections must be applied on every path that can produce
+     them, which is every path that carries a stop. */
+  for (const sig of ["void TradeMarket(const string line)",
+                     "void TradePending(const string line)"]) {
+    const body = bodyOf(sig);
+    ok(/WhyNotTradable\(/.test(body), `${sig} still asks the server whether the symbol trades`);
+    ok(/FixStops\(/.test(body), `${sig} can still send a stop inside the broker's minimum`);
+    ok(/SnapToTick\(_Symbol, req\.price\)/.test(body), `${sig} can still send an off-grid price`);
+  }
+  const mod = bodyOf("void TradeModify(const string line)");
+  ok(/FixStops\(/.test(mod), "moving a stop can still be refused for being too close");
+  ok(/SYMBOL_BID : SYMBOL_ASK/.test(mod),
+    "the modify measures from the entry, not from where price actually is");
+  ok(/WhyNot\(res\)/.test(mod), "a refused modify still reports a bare retcode");
+
+  /* And the numbers that do get through are explained. */
+  const words = bodyOf("string WhyNot(const MqlTradeResult &res)");
+  ok(/TRADE_RETCODE_TRADE_DISABLED/.test(words), "10017 still reaches the desk as a number");
+  ok(/TRADE_RETCODE_INVALID_STOPS/.test(words), "10016 still reaches the desk as a number");
+}
+
 console.log(fails ? "\nea-fill-mode: " + fails + " check(s) failed" : "\nall good");
 process.exit(fails ? 1 : 0);

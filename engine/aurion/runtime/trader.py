@@ -4847,6 +4847,51 @@ class Trader:
             if tag:
                 payload["strategy"] = tag
         payload["source"] = source
+        # The re-entry brakes run BEFORE the announcement, and they are
+        # the only gates that do.
+        #
+        # Everything below this point refuses an entry that is real
+        # news - the AI disagrees, the money rule will not pay for it,
+        # the broker refused it - and the trader wants to hear about
+        # those. These two are different in kind: they say this is not
+        # a new opportunity at all. One is a setup already acted on,
+        # being re-announced because the strategy's condition is a
+        # state that stays true for several bars; the other is a symbol
+        # the robot has just been told to leave alone.
+        #
+        # Announcing them anyway is what the trader saw as "I close a
+        # trade and immediately it says it entered at the same entry
+        # point, then closed with a profit or a loss - but nothing is
+        # recorded, because it never opened at all". It never did. The
+        # card was reporting a signal the gates below had already
+        # decided to throw away, once per bar, which is also where the
+        # signal spam came from.
+        fingerprint = ""
+        setup_key = ""
+        if action in {"buy", "sell", "market"}:
+            gate_symbol = self._resolve_symbol(payload)
+            gate_side = str(payload.get("side") or (action if action in {"buy", "sell"} else "buy"))
+            allowed, why_cool = self._reentry_ok(gate_symbol)
+            if not allowed:
+                await self._blocked(source, payload, "cooldown", why_cool)
+                return
+            fingerprint = reentry_rules.setup_fingerprint({
+                **payload,
+                "side": gate_side,
+                "symbol": gate_symbol,
+                "price": payload.get("price") or payload.get("entry") or 0,
+            })
+            setup_key = f"{self._reentry_key(gate_symbol)}|{gate_side}"
+            taken = self._reentry_memory("_taken_setups")
+            if getattr(self, "reentry_guard", True) and reentry_rules.same_setup(
+                taken.get(setup_key, ""), fingerprint
+            ):
+                await self._blocked(
+                    source, payload, "same_setup",
+                    f"this {gate_side} {gate_symbol} setup was already taken and nothing "
+                    f"about it has changed since",
+                )
+                return
         # Announce it the moment it exists, not once it has survived
         # every gate.
         #
@@ -4970,35 +5015,6 @@ class Trader:
             if not ok_spread:
                 await self._blocked(source, payload, "spread", why)
                 return
-        # Two brakes on taking the same trade again, before anything is
-        # sized or sent. Both exist because the open-position ceiling was
-        # the only thing limiting entry frequency, and a ceiling says
-        # nothing at all once a trade has closed.
-        allowed, why_cool = self._reentry_ok(symbol)
-        if not allowed:
-            await self._blocked(source, payload, "cooldown", why_cool)
-            return
-        fingerprint = reentry_rules.setup_fingerprint({
-            **payload,
-            "side": side,
-            "symbol": symbol,
-            "price": payload.get("price") or payload.get("entry") or 0,
-        })
-        setup_key = f"{self._reentry_key(symbol)}|{side}"
-        taken = self._reentry_memory("_taken_setups")
-        if getattr(self, "reentry_guard", True) and reentry_rules.same_setup(
-            taken.get(setup_key, ""), fingerprint
-        ):
-            # The strategy is re-announcing a setup that was already
-            # acted on. Most built-in entries are conditions that stay
-            # true for several bars, so without this the same idea is
-            # bought once per bar for as long as it lasts.
-            await self._blocked(
-                source, payload, "same_setup",
-                f"this {side} {symbol} setup was already taken and nothing about it "
-                f"has changed since",
-            )
-            return
         count = self._entries_for_signal(symbol, quality)
         if count <= 0:
             await self._blocked(
@@ -5038,8 +5054,8 @@ class Trader:
                 # or the resting order now holds the slot itself, and on
                 # failure nothing should keep holding it.
                 self._release_slot(symbol)
-            if (result or {}).get("ok"):
-                taken[setup_key] = fingerprint
+            if (result or {}).get("ok") and setup_key:
+                self._reentry_memory("_taken_setups")[setup_key] = fingerprint
             if not (result or {}).get("ok"):
                 # Say why, on the card that produced the signal.
                 #
