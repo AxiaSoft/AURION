@@ -1645,6 +1645,57 @@ ENUM_ORDER_TYPE_FILLING FillOf(const string symbol)
    return ORDER_FILLING_RETURN;
   }
 
+bool Filled(const MqlTradeResult &res)
+  {
+   return (res.retcode == TRADE_RETCODE_DONE
+           || res.retcode == TRADE_RETCODE_PLACED
+           || res.retcode == TRADE_RETCODE_DONE_PARTIAL);
+  }
+
+// Every order this expert sends goes through here.
+//
+// SYMBOL_FILLING_MODE is what the broker SAYS the symbol allows, and on
+// a fair number of servers it is not the whole truth - an exchange-
+// execution symbol will advertise one policy and reject it, and some
+// bridges answer 0. A single guess therefore gets 10030
+// (TRADE_RETCODE_INVALID_FILL) and the trade simply does not happen.
+//
+// So: ask the symbol first, then try the other two. Only 10030 is worth
+// retrying; every other reject is a real answer about price, volume or
+// money and must be reported as it came, not buried under two more
+// attempts at the same bad request.
+bool SendOrder(MqlTradeRequest &req, MqlTradeResult &res, const string symbol)
+  {
+   ENUM_ORDER_TYPE_FILLING fills[3];
+   fills[0] = FillOf(symbol);
+   fills[1] = ORDER_FILLING_IOC;
+   fills[2] = ORDER_FILLING_FOK;
+   bool ok = false;
+   for(int i = 0; i < 3; i++)
+     {
+      if(i > 0 && fills[i] == fills[0]) continue;   // already tried
+      ZeroMemory(res);
+      req.type_filling = fills[i];
+      ok = OrderSend(req, res);
+      if(ok && Filled(res)) return true;
+      if(res.retcode != TRADE_RETCODE_INVALID_FILL) break;
+     }
+   return (ok && Filled(res));
+  }
+
+// 10030 as a bare number tells the trader nothing. The two rejects this
+// desk actually meets are worth spelling out.
+string WhyNot(const MqlTradeResult &res)
+  {
+   string why = "retcode=" + IntegerToString(res.retcode);
+   if(res.retcode == TRADE_RETCODE_INVALID_FILL)
+      why += " broker refused every filling mode for this symbol";
+   else if(res.retcode == TRADE_RETCODE_INVALID_STOPS)
+      why += " stop or target too close to price";
+   if(res.comment != "") why += " " + res.comment;
+   return why;
+  }
+
 void TradeMarket(const string line)
   {
    string want = Extract(line, "symbol");
@@ -1684,22 +1735,8 @@ void TradeMarket(const string line)
      }
    if(sl > 0.0) req.sl = sl;
    if(tp > 0.0) req.tp = tp;
-   ENUM_ORDER_TYPE_FILLING fills[3];
-   fills[0] = FillOf(_Symbol);
-   fills[1] = ORDER_FILLING_IOC;
-   fills[2] = ORDER_FILLING_FOK;
-   bool ok = false;
-   for(int i = 0; i < 3; i++)
-     {
-      ZeroMemory(res);
-      req.type_filling = fills[i];
-      ok = OrderSend(req, res);
-      if(ok && (res.retcode == TRADE_RETCODE_DONE || res.retcode == TRADE_RETCODE_PLACED || res.retcode == TRADE_RETCODE_DONE_PARTIAL))
-         break;
-      if(res.retcode != TRADE_RETCODE_INVALID_FILL) break;
-     }
-   bool good = ok && (res.retcode == TRADE_RETCODE_DONE || res.retcode == TRADE_RETCODE_PLACED || res.retcode == TRADE_RETCODE_DONE_PARTIAL);
-   Reply(good, "retcode=" + IntegerToString(res.retcode) + " " + res.comment);
+   bool good = SendOrder(req, res, _Symbol);
+   Reply(good, WhyNot(res));
   }
 
 // A resting order at a price the robot chose, with the stop and target
@@ -1738,7 +1775,6 @@ void TradePending(const string line)
    req.deviation = 30;
    req.magic = 908173;
    req.type_time = ORDER_TIME_GTC;
-   req.type_filling = FillOf(_Symbol);
    string cmt = Extract(line, "comment");
    if(cmt == "") cmt = "AURION";
    if(StringLen(cmt) > 31) cmt = StringSubstr(cmt, 0, 31);
@@ -1749,9 +1785,8 @@ void TradePending(const string line)
    else                          req.type = ORDER_TYPE_BUY_LIMIT;
    if(sl > 0.0) req.sl = NormalizeDouble(sl, rdig);
    if(tp > 0.0) req.tp = NormalizeDouble(tp, rdig);
-   bool ok = OrderSend(req, res);
-   bool good = ok && (res.retcode == TRADE_RETCODE_DONE || res.retcode == TRADE_RETCODE_PLACED);
-   Reply(good, "retcode=" + IntegerToString(res.retcode) + " " + res.comment);
+   bool good = SendOrder(req, res, _Symbol);
+   Reply(good, WhyNot(res));
    if(good) SendOrders();
   }
 
@@ -1791,9 +1826,11 @@ void TradeClose(const string line)
    req.symbol = symbol;
    req.volume = volume;
    req.deviation = 20;
-   req.magic = 908173;
+   // No magic on the way out. The desk closes whatever the trader points
+   // at, including a position opened by hand, and stamping AURION's magic
+   // onto that exit deal would claim a trade the robot never made. The
+   // position is addressed by ticket; the magic was never what found it.
    req.comment = "AURION close";
-   req.type_filling = ORDER_FILLING_IOC;
    if(type == POSITION_TYPE_BUY)
      {
       req.type = ORDER_TYPE_SELL;
@@ -1804,9 +1841,12 @@ void TradeClose(const string line)
       req.type = ORDER_TYPE_BUY;
       req.price = SymbolInfoDouble(symbol, SYMBOL_ASK);
      }
-   bool ok = OrderSend(req, res);
-   Reply(ok && (res.retcode == TRADE_RETCODE_DONE || res.retcode == TRADE_RETCODE_PLACED),
-         "retcode=" + IntegerToString(res.retcode));
+   // The symbol closed is the POSITION's, which on a hand-opened trade is
+   // usually not this chart's - so the filling policy is its own too. A
+   // hardcoded IOC here was exactly the 10030 the trader kept hitting.
+   bool good = SendOrder(req, res, symbol);
+   Reply(good, WhyNot(res));
+   if(good) SendPositions();
   }
 
 void TradeModify(const string line)
