@@ -470,6 +470,11 @@ class Trader:
         self._pos_missing: dict[int, int] = {}
         self._pending_tag: list[dict[str, Any]] = []
         self._closed_tickets: set[int] = set()
+        # When each ticket was called closed. A positions frame built
+        # before a close can arrive after it, and without this the
+        # ticket in it looks like a brand new position. See
+        # _is_resurrection.
+        self._closed_at: dict[int, float] = {}
         self._pos_bootstrapped = False
         self.telegram = None
         self.license = Guard()
@@ -955,6 +960,13 @@ class Trader:
             self._closed_tickets.add(ticket)
             if len(self._closed_tickets) > 4000:
                 self._closed_tickets = set(list(self._closed_tickets)[-2000:])
+            # The timestamps only matter inside the grace window, so this
+            # cannot grow the way the ticket set can.
+            cutoff = time.time() - self.RESURRECTION_GRACE_SEC
+            self._closed_at = {
+                k: v for k, v in (getattr(self, "_closed_at", None) or {}).items()
+                if v >= cutoff
+            }
         if not wrote:
             return False
         try:
@@ -1115,6 +1127,52 @@ class Trader:
         except Exception:
             return False
 
+    #: A positions frame older than this cannot still be in flight, so a
+    #: ticket reappearing after it is a real position rather than an echo.
+    RESURRECTION_GRACE_SEC = 300.0
+
+    def _is_resurrection(self, ticket: int) -> bool:
+        """Is this ticket the echo of a position that has already closed?
+
+        This is the whole of the phantom trade.
+
+        The close path is careful: a ticket must be missing from several
+        snapshots in a row, or carry a closing deal, before it is called
+        closed. The OPEN path had no such care - one frame containing a
+        ticket we do not know was enough to declare an entry.
+
+        So a frame built just before a close and delivered just after it
+        resurrected the position: an entry was announced at the old
+        position's own opening price, then the ticket went missing again
+        and an exit was announced with its profit or loss. Neither
+        reached the history, because the entry row for that ticket
+        already existed and _record_close had already banked the close -
+        which is exactly "it says it entered and then closed, but
+        nothing is recorded, because it never opened".
+
+        It showed up around manual trades because that is when the
+        terminal sends several frames at once: OnTrade pushes account,
+        positions, orders and deals together, the deals among them make
+        the close immediately provable, and the frames can overtake each
+        other on the way in.
+        """
+        try:
+            ticket = int(ticket or 0)
+        except (TypeError, ValueError):
+            return False
+        if not ticket:
+            return False
+        at = (getattr(self, "_closed_at", None) or {}).get(ticket)
+        if at is not None and (time.time() - float(at)) < self.RESURRECTION_GRACE_SEC:
+            return True
+        # Outside the window, only the broker's own word counts. A ticket
+        # is never reissued, but the closed set is hydrated from the whole
+        # trade history and must not be able to mute a live position on
+        # the strength of a row from months ago.
+        if ticket in getattr(self, "_closed_tickets", ()):
+            return self._close_is_evidenced(ticket)
+        return False
+
     async def _sync_position_book(self, rows: list[dict[str, Any]]) -> None:
         current: dict[int, dict[str, Any]] = {}
         opened: list[dict[str, Any]] = []
@@ -1124,10 +1182,16 @@ class Trader:
             ticket = int(raw.get("ticket") or 0)
             if not ticket:
                 continue
+            prev = self._known_pos.get(ticket)
+            if not prev and self._is_resurrection(ticket):
+                # A frame from before this position closed, arriving
+                # after it. Dropped entirely: putting it in `current`
+                # would also stop the close book from settling.
+                log.debug("ignoring a stale frame that still holds closed ticket %s", ticket)
+                continue
             tag = raw.get("strategy") or self._tag_for_new_position(raw)
             item = {**raw, "strategy": tag}
             current[ticket] = item
-            prev = self._known_pos.get(ticket)
             if not prev:
                 self._known_pos[ticket] = item
                 if getattr(self, "_pos_bootstrapped", False):
@@ -1240,8 +1304,11 @@ class Trader:
                     ticket, seen, POSITION_MISSING_STRIKES,
                 )
         closed_rows: list[dict[str, Any]] = []
+        if getattr(self, "_closed_at", None) is None:
+            self._closed_at = {}
         for ticket in closed:
             old = self._known_pos.pop(ticket, {}) or {}
+            self._closed_at[int(ticket)] = time.time()
             if getattr(self, "_pos_bootstrapped", False):
                 closed_rows.append(old)
             # Try to get accurate profit from bridge deals (MT5 deal history) if available
@@ -6661,6 +6728,7 @@ class Trader:
         self._known_pos = {}
         self._pending_tag = []
         self._closed_tickets = set()
+        self._closed_at = {}
         self._pos_bootstrapped = False
         try:
             self.prop = PropEngine()
