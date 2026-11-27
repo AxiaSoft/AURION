@@ -617,13 +617,7 @@ check("the button is a real touch target on a phone", () => {
   const at = CSS.indexOf(".cal-chart-go{");
   if (at < 0) throw new Error("the button has no styles of its own");
   const block = CSS.slice(at, at + 400);
-  /* It used to span the panel on its own line. That was fine until the
-     instrument picker arrived above it and ate a second line: the day
-     card is a FIXED height on every day of the month, so those pixels
-     came straight out of the news list, which is what the trader
-     reported the day it shipped. Picker and button now share one row,
-     so the button takes the width that is left rather than all of it. */
-  if (!/flex:1 1 auto/.test(block)) throw new Error("it does not fill the rest of its row");
+  if (!/inline-size:100%/.test(block)) throw new Error("it does not span the panel");
   const coarse = CSS.slice(at, at + 600);
   const m = /pointer:coarse\)\{ \.cal-chart-go\{ min-block-size:(\d+)px/.exec(coarse);
   if (!m || Number(m[1]) < 44) throw new Error("under 44px on a touch screen");
@@ -637,17 +631,31 @@ check("the button is a real touch target on a phone", () => {
    The day card's height is fixed (see .cal-day), so a control stacked
    ABOVE the release list is subtracted from the release list. */
 
-check("the picker shares the button's row instead of taking its own", () => {
-  if (!/cal-chart-row/.test(CAL)) throw new Error("calendar.js builds no shared row");
+check("the picker sits above the button, not beside it", () => {
+  /* Side by side was tried and reported broken: the picker is not a
+     bare <select> on screen but the desk's own .dd-wrap control, and
+     two controls of different built widths sharing a line inside a
+     panel this narrow collided. */
+  if (!/cal-chart-row/.test(CAL)) throw new Error("calendar.js builds no wrapper");
   if (/cal-chart-sym/.test(CAL)) throw new Error("the old captioned field is still built");
   const at = CSS.indexOf(".cal-chart-row{");
-  if (at < 0) throw new Error("the row has no styles");
+  if (at < 0) throw new Error("the wrapper has no styles");
   const block = CSS.slice(at, at + 300);
-  if (!/display:flex/.test(block)) throw new Error("it is not a row");
+  if (!/flex-direction:column/.test(block)) throw new Error("they are still side by side");
+  const g = /gap:(\d+)px/.exec(block);
+  if (!g || Number(g[1]) > 8) throw new Error("the gap between them is wider than it needs to be");
   const m = /margin:0 0 (\d+)px/.exec(block);
-  if (!m) throw new Error("the row does not declare its own bottom margin");
-  if (Number(m[1]) > 12) throw new Error("the row still pushes the news down");
-  return `one row, ${m[1]}px above the releases`;
+  if (!m) throw new Error("the pair does not declare its own bottom margin");
+  if (Number(m[1]) > 12) throw new Error("it still pushes the news down");
+  return `stacked, ${g[1]}px apart and ${m[1]}px above the releases`;
+});
+
+check("the picker reaches the button's own order in the markup", () => {
+  const at = CAL.indexOf("cal-chart-row");
+  const block = CAL.slice(at, at + 40);
+  if (!/\$\{picker\}/.test(CAL.slice(at, at + 200)))
+    throw new Error("the picker is not the first thing in the wrapper");
+  return "picker first, button second";
 });
 
 check("the picker is a bare control, with no caption line to pay for", () => {
@@ -659,10 +667,12 @@ check("the picker is a bare control, with no caption line to pay for", () => {
   return "labelled without a caption";
 });
 
-check("the picker cannot crowd out the button", () => {
-  const m = /\.cal-chart-row > \.dd-wrap\{[^}]*inline-size:clamp\(([^)]*)\)/.exec(CSS);
-  if (!m) throw new Error("the picker's width is unbounded");
-  return `clamped to ${m[1]}`;
+check("both controls get the full width they were built for", () => {
+  if (!/\.cal-chart-row > \.dd-wrap\{ inline-size:100% \}/.test(CSS))
+    throw new Error("the picker does not span its line");
+  if (!/\.cal-chart-pick\{ inline-size:100% \}/.test(CSS))
+    throw new Error("the native control behind it does not either");
+  return "100% each, on their own lines";
 });
 
 const bad = results.filter((r) => r === false).length;
