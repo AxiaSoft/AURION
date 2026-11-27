@@ -147,6 +147,71 @@ CONFIRM_CLOSE_LOC = 0.55
 #: This is the trace left when price went to the level and was pushed back.
 CONFIRM_WICK = 0.22
 
+#: Live reclaim: how far back through the level price must have come, as a
+#: share of the last closed bar's range, to confirm WITHOUT waiting for
+#: another bar to close.
+#:
+#: This is the whole answer to "the entry is applied too late and price has
+#: already gone past it". The confirming-bar test can only change its mind
+#: once per bar, so on M15 a level defended at 09:01 was not actionable
+#: until 09:15 - by which time the move the level produced had happened
+#: without us. A level that price traded into and has now been pushed back
+#: out of, measurably, is a defended level; that is observable on the tick
+#: and does not need the bar to finish to be true.
+CONFIRM_RECLAIM = 0.15
+
+#: How far price may run past the planned entry before the trade is no
+#: longer the trade that was planned - as a share of the distance to the
+#: stop. At 0.30 a third of the intended risk has been given away before
+#: the position is even open, which is the most that can be called the
+#: same idea.
+#:
+#: Without this, a confirmation that arrived late took the trade at market
+#: at ANY distance: the level was confirmed, price was forty pips beyond
+#: it, and the robot bought there anyway with the original stop still
+#: attached. That is a different trade with a worse reward and a nearer
+#: stop, and it is where the quick stop-outs came from.
+DEFAULT_MAX_DRIFT = 0.30
+
+
+def entry_drift(side: str, level: float, market: float, sl: float = 0.0) -> float:
+    """How far price has run PAST the planned entry, against the stop.
+
+    0.0 means price is at the level or has not reached it yet - there is
+    nothing to give away. 1.0 means the whole of the intended risk has
+    been spent before entry. Returns 0.0 when there is no stop to measure
+    against, because a fraction of an unknown is not a number anyone can
+    act on; the caller must treat that as "cannot judge", not as "fine".
+    """
+    side = str(side or "").lower()
+    level, market, sl = _num(level), _num(market), _num(sl)
+    if level <= 0 or market <= 0 or sl <= 0:
+        return 0.0
+    risk = abs(level - sl)
+    if risk <= 0:
+        return 0.0
+    past = (level - market) if side == "buy" else (market - level)
+    return max(0.0, past / risk)
+
+
+def drift_ok(
+    side: str,
+    level: float,
+    market: float,
+    sl: float = 0.0,
+    *,
+    max_drift: float = DEFAULT_MAX_DRIFT,
+) -> tuple[bool, float]:
+    """Is the market still close enough for this to be the planned trade?
+
+    Returns (ok, drift). An unmeasurable drift - no stop on the plan - is
+    allowed through, because refusing every entry whose plan carried no
+    stop would silently disable the feature for strategies that attach
+    the stop later.
+    """
+    drift = entry_drift(side, level, market, sl)
+    return (drift <= max(0.0, float(max_drift))), drift
+
 
 def confirm_entry(
     side: str,
@@ -155,6 +220,7 @@ def confirm_entry(
     *,
     mode: str = "normal",
     lookback: int = 3,
+    tick: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     """Has the market agreed with the plan yet?
 
@@ -198,12 +264,24 @@ def confirm_entry(
         return {"confirmed": False, "reason": "no candles yet", "mode": mode}
     window = bars[-max(1, int(lookback)):]
 
+    # The live price, when the caller has one. Used for two things: a
+    # level touched since the last bar closed has been REACHED even
+    # though no closed bar records it, and a level price has come back
+    # out of can be confirmed now rather than on the next close.
+    live = 0.0
+    if isinstance(tick, dict):
+        live = _num(tick.get("ask") if side == "buy" else tick.get("bid"))
+        if live <= 0:
+            live = _num(tick.get("last")) or _num(tick.get("bid")) or _num(tick.get("ask"))
+
     level = _num(level)
     if level > 0:
         reached = any(
             (_num(b.get("low")) <= level) if side == "buy" else (_num(b.get("high")) >= level)
             for b in window
         )
+        if not reached and live > 0:
+            reached = (live <= level) if side == "buy" else (live >= level)
         if not reached:
             return {
                 "confirmed": False,
@@ -233,10 +311,22 @@ def confirm_entry(
     else:
         ok = direction_ok and (location_ok or rejection_ok)
 
+    # Price is back on our side of the level, by enough of the last bar's
+    # range to be a move rather than a flicker. The level was tested and
+    # held; waiting for the bar to close only costs the distance the move
+    # covers in the meantime.
+    reclaim = 0.0
+    if level > 0 and live > 0:
+        reclaim = ((live - level) if side == "buy" else (level - live)) / rng
+    reclaimed = reclaim >= CONFIRM_RECLAIM
+
     if ok:
         reason = "candle closed with the trade"
         if rejection_ok:
             reason += " and rejected the level"
+    elif reclaimed:
+        ok = True
+        reason = "price reclaimed the level without waiting for the close"
     elif not direction_ok:
         reason = "last candle closed against the trade"
     elif mode == "strict" and not rejection_ok:
@@ -251,6 +341,7 @@ def confirm_entry(
         "close_loc": round(close_loc, 3),
         "wick": round(wick, 3),
         "direction_ok": bool(direction_ok),
+        "reclaim": round(reclaim, 3),
     }
 
 

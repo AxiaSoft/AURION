@@ -9,7 +9,14 @@ from collections import deque
 from pathlib import Path
 from typing import Any
 
-from .auto_entry import confirm_entry, expired_orders, plan_entry
+from .auto_entry import (
+    DEFAULT_MAX_DRIFT,
+    confirm_entry,
+    drift_ok,
+    expired_orders,
+    plan_entry,
+)
+from . import reentry as reentry_rules
 from .deals import aggregate_close_deals, history_row_matches
 from ..prop.hours import (broker_offset_minutes, resolve_zone, zone_choices,
                           zone_label, zone_offset_minutes)
@@ -357,6 +364,19 @@ class Trader:
         # from a market that has since moved past the level. See
         # _watch_parked_entries.
         self._parked_entries: dict[str, dict[str, Any]] = {}
+        # How soon the robot may take the same symbol again. See
+        # runtime/reentry.py: without this the only brake on entry
+        # frequency was the open-position ceiling, so a trade closing
+        # freed its slot and the next bar re-entered the same setup -
+        # reported as the robot "spamming entries and exits".
+        self._reentry_block: dict[str, dict[str, Any]] = {}
+        self._loss_streak: dict[str, int] = {}
+        self._taken_setups: dict[str, str] = {}
+        self.reentry_guard = True
+        self.reentry_loss_bars = reentry_rules.DEFAULT_COOLDOWN_LOSS_BARS
+        self.reentry_win_bars = reentry_rules.DEFAULT_COOLDOWN_WIN_BARS
+        self.max_consecutive_losses = reentry_rules.DEFAULT_MAX_CONSECUTIVE_LOSSES
+        self.auto_entry_max_drift = DEFAULT_MAX_DRIFT
         # Entries on the wire, per symbol. Held from just before the send
         # until MetaTrader reports the position (or the send fails), so a
         # second signal arriving in the gap cannot reuse the same slot.
@@ -1320,6 +1340,16 @@ class Trader:
                     self.prop.note_closed_trade(float(close_trade.get("profit") or 0))
                 except Exception:
                     pass
+            try:
+                # Start this symbol's cooldown from the moment it really
+                # closed, with the net the broker reported - a loss waits
+                # longer than a win.
+                self._note_exit(
+                    str(old.get("symbol") or ""),
+                    float(close_trade.get("net") or close_trade.get("profit") or 0),
+                )
+            except Exception:
+                log.exception("could not start the re-entry cooldown")
             await self.journal(
                 "info",
                 "closed",
@@ -3126,6 +3156,24 @@ class Trader:
             pct = 1.0
         self.money_risk_pct = max(self.AUTO_RISK_MIN_PCT, min(self.AUTO_RISK_MAX_PCT, pct))
         self._auto_cap_last = 0.0
+        re_cfg = runtime.get("reentry") if isinstance(runtime.get("reentry"), dict) else {}
+        self.reentry_guard = bool(re_cfg.get("enabled", True))
+        self.reentry_loss_bars = self._clamp_int(
+            re_cfg.get("loss_bars"), reentry_rules.DEFAULT_COOLDOWN_LOSS_BARS, 0, 500
+        )
+        self.reentry_win_bars = self._clamp_int(
+            re_cfg.get("win_bars"), reentry_rules.DEFAULT_COOLDOWN_WIN_BARS, 0, 500
+        )
+        self.max_consecutive_losses = self._clamp_int(
+            re_cfg.get("max_consecutive_losses"),
+            reentry_rules.DEFAULT_MAX_CONSECUTIVE_LOSSES, 0, 50,
+        )
+        try:
+            self.auto_entry_max_drift = max(0.0, min(5.0, float(
+                (runtime.get("auto_entry") or {}).get("max_drift", DEFAULT_MAX_DRIFT)
+            )))
+        except (TypeError, ValueError):
+            self.auto_entry_max_drift = DEFAULT_MAX_DRIFT
         rf_cfg = runtime.get("risk_free") if isinstance(runtime.get("risk_free"), dict) else {}
         self.risk_free_enabled = bool(rf_cfg.get("enabled", False))
         self.risk_free_trigger_pct = self._clamp_pct(rf_cfg.get("trigger_pct"), 0.30)
@@ -3957,6 +4005,12 @@ class Trader:
             "auto_entry": bool(getattr(self, "auto_entry", False)),
             "auto_entry_expiry": int(getattr(self, "auto_entry_expiry", 120)),
             "auto_entry_confirm": str(getattr(self, "auto_entry_confirm", "normal")),
+            "auto_entry_max_drift": float(getattr(self, "auto_entry_max_drift", DEFAULT_MAX_DRIFT)),
+            "reentry_guard": bool(getattr(self, "reentry_guard", True)),
+            "reentry_loss_bars": int(getattr(self, "reentry_loss_bars", 3)),
+            "reentry_win_bars": int(getattr(self, "reentry_win_bars", 1)),
+            "max_consecutive_losses": int(getattr(self, "max_consecutive_losses", 3)),
+            "cooling_down": panel("cooldown", self.reentry_state, []),
             "pending_orders": panel("pending orders", lambda: len(self._own_pending_orders()), 0),
             "danger_guard": panel("danger guard", self._danger_state, {}),
             "risk_free": panel("risk free", self._risk_free_state, {}),
@@ -4023,6 +4077,13 @@ class Trader:
                         "zone_depth": float(getattr(self, "auto_entry_depth", 0.5)),
                         "offset_atr": float(getattr(self, "auto_entry_offset", 0.35)),
                         "expiry_minutes": int(getattr(self, "auto_entry_expiry", 120)),
+                        "max_drift": float(getattr(self, "auto_entry_max_drift", DEFAULT_MAX_DRIFT)),
+                    },
+                    "reentry": {
+                        "enabled": bool(getattr(self, "reentry_guard", True)),
+                        "loss_bars": int(getattr(self, "reentry_loss_bars", 3)),
+                        "win_bars": int(getattr(self, "reentry_win_bars", 1)),
+                        "max_consecutive_losses": int(getattr(self, "max_consecutive_losses", 3)),
                     },
                     "money": {
                         "max_loss_per_lot": float(getattr(self, "max_loss_per_lot", 10.0) or 0.0),
@@ -4440,6 +4501,7 @@ class Trader:
             for key, attr, lo, hi in (
                 ("zone_depth", "auto_entry_depth", 0.0, 1.0),
                 ("offset_atr", "auto_entry_offset", 0.0, 5.0),
+                ("max_drift", "auto_entry_max_drift", 0.0, 5.0),
             ):
                 if key in auto:
                     try:
@@ -4448,6 +4510,19 @@ class Trader:
                         pass
             if "expiry_minutes" in auto:
                 self.auto_entry_expiry = self._clamp_int(auto.get("expiry_minutes"), 120, 0, 10080)
+        if "reentry" in body:
+            raw = body.get("reentry")
+            cfg = raw if isinstance(raw, dict) else {"enabled": bool(raw)}
+            if "enabled" in cfg:
+                self.reentry_guard = bool(cfg.get("enabled"))
+            for key, attr, default, hi in (
+                ("loss_bars", "reentry_loss_bars", reentry_rules.DEFAULT_COOLDOWN_LOSS_BARS, 500),
+                ("win_bars", "reentry_win_bars", reentry_rules.DEFAULT_COOLDOWN_WIN_BARS, 500),
+                ("max_consecutive_losses", "max_consecutive_losses",
+                 reentry_rules.DEFAULT_MAX_CONSECUTIVE_LOSSES, 50),
+            ):
+                if key in cfg:
+                    setattr(self, attr, self._clamp_int(cfg.get(key), default, 0, hi))
         if "prop_enabled" in body:
             if body.get("prop_enabled") and not self.license.feature("prop"):
                 return {"ok": False, "error": "premium_required", "feature": "prop", "upgrade": True}
@@ -4895,6 +4970,35 @@ class Trader:
             if not ok_spread:
                 await self._blocked(source, payload, "spread", why)
                 return
+        # Two brakes on taking the same trade again, before anything is
+        # sized or sent. Both exist because the open-position ceiling was
+        # the only thing limiting entry frequency, and a ceiling says
+        # nothing at all once a trade has closed.
+        allowed, why_cool = self._reentry_ok(symbol)
+        if not allowed:
+            await self._blocked(source, payload, "cooldown", why_cool)
+            return
+        fingerprint = reentry_rules.setup_fingerprint({
+            **payload,
+            "side": side,
+            "symbol": symbol,
+            "price": payload.get("price") or payload.get("entry") or 0,
+        })
+        setup_key = f"{self._reentry_key(symbol)}|{side}"
+        taken = self._reentry_memory("_taken_setups")
+        if getattr(self, "reentry_guard", True) and reentry_rules.same_setup(
+            taken.get(setup_key, ""), fingerprint
+        ):
+            # The strategy is re-announcing a setup that was already
+            # acted on. Most built-in entries are conditions that stay
+            # true for several bars, so without this the same idea is
+            # bought once per bar for as long as it lasts.
+            await self._blocked(
+                source, payload, "same_setup",
+                f"this {side} {symbol} setup was already taken and nothing about it "
+                f"has changed since",
+            )
+            return
         count = self._entries_for_signal(symbol, quality)
         if count <= 0:
             await self._blocked(
@@ -4934,6 +5038,8 @@ class Trader:
                 # or the resting order now holds the slot itself, and on
                 # failure nothing should keep holding it.
                 self._release_slot(symbol)
+            if (result or {}).get("ok"):
+                taken[setup_key] = fingerprint
             if not (result or {}).get("ok"):
                 # Say why, on the card that produced the signal.
                 #
@@ -5014,6 +5120,7 @@ class Trader:
             self._confirm_candles(symbol),
             float(plan.get("price") or 0),
             mode=str(getattr(self, "auto_entry_confirm", "normal")),
+            tick=self.tick_of(symbol) or {},
         )
         if not verdict.get("confirmed"):
             # Park it. This is the whole fix for an entry that was always
@@ -5064,6 +5171,106 @@ class Trader:
     @staticmethod
     def _park_key(symbol: str, side: str) -> str:
         return f"{str(symbol or '').upper()}|{str(side or '').lower()}"
+
+    # ---- how soon the same trade may be taken again -----------------------
+    #
+    # Reported as: the robot enters, the trade closes, and then it fires
+    # entry after entry, in and out, over and over. The cause was the
+    # absence of any rule at all - the open-position ceiling was the only
+    # brake, so an exit freed the slot and the next closed bar re-entered
+    # the same setup. The built-ins re-announce most entries every bar
+    # because their conditions are states, not events. See
+    # runtime/reentry.py for the reasoning behind each of the three
+    # brakes below.
+
+    def _reentry_key(self, symbol: str) -> str:
+        return str(symbol or "").strip().upper()
+
+    def _reentry_memory(self, name: str) -> dict[str, Any]:
+        """One of the three brake dictionaries, created if it is missing.
+
+        Read through an accessor rather than touched directly because
+        these methods are also borrowed by callers that build a partial
+        trader - and because a missing dictionary must mean "nothing is
+        cooling down", never an AttributeError on the trade path.
+        """
+        store = getattr(self, name, None)
+        if not isinstance(store, dict):
+            store = {}
+            setattr(self, name, store)
+        return store
+
+    def _note_exit(self, symbol: str, net: float) -> None:
+        """A position closed: start this symbol's cooldown."""
+        key = self._reentry_key(symbol)
+        if not key:
+            return
+        losing = float(net or 0) <= 0
+        streak = (self._reentry_memory("_loss_streak").get(key, 0) + 1) if losing else 0
+        self._reentry_memory("_loss_streak")[key] = streak
+        bars = reentry_rules.cooldown_bars(
+            net,
+            loss_bars=int(getattr(self, "reentry_loss_bars", 3)),
+            win_bars=int(getattr(self, "reentry_win_bars", 1)),
+        )
+        cap = int(getattr(self, "max_consecutive_losses", 3) or 0)
+        reason = "after a loss" if losing else "after a win"
+        if cap > 0 and streak >= cap:
+            bars = max(bars, reentry_rules.DEFAULT_LOSS_STREAK_BARS)
+            reason = f"after {streak} losses in a row"
+        timeframe = str(getattr(self, "active_timeframe", "") or "M15")
+        at = time.time()
+        self._reentry_memory("_reentry_block")[key] = {
+            "symbol": key,
+            "until": reentry_rules.block_until(at, bars, timeframe),
+            "bars": int(bars),
+            "timeframe": timeframe,
+            "reason": reason,
+            "streak": int(streak),
+            "at": at,
+        }
+        # A new setup is allowed to look new again after an exit - the
+        # fingerprint guard is about one signal repeating itself, not
+        # about never trading this symbol twice.
+        taken = self._reentry_memory("_taken_setups")
+        for setup_key in [k for k in taken if k.startswith(f"{key}|")]:
+            taken.pop(setup_key, None)
+
+    def _reentry_ok(self, symbol: str) -> tuple[bool, str]:
+        """May the robot enter this symbol right now?"""
+        if not getattr(self, "reentry_guard", True):
+            return True, ""
+        blocks = self._reentry_memory("_reentry_block")
+        block = blocks.get(self._reentry_key(symbol))
+        left = reentry_rules.cooldown_left(block)
+        if left <= 0:
+            if block:
+                blocks.pop(self._reentry_key(symbol), None)
+            return True, ""
+        bars = int((block or {}).get("bars") or 0)
+        return False, (
+            f"{symbol} is cooling down {(block or {}).get('reason') or ''} — "
+            f"{bars} bar(s) of {(block or {}).get('timeframe') or ''}, "
+            f"{reentry_rules.describe_wait(left)} left"
+        )
+
+    def reentry_state(self) -> list[dict[str, Any]]:
+        """What the robot is standing down on, for the desk to explain."""
+        out: list[dict[str, Any]] = []
+        for key, block in self._reentry_memory("_reentry_block").items():
+            left = reentry_rules.cooldown_left(block)
+            if left <= 0:
+                continue
+            out.append({
+                "symbol": key,
+                "reason": block.get("reason"),
+                "bars": block.get("bars"),
+                "timeframe": block.get("timeframe"),
+                "streak": block.get("streak"),
+                "seconds_left": round(left, 1),
+                "wait": reentry_rules.describe_wait(left),
+            })
+        return out
 
     def _park_entry(
         self,
@@ -5152,14 +5359,15 @@ class Trader:
                     f"{expiry} minutes — dropped",
                 )
                 continue
-            verdict = confirm_entry(side, self._confirm_candles(symbol), price, mode=mode)
+            tick = self.tick_of(symbol) or {}
+            verdict = confirm_entry(
+                side, self._confirm_candles(symbol), price, mode=mode, tick=tick
+            )
             item["confirm"] = dict(verdict)
             item["last_look"] = now
             if not verdict.get("confirmed"):
                 continue
-            self._parked_entries.pop(key, None)
             request = dict(item.get("request") or {})
-            tick = self.tick_of(symbol) or {}
             market = float(tick.get("ask") if side == "buy" else tick.get("bid") or 0) or 0.0
             passed = bool(market) and (
                 (side == "buy" and market <= price) or (side == "sell" and market >= price)
@@ -5167,10 +5375,35 @@ class Trader:
             if passed:
                 # Price is already at or beyond the level. Resting an order
                 # here is the rejected-order case; the confirmation we were
-                # waiting for has arrived, so take it.
+                # waiting for has arrived, so take it - but only if this is
+                # still the trade that was planned.
+                #
+                # It used to be taken at any distance. The level confirmed
+                # late, price was already well through it, and the robot
+                # bought there with the ORIGINAL stop still attached: less
+                # reward, a nearer stop, and a quick exit that fed straight
+                # back into the re-entry loop. Past the budget the honest
+                # answer is that the opportunity was missed, said out loud.
+                ok_drift, drift = drift_ok(
+                    side, price, market, float(plan.get("sl") or 0),
+                    max_drift=float(getattr(self, "auto_entry_max_drift", DEFAULT_MAX_DRIFT)),
+                )
+                if not ok_drift:
+                    self._parked_entries.pop(key, None)
+                    await self._blocked(
+                        str(item.get("source") or "auto_entry"),
+                        {"symbol": symbol, "side": side},
+                        "entry_missed",
+                        f"{side} {symbol} confirmed at {price}, but price is already "
+                        f"{drift * 100:.0f}% of the way to the stop past it — that is no "
+                        f"longer the trade that was planned",
+                        {"plan": dict(plan), "market": market, "drift": round(drift, 3)},
+                    )
+                    continue
                 request.update({"action": "market", "auto_entry_taken": True})
                 request.pop("price", None)
-            else:
+            self._parked_entries.pop(key, None)
+            if not passed:
                 request.update({
                     "action": "pending",
                     "order_type": plan.get("order_type"),
@@ -6362,6 +6595,11 @@ class Trader:
         self._danger_cooldown = {}
         self._danger_inflight = set()
         self._entry_inflight = {}
+        # A factory reset forgets what the robot was standing down from;
+        # the settings themselves come back from _load_runtime_book above.
+        self._reentry_block = {}
+        self._loss_streak = {}
+        self._taken_setups = {}
         self.last_signal = None
         self.active_symbol = ""
         self.active_timeframe = "M15"

@@ -25,6 +25,7 @@ from typing import Any
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
+from aurion.runtime.auto_entry import DEFAULT_MAX_DRIFT  # noqa: E402
 from aurion.runtime.trader import Trader  # noqa: E402
 
 
@@ -56,6 +57,8 @@ class FakeTrader:
         self._tick = tick
         self.sent: list[dict[str, Any]] = []
         self.notes: list[tuple[str, str]] = []
+        self.blocks: list[tuple[str, str]] = []
+        self.auto_entry_max_drift = DEFAULT_MAX_DRIFT
 
     def _confirm_candles(self, symbol, count=6):
         return self._candles
@@ -65,6 +68,9 @@ class FakeTrader:
 
     async def journal(self, level, kind, text, data=None):
         self.notes.append((kind, text))
+
+    async def _blocked(self, source, payload, code, why, extra=None):
+        self.blocks.append((code, why))
 
     async def execute(self, request):
         self.sent.append(dict(request))
@@ -118,13 +124,47 @@ def test_a_level_already_passed_is_taken_at_market_not_rested():
     level, resting the order there is not a trade - it is a rejection.
     The level did its job, so the trade is taken.
     """
-    bot = FakeTrader([bar(9.8, 9.9, 9.4, 9.88)], {"bid": 9.3, "ask": 9.3})
+    # Level 9.5, stop 9.0: half a point of risk. At 9.40 a fifth of it
+    # has gone, which is still the trade that was planned.
+    bot = FakeTrader([bar(9.8, 9.9, 9.4, 9.88)], {"bid": 9.40, "ask": 9.40})
     park(bot)
     assert asyncio.run(bot.watch_parked_entries()) == 1
     sent = bot.sent[-1]
     assert sent["action"] == "market"
     assert sent.get("auto_entry_taken") is True
     assert "price" not in sent
+
+
+def test_a_level_price_has_run_far_past_is_not_taken_at_any_price():
+    """Reported as "the entry is applied too late and price has gone past".
+
+    It had, and the robot bought there anyway: the confirmation arrived
+    late, the level was behind the market, and the trade went on at
+    market with the ORIGINAL stop still attached. Less reward, a nearer
+    stop, and a quick exit - which freed the slot and fed the re-entry
+    loop reported alongside this.
+
+    Past the budget the honest answer is that the opportunity was missed,
+    said out loud rather than papered over with a worse trade.
+    """
+    # Same plan, but price is now at 9.30: 40% of the stop distance gone.
+    bot = FakeTrader([bar(9.8, 9.9, 9.4, 9.88)], {"bid": 9.30, "ask": 9.30})
+    park(bot)
+    assert asyncio.run(bot.watch_parked_entries()) == 0
+    assert bot.sent == [], "a trade nobody planned was sent anyway"
+    assert bot.blocks and bot.blocks[-1][0] == "entry_missed"
+    assert "no longer the trade that was planned" in bot.blocks[-1][1]
+    # And it is not left parked to fire again a tick later.
+    assert bot.parked_entries() == []
+
+
+def test_the_drift_budget_is_the_traders_to_widen():
+    """A trader who would rather chase than miss can say so."""
+    bot = FakeTrader([bar(9.8, 9.9, 9.4, 9.88)], {"bid": 9.30, "ask": 9.30})
+    bot.auto_entry_max_drift = 1.0
+    park(bot)
+    assert asyncio.run(bot.watch_parked_entries()) == 1
+    assert bot.sent[-1]["action"] == "market"
 
 
 def test_a_plan_that_is_never_confirmed_does_not_wait_for_ever():
