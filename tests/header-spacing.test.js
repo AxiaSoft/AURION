@@ -134,17 +134,88 @@ ok(narrowGap !== null && hdrGap && narrowGap <= Number(hdrGap[2]),
 
 /* Wrapping is the safety net: if the controls still do not fit, they move
    to a second line instead of overflowing the side of the screen - which
-   is how the emergency button went missing. */
-const wrapBlock = mqs.map((m) => {
-  let depth = 0, end = m.index + m[0].length - 1;
-  for (let i = end; i < css.length; i++) {
-    if (css[i] === "{") depth++;
-    else if (css[i] === "}") { depth--; if (!depth) { end = i; break; } }
+   is how the emergency button went missing.
+
+   This check used to look for ANY media block containing a wrap rule for
+   .top-actions, and it passed for months while the header was broken.
+   Two such blocks existed; an UNCONDITIONAL `.top-actions{flex-wrap:
+   nowrap}` was declared after both of them, same selector and same
+   specificity, so it won at every width and neither block did anything.
+   Then the bell was added, the unwrappable row ran past the edge, and
+   #btn-kill - the highest `order` in the row, and the one control that
+   must never be unreachable - was the part that left the screen.
+
+   So the question is no longer "does a wrap rule exist" but "which
+   declaration actually wins at this width". Resolve the cascade. */
+function resolveProp(selector, prop, width) {
+  let out = null;
+  const re = /@media([^{]+)\{|([^{}]+)\{([^{}]*)\}|\}/g;
+  let inMedia = null, m;
+  while ((m = re.exec(css))) {
+    if (m[1] !== undefined) {
+      const q = m[1];
+      const max = /max-width:\s*(\d+)px/.exec(q);
+      const min = /min-width:\s*(\d+)px/.exec(q);
+      let hit = !/prefers-|hover|print/.test(q);
+      if (hit && max) hit = width <= Number(max[1]);
+      if (hit && min) hit = width >= Number(min[1]);
+      inMedia = { hit };
+    } else if (m[2] !== undefined) {
+      if (inMedia && !inMedia.hit) continue;
+      if (!m[2].split(",").map((x) => x.trim()).includes(selector)) continue;
+      const d = new RegExp("(?:^|;)\\s*" + prop + "\\s*:\\s*([^;]+)").exec(m[3]);
+      if (d) out = d[1].trim();
+    } else inMedia = null;
   }
-  return css.slice(m.index, end);
-}).find((b) => /\.top-actions\s*\{[^}]*flex-wrap:\s*wrap/.test(b));
-ok(Boolean(wrapBlock),
-  "the header wraps rather than overflowing when the controls do not fit");
+  return out;
+}
+
+for (const w of [900, 560, 390, 360]) {
+  ok(resolveProp(".top-actions", "flex-wrap", w) === "wrap",
+    `at ${w}px the header row is allowed to wrap`,
+    "resolved: " + resolveProp(".top-actions", "flex-wrap", w));
+}
+ok(resolveProp(".top-actions", "flex-wrap", 1440) === "nowrap",
+  "and a desktop header still keeps its controls on one line",
+  "the fix is for phones; it must not reflow the desk");
+
+/* The kill switch specifically. It is last in the row by `order`, which
+   is exactly the position that overflows first, so it carries its own
+   guarantees rather than relying on the row's. */
+ok(resolveProp(".top-actions #btn-kill", "flex", 390) === "0 0 auto",
+  "the emergency button cannot be shrunk by a crowded row");
+ok(/nowrap/.test(resolveProp(".top-actions #btn-kill", "white-space", 390) || ""),
+  "nor squeezed into a wrapped sliver of itself");
+ok(resolveProp(".top-actions #btn-flat", "margin-inline-start", 390) === "auto",
+  "the two trading actions are pushed to the far end as a pair",
+  "one logical auto margin, so it is the far end in Persian too");
+
+/* Every control in the row is given an explicit order on a phone. Half
+   of them used to sit on the default of 0 and therefore in DOM order,
+   which is how the refresh key ended up after the language pill. */
+{
+  const ids = ["#btn-hdr-drawer", "#btn-bell", "#btn-refresh", "#btn-theme",
+               "#btn-lang", "#btn-flat", "#btn-kill"];
+  const orders = ids.map((id) => resolveProp(".top-actions " + id, "order", 390));
+  ok(orders.every((o) => o !== null),
+    "every control in the phone header has a declared position",
+    ids.map((id, i) => id.slice(5) + ":" + orders[i]).join(" "));
+  const nums = orders.map(Number);
+  ok(nums.every((n, i) => i === 0 || n > nums[i - 1]),
+    "and the positions are distinct and in the order the row reads",
+    nums.join(" < "));
+  ok(nums[nums.length - 1] === Math.max(...nums),
+    "with the kill switch last, where it is reachable by the thumb");
+}
+
+/* The header is two rows on a phone, so the title is not competing with
+   seven controls for one line. */
+{
+  const areas = (resolveProp(".top", "grid-template-areas", 390) || "").replace(/\s+/g, " ");
+  ok(/"menu\s+title"/.test(areas) && /"actions actions"/.test(areas),
+    "the phone header puts the title and the controls on separate rows",
+    areas || "(none)");
+}
 
 console.log(fails ? `\nheader spacing: ${fails} FAILED` : "\nheader spacing: all checks passed");
 process.exit(fails ? 1 : 0);

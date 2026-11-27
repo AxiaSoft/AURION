@@ -1605,19 +1605,9 @@ tr:hover td{background:rgb(var(--wash) / .02)}
   .btn.tiny{white-space:nowrap}
   .card{padding:14px 12px 12px;border-radius:18px}
   .auto-banner{gap:10px}
-  .top{
-    grid-template-columns:42px minmax(0,1fr);
-    grid-template-areas:
-      "menu title"
-      "actions actions";
-    row-gap:8px;
-  }
-  .top-actions{
-    justify-content:flex-start;
-    flex-wrap:wrap;
-    gap:6px;
-  }
-  html[dir="rtl"] .top-actions{justify-content:flex-start}
+  /* The phone header's layout is declared once, in the block at the end
+     of this sheet. It used to be stated here too, and an unconditional
+     rule between the two quietly beat both. */
   .top h2{font-size:16px}
   .tabs button{flex:1;text-align:center}
   .field{margin-bottom:10px}
@@ -1899,12 +1889,7 @@ fieldset.prop-fields.is-locked{
   .top-actions #btn-flat{font-size:11px;padding:8px 10px}
 }
 
-.top-actions{flex-wrap:wrap}
 #btn-flat{white-space:nowrap}
-@media (max-width:900px){
-  .top{align-items:start}
-  .top-actions{width:100%;justify-content:flex-start;row-gap:6px}
-}
 
 /* Drawing tools stay inside the collapsible menu on phone/tablet */
 .draw-tools{display:flex;flex-wrap:wrap;gap:4px;margin-inline-start:auto}
@@ -2557,13 +2542,92 @@ body.st-page-open{overflow:hidden}
 @media (max-width:900px){
   .st-eq{display:none}
 }
+/* ------------------------------------------------------------------
+   The header on a phone
+   ------------------------------------------------------------------
+   Reported: "now that you have added the notification button, the kill
+   switch has gone off the screen."
+
+   It had, and the bell was only the straw. Two rules were fighting,
+   and the wrong one was winning:
+
+     .top-actions{flex-wrap:wrap}      (~line 1902, and again inside a
+                                        max-width:900px block)
+     .top-actions{flex-wrap:nowrap}    (~line 2286, UNCONDITIONAL)
+
+   Same selector, same specificity, and the nowrap came last, so it won
+   at every width and both mobile wrap rules were dead. This block then
+   put every action back onto one row with the title. One unwrappable
+   row of seven controls does not fit a phone, and the overflow is
+   silent: the items with the highest `order` simply hang off the inline
+   edge. #btn-kill has order 9. It was last in the row, so it was the
+   one that left the screen - which is the single control on this desk
+   that must never be unreachable.
+
+   This block is the last word on the header deliberately, so the rules
+   above cannot undo it. (The same ordering fault is recorded against
+   .ct-grid further down; it is the recurring one in this sheet.)
+
+   The layout, below 900px:
+
+     row 1   menu | page title
+     row 2   drawer, bell, refresh, theme, language  ...  Close all, Kill
+
+   Utilities pack to the start, the two trading actions are pushed to
+   the far end by one auto margin, and the row may wrap. Wrapping is
+   what guarantees the property that was broken: nothing can be pushed
+   out of the viewport, because there is always another line.
+   ------------------------------------------------------------------ */
 @media (max-width:900px){
   .top{
-    grid-template-columns:42px minmax(0,1fr) auto;
-    grid-template-areas:"menu title actions";
+    grid-template-columns:42px minmax(0,1fr);
+    grid-template-areas:
+      "menu  title"
+      "actions actions";
+    row-gap:8px;
+    align-items:center;
   }
   .hdr-status{display:none}
-  .top-actions{width:auto}
+  .top-actions{
+    grid-area:actions;
+    width:100%;
+    display:flex;
+    flex-wrap:wrap;
+    justify-content:flex-start;
+    gap:6px;
+  }
+  /* Stated for every control rather than for the two that used to have
+     one. Half the row sat on the default order of 0 and therefore in
+     DOM order, which put refresh after the language pill for no reason
+     anybody chose. An order that is partly declared is an order nobody
+     can predict. */
+  .top-actions #btn-hdr-drawer{order:1}
+  .top-actions #btn-bell{order:2}
+  .top-actions #btn-refresh{order:3}
+  .top-actions #btn-theme{order:4}
+  .top-actions #btn-lang{order:5}
+  .top-actions #btn-logout{order:6}
+  .top-actions #btn-restart{order:7}
+  /* The split. One auto margin does the whole job, and because it is a
+     logical property it puts the pair at the far end in Persian and
+     Arabic too, where "the far end" is the left. */
+  .top-actions #btn-flat{order:8;margin-inline-start:auto}
+  .top-actions #btn-kill{order:9}
+  /* Belt and braces on the one that was lost: never shrink it, never
+     let a long label wrap it into nothing. */
+  .top-actions #btn-kill{flex:0 0 auto;white-space:nowrap}
+  html[dir="rtl"] .top-actions{justify-content:flex-start}
+}
+
+/* Tighter again on a small phone, so the whole row still lands on one
+   line at 390px and only wraps on the genuinely narrow ones. */
+@media (max-width:560px){
+  .top{padding-inline:10px}
+  .top-actions{gap:5px}
+  .top-actions .icon-btn{width:36px;min-width:36px;height:36px}
+  .top-actions .btn.tiny{padding:7px 9px;min-height:34px;font-size:11px}
+  /* 34px rather than the 32px the desktop rule gives: this is the row a
+     thumb aims at, and the icon buttons beside it are 36. */
 }
 
 /* desk42 — overlay header, compact EA chart, welcome */
