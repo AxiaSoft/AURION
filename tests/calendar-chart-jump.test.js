@@ -617,11 +617,52 @@ check("the button is a real touch target on a phone", () => {
   const at = CSS.indexOf(".cal-chart-go{");
   if (at < 0) throw new Error("the button has no styles of its own");
   const block = CSS.slice(at, at + 400);
-  if (!/inline-size:100%/.test(block)) throw new Error("it does not span the panel");
+  /* It used to span the panel on its own line. That was fine until the
+     instrument picker arrived above it and ate a second line: the day
+     card is a FIXED height on every day of the month, so those pixels
+     came straight out of the news list, which is what the trader
+     reported the day it shipped. Picker and button now share one row,
+     so the button takes the width that is left rather than all of it. */
+  if (!/flex:1 1 auto/.test(block)) throw new Error("it does not fill the rest of its row");
   const coarse = CSS.slice(at, at + 600);
   const m = /pointer:coarse\)\{ \.cal-chart-go\{ min-block-size:(\d+)px/.exec(coarse);
   if (!m || Number(m[1]) < 44) throw new Error("under 44px on a touch screen");
   return m[1] + "px on a coarse pointer";
+});
+
+
+/* --- the picker must not cost the news its space --------------------
+   Reported immediately after the picker shipped: "the news card in the
+   calendar got smaller - the news moved down and that area shrank."
+   The day card's height is fixed (see .cal-day), so a control stacked
+   ABOVE the release list is subtracted from the release list. */
+
+check("the picker shares the button's row instead of taking its own", () => {
+  if (!/cal-chart-row/.test(CAL)) throw new Error("calendar.js builds no shared row");
+  if (/cal-chart-sym/.test(CAL)) throw new Error("the old captioned field is still built");
+  const at = CSS.indexOf(".cal-chart-row{");
+  if (at < 0) throw new Error("the row has no styles");
+  const block = CSS.slice(at, at + 300);
+  if (!/display:flex/.test(block)) throw new Error("it is not a row");
+  const m = /margin:0 0 (\d+)px/.exec(block);
+  if (!m) throw new Error("the row does not declare its own bottom margin");
+  if (Number(m[1]) > 12) throw new Error("the row still pushes the news down");
+  return `one row, ${m[1]}px above the releases`;
+});
+
+check("the picker is a bare control, with no caption line to pay for", () => {
+  if (!/cal-chart-pick/.test(CAL)) throw new Error("no picker class");
+  /* No <span> caption: it says what it is through aria-label and title,
+     which costs no vertical space and still reads out loud. */
+  if (!/aria-label/.test(CAL.slice(CAL.indexOf("cal-chart-row") - 600, CAL.indexOf("cal-chart-row") + 900)))
+    throw new Error("the picker has no accessible name without a caption");
+  return "labelled without a caption";
+});
+
+check("the picker cannot crowd out the button", () => {
+  const m = /\.cal-chart-row > \.dd-wrap\{[^}]*inline-size:clamp\(([^)]*)\)/.exec(CSS);
+  if (!m) throw new Error("the picker's width is unbounded");
+  return `clamped to ${m[1]}`;
 });
 
 const bad = results.filter((r) => r === false).length;

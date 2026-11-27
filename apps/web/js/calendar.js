@@ -663,19 +663,31 @@ const Calendar = {
     const sym = this.chartSymbol && live.some((a) => a.symbol === this.chartSymbol)
       ? this.chartSymbol
       : calendarChartSymbol();
+    /* Beside the button, not above it.
+     *
+     * Reported as soon as it shipped: "in the calendar, the card that
+     * shows the news - since you added the dropdown the news has moved
+     * down and that part got smaller." It had. The card is one fixed
+     * height on every day of the month, deliberately, so that hovering
+     * across the grid does not make the page jump; everything added
+     * above the list of releases is taken straight out of the list.
+     *
+     * A captioned field cost about sixty pixels of it. The picker is
+     * now on the same row as the button it governs and carries its
+     * name as a label for assistive technology rather than as a line
+     * of text, so the offer is exactly as tall as the button was and
+     * the releases are back where they were. */
     const picker = live.length > 1
-      ? `<label class="field cal-chart-sym">
-          <span>${esc(I18N.t("calendar.chart_symbol"))}</span>
-          <select class="ctrl cal-chart-pick" aria-label="${esc(I18N.t("calendar.chart_symbol"))}">${
+      ? `<select class="ctrl cal-chart-pick" aria-label="${esc(I18N.t("calendar.chart_symbol"))}"
+           title="${esc(I18N.t("calendar.chart_symbol"))}">${
             live.map((a) =>
               `<option value="${esc(a.symbol)}"${a.symbol === sym ? " selected" : ""}>${esc(a.label || a.symbol)}</option>`
             ).join("")
-          }</select>
-        </label>`
+          }</select>`
       : "";
-    return `${picker}<button type="button" class="btn ghost small cal-chart-go" data-day="${esc(key)}" data-at="${ms}" data-sym="${esc(sym)}">
+    return `<div class="cal-chart-row">${picker}<button type="button" class="btn ghost small cal-chart-go" data-day="${esc(key)}" data-at="${ms}" data-sym="${esc(sym)}">
       ${esc(I18N.t("calendar.see_chart", { symbol: sym }))}
-    </button>` +
+    </button></div>` +
       (ahead ? `<p class="cal-dp-wait">${esc(I18N.t("calendar.chart_up_to_now"))}</p>` : "");
   },
 
@@ -1120,8 +1132,8 @@ const Calendar = {
            has more than one attached. Read off the panel at the
            moment of the press rather than from the render, so a
            choice made and then changed is honoured. */
-        const pick = btn.parentElement
-          && btn.parentElement.querySelector(".cal-chart-pick");
+        const row = btn.closest(".cal-chart-row");
+        const pick = row && row.querySelector(".cal-chart-pick");
         const symbol = (pick && pick.value) || btn.dataset.sym || "";
         openCalendarMoment(btn.dataset.day, Number(btn.dataset.at), symbol);
       }
@@ -1136,7 +1148,10 @@ const Calendar = {
       const pick = e.target.closest && e.target.closest(".cal-chart-pick");
       if (!pick) return;
       this.chartSymbol = String(pick.value || "");
-      const host = pick.closest(".cal-day") || pick.parentElement?.parentElement;
+      /* The row the picker and the button share - see .cal-chart-row.
+         Falls back to the whole panel for the popover copy. */
+      const host = pick.closest(".cal-chart-row") || pick.closest(".cal-day")
+        || pick.closest("#cal-pop");
       const btn = host && host.querySelector(".cal-chart-go");
       if (btn) {
         btn.dataset.sym = this.chartSymbol;
