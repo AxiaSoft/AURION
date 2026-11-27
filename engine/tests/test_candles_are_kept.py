@@ -193,7 +193,20 @@ def test_a_series_is_read_back_once_per_run(store: Store) -> None:
 
 
 def test_disk_never_overwrites_bars_that_reach_further_back(store: Store) -> None:
-    """A short archive must not truncate a long live series."""
+    """A short archive must not truncate a long live series.
+
+    Retargeted, deliberately: this used to require the archive to be
+    DISCARDED whole, by asserting the series was still exactly the 300
+    live bars. Discarding the shorter side is what left a hole in the
+    chart after AURION had been closed for a while - the archive is
+    deep and stops at the moment of the shutdown, the live series
+    starts after the restart, and whichever was dropped took its own
+    bars with it. The two are merged now.
+
+    What the test is for is unchanged and still checked: nothing the
+    live series had may be lost, and the series must still begin where
+    the live one began.
+    """
     store.save_candles("EURUSD", "M15", bars(5, day=9))
 
     bridge = MT5Bridge()
@@ -203,8 +216,11 @@ def test_disk_never_overwrites_bars_that_reach_further_back(store: Store) -> Non
     bucket.extend(live)
 
     bridge._warm_from_disk("EURUSD", "M15", 300)
-    assert len(bridge.candles_of("EURUSD", "M15")) == 300
-    assert bridge.candles_of("EURUSD", "M15")[0].time.startswith("2026-11-01")
+    held = bridge.candles_of("EURUSD", "M15")
+    kept = {c.time for c in held}
+    assert {c.time for c in live} <= kept          # not one live bar lost
+    assert held[0].time.startswith("2026-11-01")   # still as deep as it was
+    assert len(kept) == len(held)                  # and no bar twice
 
 
 # ------------------------------------------------------- 5. the tester

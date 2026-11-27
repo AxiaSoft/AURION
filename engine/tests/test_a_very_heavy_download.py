@@ -182,11 +182,19 @@ def test_a_gap_filled_long_after_the_fact_still_lands() -> None:
 
 
 def test_the_index_survives_the_buffer_being_cleared() -> None:
-    """`replace` empties the buffer under the index's feet.
+    """`replace` rewrites the buffer under the index's feet.
 
-    Length is what the index checks to notice that happening. A
-    replace followed by a shorter series is the case that would slip
+    Length is what the index checks to notice that happening, and a
+    replace that leaves a SHORTER buffer is the case that would slip
     through a looser check.
+
+    Retargeted once, deliberately. A live replace used to empty the
+    buffer; it now drops the bars from the answer's own first bar
+    onwards and keeps what is older, because wiping everything is how
+    a reply about this morning deleted the months behind it and left
+    a hole where AURION had been closed. See _on_ea_message. The
+    buffer still changes length under the index, which is what this
+    test is here to catch.
     """
 
     async def go() -> None:
@@ -198,12 +206,14 @@ def test_the_index_survives_the_buffer_being_cleared() -> None:
         window = _bars(40, 1000)
         await _push(bridge, window, replace=True, final=True)
         held = list(bridge.candles[("XAUUSD", "M5")])
-        assert len(held) == 40, "a replace means a replace"
-        assert held[0].time == window[0]["time"], "and the right 40 bars"
+        assert len(held) == 1040, "a replace kept the wrong amount of history"
+        assert held[0].time == _bars(1)[0]["time"], "the oldest bars were lost"
+        assert held[1000].time == window[0]["time"], "the answer did not land where it belongs"
+        assert held[-1].time == window[-1]["time"], "the series ends in the wrong place"
 
         await _push(bridge, window, replace=False, final=True)
         times = [c.time for c in bridge.candles[("XAUUSD", "M5")]]
-        assert len(times) == 40 and len(set(times)) == 40, (
+        assert len(times) == 1040 and len(set(times)) == 1040, (
             "the index remembered positions from the buffer before the "
             "clear and appended duplicates instead of merging"
         )
