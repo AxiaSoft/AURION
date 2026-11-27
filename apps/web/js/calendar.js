@@ -672,11 +672,17 @@ const Calendar = {
      * across the grid does not make the page jump; everything added
      * above the list of releases is taken straight out of the list.
      *
-     * A captioned field cost about sixty pixels of it. The picker is
-     * now on the same row as the button it governs and carries its
-     * name as a label for assistive technology rather than as a line
-     * of text, so the offer is exactly as tall as the button was and
-     * the releases are back where they were. */
+     * A captioned field cost about sixty pixels of it. The caption is
+     * gone - the picker carries its name as a label for assistive
+     * technology rather than as a line of text - which is where most
+     * of that space came back from.
+     *
+     * Putting the picker BESIDE the button to save the rest was tried
+     * and reported broken: by the time it is on screen the picker is
+     * not a bare <select> but the desk's own .dd-wrap control, and two
+     * controls of different built widths sharing a line in a panel
+     * this narrow collided. So it sits above the button it governs,
+     * which is also the order they are read in. */
     const picker = live.length > 1
       ? `<select class="ctrl cal-chart-pick" aria-label="${esc(I18N.t("calendar.chart_symbol"))}"
            title="${esc(I18N.t("calendar.chart_symbol"))}">${

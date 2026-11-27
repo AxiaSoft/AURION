@@ -2741,31 +2741,33 @@ body.st-page-open{overflow:hidden}
 /* "See the chart on this date".
    Above the list of releases, because it belongs to the DAY rather than
    to any one event, and because a button hidden under a scrolling list
-   of releases is a button nobody finds. It used to span the panel on
-   its own line; it now shares one row with the instrument picker (see
-   .cal-chart-row) and takes whatever width the picker leaves, which
-   gave the news back the line the picker had cost it. It keeps the
-   44px touch target the rest of the calendar uses on a phone. */
+   of releases is a button nobody finds. It fills its line, under the
+   instrument picker that governs it. It keeps the 44px touch target
+   the rest of the calendar uses on a phone. */
 .cal-chart-go{
-  flex:1 1 auto; inline-size:auto; min-inline-size:0; margin:0;
+  inline-size:100%; min-inline-size:0; margin:0;
   justify-content:center; gap:6px;
   min-block-size:34px;
 }
 @media (pointer:coarse){ .cal-chart-go{ min-block-size:44px } }
 
-/* The offer is ONE row: which instrument, and go.
-   The card is a fixed height on every day of the month - see .cal-day -
-   so anything stacked above the list of releases is taken out of the
-   list. A captioned field above the button cost about sixty pixels of
-   news, which was reported the day it shipped. Side by side it costs
-   none. */
+/* Picker ABOVE the button, not beside it.
+   Side by side was tried and reported broken: the picker is not a bare
+   <select> by the time it reaches the screen - enhanceSelects replaces
+   it with the desk's own .dd-wrap control - and two controls of
+   different built widths sharing a line inside a panel this narrow
+   wrapped and collided. Stacked, each one gets the full width it was
+   designed for.
+
+   The card is a fixed height on every day of the month (see .cal-day),
+   so this row does cost the release list some space. It is kept to the
+   minimum it can be: no caption line, and a 6px gap rather than the
+   10px that separates the pair from the releases below. */
 .cal-chart-row{
-  display:flex; align-items:center; gap:8px;
+  display:flex; flex-direction:column; align-items:stretch; gap:6px;
   margin:0 0 10px; min-inline-size:0;
 }
-/* Wide enough to read a symbol, never wide enough to crowd out the
-   button that does the work. */
-.cal-chart-row > .dd-wrap{ flex:0 1 auto; inline-size:clamp(96px, 38%, 170px) }
+.cal-chart-row > .dd-wrap{ inline-size:100% }
 .cal-chart-pick{ inline-size:100% }
 
 /* ---- the day popover --------------------------------------------------
