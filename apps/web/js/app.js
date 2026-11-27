@@ -3530,6 +3530,60 @@ function placeDropdownMenu(btn, menu) {
   placePopover(btn, menu);
 }
 
+/**
+ * Keep every dropdown the desk's own, wherever it is rendered.
+ *
+ * Reported in these words: "in some of the places that have a drawer,
+ * when I click near the app's own drawer a second one opens that looks
+ * like the browser's default. Fix it for every drawer there is."
+ *
+ * That second drawer is a native <select> popup - the operating
+ * system's list, in the system font, laid out left-to-right over a
+ * Persian desk, which is exactly what enhanceSelects exists to
+ * replace. It was being replaced in two places only: the stage, and
+ * the calendar card. Everything parented to <body> instead of to the
+ * stage - the settings sheet, the ticket sheet, the chart dock, the
+ * modals, every drawer - kept its raw <select>, because a control is
+ * enhanced by whoever remembers to ask.
+ *
+ * Nobody has to remember now. The document is watched, and a <select>
+ * that appears anywhere is given the desk's dropdown before it can be
+ * clicked. Cheap: the records are scanned for an added element that
+ * is or contains a <select> and nothing else wakes the pass, which is
+ * then coalesced into one frame.
+ */
+function watchForSelects() {
+  if (S._selectWatch || typeof MutationObserver !== "function") return;
+  const hasSelect = (node) => {
+    if (!node || node.nodeType !== 1) return false;
+    if (node.tagName === "SELECT") return true;
+    return typeof node.querySelector === "function" && Boolean(node.querySelector("select"));
+  };
+  let queued = false;
+  const sweep = () => {
+    queued = false;
+    try { enhanceSelects(document); } catch { /* a raw select beats a broken page */ }
+  };
+  const obs = new MutationObserver((records) => {
+    if (queued) return;
+    for (const rec of records) {
+      /* A sheet closing takes its selects with it; the menus they
+         portalled to <body> are left behind and have to be swept. */
+      for (const node of [...(rec.addedNodes || []), ...(rec.removedNodes || [])]) {
+        if (!hasSelect(node)) continue;
+        queued = true;
+        /* One pass per frame: a sheet opening adds dozens of nodes. */
+        if (typeof requestAnimationFrame === "function") requestAnimationFrame(sweep);
+        else setTimeout(sweep, 0);
+        return;
+      }
+    }
+  });
+  obs.observe(document.body || document.documentElement, { childList: true, subtree: true });
+  S._selectWatch = obs;
+  sweep();
+}
+
 function enhanceSelects(root) {
   document.querySelectorAll("body > .dd-menu").forEach((m) => {
     if (!m._sel || !m._sel.isConnected) m.remove();
@@ -3542,6 +3596,11 @@ function enhanceSelects(root) {
     wrap.appendChild(sel);
     sel.classList.add("dd-native");
     sel.tabIndex = -1;
+    /* It is a value holder now, not a control: it keeps the selection
+       and fires change, and the button in front of it is what a person
+       uses. Hidden from assistive technology too, or a screen reader
+       announces the same dropdown twice. */
+    sel.setAttribute("aria-hidden", "true");
     const btn = document.createElement("button");
     btn.type = "button";
     // .ctrl is what makes this the same shell as the symbol picker
@@ -4861,7 +4920,19 @@ function show(view, opts) {
       else markNav();
     }
     S.chart = null;
-    document.querySelectorAll("body > .dd-menu").forEach((m) => m.remove());
+    /* Only the menus whose control has gone.
+     *
+     * This used to remove every portalled menu on the document,
+     * which was safe while the only enhanced selects were the
+     * stage's - they were about to be rebuilt anyway. It is not safe
+     * now that the sheets and drawers parented to <body> have real
+     * dropdowns too: their controls survive a view paint, and
+     * enhanceSelects will not rebuild a menu for a select it has
+     * already wrapped. The result would be a dropdown that opens
+     * nothing. */
+    document.querySelectorAll("body > .dd-menu").forEach((m) => {
+      if (!m._sel || !m._sel.isConnected) m.remove();
+    });
     /* Same reason as the calendar card above: the settings sheet, its
        scrim and its floating bar are parented to <body> so the stage's
        entrance transform cannot become their containing block. Which
@@ -4874,7 +4945,12 @@ function show(view, opts) {
     stage.innerHTML = views[view] ? views[view]() : "";
     I18N.apply(stage);
     bindView(view);
-    enhanceSelects(stage);
+    /* The whole document, not the stage. A view's own selects are only
+       some of the selects it puts on screen - the rest are in sheets
+       and drawers parented to <body>, where a stage-only pass never
+       reached them and the operating system's list opened instead.
+       See watchForSelects. */
+    enhanceSelects(document);
     S.mountedView = view;
     S.mountedKey = mountKey;
     S.viewMode = viewMode();
@@ -20622,6 +20698,12 @@ function showSupportLock(st) {
 
 async function boot() {
   bindChrome();
+
+  /* Every <select> on the desk becomes the desk's own dropdown, in
+     every sheet and drawer and not only on the stage. See
+     watchForSelects: the alternative was the operating system's list
+     opening over a Persian page. */
+  watchForSelects();
 
   /* The desk's own date and time pickers. One delegated listener on the
      document, so every field drawn by AurionWhen works on every view

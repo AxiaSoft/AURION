@@ -275,5 +275,57 @@ ok(!/dd-sheet/.test(appCss), "the sheet geometry is out of the stylesheet too");
     "...and both dropdowns get the same one, stated together");
 }
 
+console.log("\n-- no native list anywhere ------------------------------");
+
+/* Reported: "in some of the places that have a drawer, when I click
+   near the app's own drawer a second one opens that looks like the
+   browser's default. Fix it for every drawer there is."
+
+   That second drawer is the operating system's <select> popup. The
+   enhancement was applied to the stage and the calendar card only, so
+   every select rendered into a body-parented sheet, drawer or modal
+   stayed raw. */
+{
+  ok(/function watchForSelects\(/.test(appJs),
+    "something watches the document for selects that appear later");
+  const fn = appJs.slice(appJs.indexOf("function watchForSelects("));
+  const body = fn.slice(0, fn.indexOf("\n}\n"));
+  ok(/new MutationObserver\(/.test(body),
+    "...by observing it, rather than by each caller remembering");
+  ok(/subtree: true/.test(body),
+    "...including the sheets and drawers parented to <body>");
+  ok(/enhanceSelects\(document\)/.test(body),
+    "...and the sweep covers the whole document");
+  ok(/requestAnimationFrame|setTimeout/.test(body),
+    "...coalesced into one pass rather than one per added node");
+  ok(/watchForSelects\(\);/.test(appJs.slice(appJs.indexOf("async function boot()"))),
+    "the watch is started at boot");
+}
+
+{
+  /* The stage-only sweep was half the fault. */
+  ok(!/enhanceSelects\(stage\)/.test(appJs),
+    "the view paint no longer enhances the stage alone");
+}
+
+{
+  /* A dropdown whose portalled menu was swept away opens nothing. */
+  const at = appJs.indexOf('document.querySelectorAll("body > .dd-menu").forEach((m) => m.remove())');
+  ok(at < 0,
+    "a view paint no longer removes the menus of controls that are still on screen");
+}
+
+{
+  /* The native control stays as a value holder, reachable by nobody. */
+  const fn = appJs.slice(appJs.indexOf("function enhanceSelects("));
+  const body = fn.slice(0, fn.indexOf("\n}\n"));
+  ok(/sel\.setAttribute\("aria-hidden", "true"\)/.test(body),
+    "the hidden native select is hidden from assistive technology too");
+  ok(/sel\.tabIndex = -1/.test(body),
+    "...and cannot be reached with a keyboard");
+  ok(/pointer-events:none !important/.test(appCss.slice(appCss.indexOf(".dd-native{"))),
+    "...and cannot be clicked, which is what opened the system list");
+}
+
 console.log(failed ? `\n${failed} check(s) failed` : "\nall checks passed");
 process.exit(failed ? 1 : 0);

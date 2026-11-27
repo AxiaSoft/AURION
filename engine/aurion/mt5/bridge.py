@@ -18,7 +18,7 @@ from ..util.log import get
 from .native import AVAILABLE as NATIVE_AVAILABLE
 from .native import NativeMT5
 from .protocol import decode_buffer, encode, parse_ea_json
-from .types import Account, Candle, ChartAgent, Deal, PendingOrder, Position, Tick, classify_account, timeframe_from_minutes
+from .types import Account, Candle, ChartAgent, Deal, PendingOrder, Position, Tick, classify_account, timeframe_from_minutes, timeframe_minutes
 from ..util.history import at_least_window, bars_for_days, cache_size, requested_window
 
 log = get("mt5")
@@ -128,6 +128,11 @@ class MT5Bridge:
         #: What was last written to the archive, per series: how many
         #: bars, and the first and last bar time. See archive_candles.
         self._archived_mark: dict[tuple[str, str], tuple[int, str, str]] = {}
+        #: Series whose missing tail has already been chased since the
+        #: expert last connected. See _tail_already_chased: the hole
+        #: this fills is made by AURION being closed, so it is asked
+        #: about once per connection and not by every poll.
+        self._tail_chased: set[tuple[str, str]] = set()
         self._agent_owner: dict[int, asyncio.StreamWriter | None] = {}
         self._purge_gen: dict[int, int] = {}
         self._http_seen: dict[int, float] = {}
@@ -338,14 +343,20 @@ class MT5Bridge:
         held = self._candles_for(symbol, timeframe)
         fresh = [c for c in (self._candle_from_row(symbol, timeframe, r) for r in rows) if c]
         fresh = self._one_bar_per_time(fresh)
-        if not fresh or self._reaches_further(held, fresh):
+        if not fresh:
             return held
-        bucket = self._tape_store("live")["candles"][(symbol, timeframe)]
-        bucket.clear()
-        bucket.extend(fresh)
-        self._forget_bucket(bucket)
+        # Merged, not chosen between.
+        #
+        # This used to keep whichever series reached further back and
+        # discard the other whole. On the path it matters most - the
+        # first chart after a restart - the two sides are the archive,
+        # which is deep and stops where AURION was closed, and
+        # whatever the expert has pushed since it came back. Picking
+        # one threw away either the months or the morning. See
+        # _merge_series.
+        out = self._install_series(symbol, timeframe, fresh)
         log.info("warmed %s %s with %d stored bars", symbol, timeframe, len(fresh))
-        return list(bucket)
+        return out
 
     @staticmethod
     def _one_bar_per_time(rows: list[Candle]) -> list[Candle]:
@@ -1292,6 +1303,127 @@ class MT5Bridge:
         return len(rows) < want * cls._HIST_ENOUGH
 
     @staticmethod
+    def _merge_series(held: list[Any], fresh: list[Any]) -> list[Any]:
+        """Every bar either side knows about, once each, in time order.
+
+        This replaces a decision that should never have been a
+        decision. A fresh answer used to either overwrite the held
+        series or be thrown away whole, chosen by which one reached
+        further back - so the shorter one was always LOST, including
+        the bars it had that the longer one did not.
+
+        That is the reported fault, exactly:
+
+            "AURION closed at 1:30 and was off until 2. When I opened
+             it again the candle for 2 was there, but everything from
+             1:30 onwards is simply gone."
+
+        The stored series reaches back six months and stops at 1:30;
+        the terminal's answer starts this morning and contains the
+        missing half hour. The deep one wins, the other is discarded,
+        and the hole is permanent - nothing ever asks again, because
+        the cache is long and looks complete.
+
+        Two series of the same instrument and timeframe are not rivals
+        - they are two readings of one history. The union of them is
+        the history. Where both have a bar, the fresh one wins: it is
+        the later reading of a bar that may still have been forming
+        when the other was taken.
+        """
+        if not held:
+            return list(fresh)
+        if not fresh:
+            return list(held)
+        by_time: dict[str, Any] = {}
+        for row in held:
+            when = str(getattr(row, "time", "") or "")
+            if when:
+                by_time[when] = row
+        for row in fresh:
+            when = str(getattr(row, "time", "") or "")
+            if when:
+                by_time[when] = row
+        return sorted(
+            by_time.values(),
+            key=lambda c: (str(getattr(c, "time", "")), int(getattr(c, "time_msc", 0) or 0)),
+        )
+
+    def _install_series(
+        self, symbol: str, timeframe: str, rows: list[Any], tape: str = "live",
+    ) -> list[Any]:
+        """Put a whole-series answer into the buffer without losing bars.
+
+        The buffer is bounded by its own timeframe's window, so a merge
+        can only ever push the OLDEST bars out - never the ones a
+        trader is looking at. See _merge_series for why this is a merge
+        and not an assignment.
+        """
+        bucket = self._tape_store(tape or "live")["candles"][(symbol, timeframe)]
+        merged = self._merge_series(list(bucket), list(rows))
+        if len(merged) == len(bucket) and merged and bucket and merged[-1] is bucket[-1] \
+                and merged[0] is bucket[0]:
+            return list(bucket)
+        bucket.clear()
+        bucket.extend(merged)
+        self._forget_bucket(bucket)
+        return list(bucket)
+
+    #: How far behind "now" the newest bar may be before the series is
+    #: treated as having a hole at its end, in bar lengths.
+    #:
+    #: Two, not one: the bar currently forming has not closed yet, and
+    #: a broker that is a minute late with it is not a gap. Three would
+    #: already be fifteen minutes of M5 missing from a live chart.
+    _TAIL_GAP_BARS = 2
+
+    def _tail_is_stale(self, rows: list[Any], timeframe: str) -> bool:
+        """Does this series stop well short of now?
+
+        The question nothing used to ask. Every "do we need to
+        download?" test counted bars - is the series long enough, does
+        it reach far enough BACK - and a series can satisfy both while
+        ending hours ago, which is precisely the state AURION is in
+        every time it is started after being closed for a while.
+
+        Only ever a reason to ASK. Whether the broker has those bars is
+        its own business: a weekend, a holiday or a closed market
+        legitimately ends a series in the past, which is why the asking
+        is rate-limited and done once per series per connection rather
+        than on every poll.
+        """
+        if not rows:
+            return False
+        when = str(getattr(rows[-1], "time", "") or "")
+        if not when:
+            return False
+        try:
+            from datetime import datetime, timezone
+
+            text = when.replace("Z", "+00:00")
+            last = datetime.fromisoformat(text)
+            if last.tzinfo is None:
+                last = last.replace(tzinfo=timezone.utc)
+            behind = (datetime.now(timezone.utc) - last).total_seconds()
+        except Exception:
+            return False
+        minutes = max(1, int(timeframe_minutes(timeframe) or 1))
+        return behind > minutes * 60 * self._TAIL_GAP_BARS
+
+    def _tail_already_chased(self, symbol: str, timeframe: str) -> bool:
+        """Have we already gone after this series' missing tail?
+
+        Once per series per expert connection. The gap is created by
+        AURION being away, so it is a start-up and reconnect question,
+        not something a two-second poll should keep re-opening against
+        a market that is simply shut.
+        """
+        key = (symbol, self._norm_tf(timeframe))
+        if key in self._tail_chased:
+            return True
+        self._tail_chased.add(key)
+        return False
+
+    @staticmethod
     def _reaches_further(held: list[Any], fresh: list[Any]) -> bool:
         """Does what we already hold go back further than a new answer?
 
@@ -1832,15 +1964,16 @@ class MT5Bridge:
             # expert had already gone and fetched, and the next request
             # started from the short answer again. Whichever reaches
             # further back is the one that is kept.
-            if rows and self._reaches_further(cached, rows):
-                rows = []
             if rows:
-                bucket = self._tape_store("live")["candles"][(symbol, tf)]
-                bucket.clear()
-                bucket.extend(rows)
-                self._forget_bucket(bucket)
+                # Merged with what is held rather than weighed against
+                # it. The terminal's answer is often shallower than the
+                # cache and still the only place the newest bars exist
+                # - which is every start-up after AURION has been
+                # closed for a while. See _merge_series.
+                merged = self._install_series(symbol, tf, rows)
+                changed = len(merged) != len(cached) or bool(rows)
+                rows = merged
                 await self.archive_candles(symbol, tf, rows)
-                changed = True
         if not rows:
             rows = cached
         # Ask the expert when what we hold falls SHORT OF WHAT WAS ASKED
@@ -1864,9 +1997,16 @@ class MT5Bridge:
                 not held or str(getattr(held[0], "time", "") or "")[:10] > want_day
             )
 
+        # A series can be long enough, deep enough, and still stop
+        # hours ago - which is the state every restart leaves behind.
+        # Checked once per series per expert connection, so a shut
+        # market cannot turn into a poll. See _tail_is_stale.
+        chase_tail = bool(rows) and self._tail_is_stale(rows, tf) \
+            and not self._tail_already_chased(symbol, tf)
         for attempt in range(max(1, int(tries or 1))):
-            if not (self._short_of(rows, count) or shallow(rows)):
+            if not (self._short_of(rows, count) or shallow(rows) or chase_tail):
                 break
+            chase_tail = False
             if not self.is_ea_symbol(symbol):
                 break
             # The cooldown stops a poll from asking the same question
@@ -1878,13 +2018,26 @@ class MT5Bridge:
             fetched = await self._request_ea_history(
                 symbol, tf, timeout=self._history_timeout(count), count=count
             )
+            before = (len(rows), str(getattr(rows[-1], "time", "")) if rows else "")
             if fetched:
                 rows = fetched
             else:
                 rows = self._candles_for(symbol, tf)
             await self.archive_candles(symbol, tf, rows)
             self._note_history_answer(symbol, tf, count, len(rows))
-            changed = True
+            # Only when the bars genuinely moved.
+            #
+            # This used to be an unconditional `changed = True`, which
+            # was harmless while a request was only ever made for a
+            # series that was short - it had something new by
+            # definition. A stale tail is now also a reason to ask,
+            # and the common answer to that is "there is nothing more"
+            # on a market that is simply closed. Re-sending the whole
+            # window to every desk over that is the broadcast storm
+            # the silence rule exists to prevent.
+            after = (len(rows), str(getattr(rows[-1], "time", "")) if rows else "")
+            if after != before:
+                changed = True
         # Built once. This used to be two separate list comprehensions
         # over the same bars - the broadcast's copy and the caller's -
         # and on a six-month M5 window that is 52 000 dictionaries
@@ -1927,10 +2080,9 @@ class MT5Bridge:
                 await self.emit("tick", tick.to_dict())
             rows = await asyncio.to_thread(self.native.candles, symbol, tf, at_least_window(tf))
             if rows:
-                bucket = live_store["candles"][(symbol, tf)]
-                bucket.clear()
-                bucket.extend(rows)
-                self._forget_bucket(bucket)
+                # See _merge_series: priming a chart adds to what this
+                # installation knows, it does not redefine it.
+                rows = self._install_series(symbol, tf, rows)
                 await self.archive_candles(symbol, tf, rows)
                 wire = await self._wire_bars(rows)
                 await self.emit("candles", {"symbol": symbol, "timeframe": tf, "bars": wire, "depth": self.hist_depth(symbol, tf)})
@@ -1956,6 +2108,11 @@ class MT5Bridge:
         self._ea_clients[writer] = {"peer": peer, "charts": []}
         buffer = bytearray()
         log.info("EA connected from %s", peer)
+        # A new expert is a new chance to collect whatever happened
+        # while nobody was listening - the bars between the moment
+        # AURION was closed and the moment it came back. See
+        # _tail_already_chased.
+        self._tail_chased.clear()
         try:
             # Do not write first. Some MT5 builds return 5273 on SocketSend
             # if the peer already pushed data before the EA read.
@@ -2163,7 +2320,37 @@ class MT5Bridge:
             replace = True if "replace" not in message else bool(message.get("replace"))
             final = True if "final" not in message else bool(message.get("final"))
             if replace:
-                bucket.clear()
+                if tape != "live":
+                    # A tester rerun is a different simulated past and
+                    # must not be laid over the previous one.
+                    bucket.clear()
+                else:
+                    # The live tape is replaced FROM THE ANSWER'S OWN
+                    # START, not from the beginning of time.
+                    #
+                    # "replace" means "these bars are authoritative",
+                    # and they are - for the window they cover. It used
+                    # to empty the buffer, which also threw away
+                    # everything OLDER than that window: the bars this
+                    # installation had downloaded before it was last
+                    # closed. A terminal that answers with a short
+                    # recent window therefore erased months, and the
+                    # chart came back with a hole where AURION had been
+                    # away. See _merge_series.
+                    #
+                    # Bars at or after the answer's first bar still go,
+                    # so a corrected bar is corrected outright rather
+                    # than merged with the version it replaces.
+                    first_in = min(
+                        (str(r.get("time") or "") for r in (message.get("bars") or []) if r.get("time")),
+                        default="",
+                    )
+                    if first_in and bucket:
+                        keep = [c for c in bucket if str(c.time) < first_in]
+                        if len(keep) != len(bucket):
+                            bucket.clear()
+                            bucket.extend(keep)
+                            self._forget_bucket(bucket)
             # Let the loop breathe during a long history.
             #
             # A six-month M5 reply is several thousand bars in a single

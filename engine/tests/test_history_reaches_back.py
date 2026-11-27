@@ -187,9 +187,16 @@ def test_a_long_but_shallow_cache_still_sends_the_expert_a_request() -> None:
 
     b._request_ea_history = fake_request  # type: ignore[assignment]
 
-    # Shallower than the ask, but not shorter: no request without a date.
+    # Shallower than the ask, but not shorter. One request goes out
+    # even so, and only one: these bars stop in September, and a
+    # series that stops in the past is the hole AURION comes back to
+    # after being closed. See _tail_is_stale - it is asked about once
+    # per series per expert connection, never on a timer.
     asyncio.run(b.pull_candles("EURUSD", "M15", 200, exact=True))
-    assert asked == [], "a cache that is long enough was re-fetched for no reason"
+    assert len(asked) == 1, "a series that stops in the past was never chased"
+    asked.clear()
+    asyncio.run(b.pull_candles("EURUSD", "M15", 200, exact=True))
+    assert asked == [], "the stale tail was chased twice - that is a poll"
 
     # Now say which day it has to reach, and it goes out.
     asyncio.run(b.pull_candles("EURUSD", "M15", 200, exact=True, need_from="2025-11-01"))
@@ -212,5 +219,12 @@ def test_a_cache_that_already_reaches_that_far_is_left_alone() -> None:
         return []
 
     b._request_ea_history = fake_request  # type: ignore[assignment]
+    # The first call is allowed one request: this cache ends in
+    # October 2025, and a series that stops in the past gets chased
+    # once in case AURION was simply closed for it. What must not
+    # happen is a SECOND request for a cache that reaches back far
+    # enough - that is the regression this test was written for.
+    asyncio.run(b.pull_candles("EURUSD", "M15", 300, exact=True, need_from="2025-10-05"))
+    asked.clear()
     asyncio.run(b.pull_candles("EURUSD", "M15", 300, exact=True, need_from="2025-10-05"))
     assert asked == [], "a cache that does reach back was fetched again anyway"
