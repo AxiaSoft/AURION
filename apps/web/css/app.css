@@ -2674,6 +2674,17 @@ body.st-page-open{overflow:hidden}
 }
 @media (pointer:coarse){ .cal-chart-go{ min-block-size:44px } }
 
+/* ...and WHICH chart, on a desk with several instruments attached.
+   Directly above the button it governs, laid out like every other
+   field on the desk so it reads as part of the same offer rather than
+   as a second control that happens to be nearby. */
+.cal-chart-sym{ margin:0 0 8px }
+.cal-chart-sym > span{ font-size:12px; opacity:.75 }
+/* The control itself is the desk's standard dropdown - .ctrl and the
+   shared .dd-* rules do the work - so this only has to stop it being
+   narrower than the button it belongs to. */
+.cal-chart-pick{ inline-size:100% }
+
 /* ---- the day popover --------------------------------------------------
    Opened beside the day number by a hover, a press-and-hold or a click.
 

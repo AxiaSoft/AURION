@@ -3584,6 +3584,22 @@ function watchForSelects() {
   sweep();
 }
 
+/** The <label for="..."> of a control, without needing CSS.escape.
+ *
+ * `CSS` is not defined in every environment the desk runs in - the
+ * headless harness is one - and a missing global here threw before
+ * the first dropdown was built, taking every control on the page with
+ * it. Matched by reading the attribute instead, which also costs
+ * nothing to get right for an id with a dot in it. */
+function labelFor(id) {
+  const want = String(id || "");
+  if (!want) return null;
+  for (const el of document.querySelectorAll("label[for]")) {
+    if (el.getAttribute("for") === want) return el;
+  }
+  return null;
+}
+
 function enhanceSelects(root) {
   document.querySelectorAll("body > .dd-menu").forEach((m) => {
     if (!m._sel || !m._sel.isConnected) m.remove();
@@ -3601,6 +3617,34 @@ function enhanceSelects(root) {
        uses. Hidden from assistive technology too, or a screen reader
        announces the same dropdown twice. */
     sel.setAttribute("aria-hidden", "true");
+    /* And it must never be ACTIVATED, which is not the same as never
+       being clicked.
+     *
+     * The reported fault, still there after the control was hidden
+     * and made unclickable: "a second drawer still opens when I click
+     * AROUND a drawer; clicking the drawer itself opens AURION's
+     * one". Nearly every dropdown on the desk sits inside
+     * <label class="field"><span>caption</span><select></label>, and
+     * clicking a label activates the control it labels - the caption,
+     * the padding, the whole row. That is a label doing its job, and
+     * it goes straight past pointer-events, opacity and a 1px box: it
+     * is not a click on the select at all, it is the browser
+     * forwarding activation to it, and the operating system's list
+     * opens.
+     *
+     * So the activation itself is refused here, and the label is
+     * re-pointed at the button below, which means clicking the
+     * caption now opens the desk's own dropdown - which is what a
+     * person clicking a field's caption meant. */
+    const swallow = (e) => { e.preventDefault(); e.stopPropagation(); };
+    sel.addEventListener("mousedown", swallow);
+    sel.addEventListener("click", swallow);
+    sel.addEventListener("keydown", swallow);
+    sel.addEventListener("focus", () => {
+      /* A label can also move focus here, and a focused <select>
+         opens on a keystroke. Hand it to the button instead. */
+      try { btn.focus(); } catch { /* nothing to hand it to */ }
+    });
     const btn = document.createElement("button");
     btn.type = "button";
     // .ctrl is what makes this the same shell as the symbol picker
@@ -3618,6 +3662,30 @@ function enhanceSelects(root) {
     menu._btn = btn;
     wrap.appendChild(btn);
     document.body.appendChild(menu);
+
+    /* Whatever labelled the select now labels the button.
+     *
+     * A field's caption is part of its target - people click it, and
+     * they should get the desk's dropdown rather than the system's.
+     * Both spellings are handled: <label for="..."> and the common
+     * one on this desk, a <label> with the control inside it. An
+     * explicit `for` wins over the implicit association, so pointing
+     * it at the button is enough to stop the select being activated
+     * from there - which is the second drawer that kept opening. */
+    const owner = sel.closest("label")
+      || (sel.id ? labelFor(sel.id) : null);
+    if (owner) {
+      if (!btn.id) btn.id = `dd-btn-${Math.random().toString(36).slice(2, 9)}`;
+      owner.htmlFor = btn.id;
+      /* An implicit label wrapping its control keeps forwarding to
+         that control in some engines even with `for` set elsewhere,
+         so the caption is also wired directly. */
+      owner.addEventListener("click", (e) => {
+        if (e.target.closest(".dd-btn") || e.target.closest(".dd-menu")) return;
+        e.preventDefault();
+        btn.click();
+      });
+    }
 
     const paint = () => {
       const opts = [...sel.options];
@@ -17595,8 +17663,16 @@ function calendarChartSymbol() {
   return live.length ? live[0].symbol : "";
 }
 
-function openCalendarMoment(dayKey, at) {
-  const symbol = calendarChartSymbol();
+function openCalendarMoment(dayKey, at, want) {
+  /* `want` is the instrument the trader picked in the calendar, when
+     the desk has more than one attached. Asked for directly: on a
+     desk with several symbols, which chart a date opens is a choice,
+     not something to be guessed from whichever expert connected
+     first. Checked against what is actually attached - a stale panel
+     can name a symbol whose expert has since gone. */
+  const asked = String(want || "").trim();
+  const attached = (liveSymbols() || []).some((a) => a.symbol === asked);
+  const symbol = asked && attached ? asked : calendarChartSymbol();
   const when = Number(at);
   if (!symbol || !Number.isFinite(when) || when <= 0) {
     toast(I18N.t("calendar.see_chart_none"));

@@ -297,7 +297,11 @@ check("the instant travelling to the chart is Gregorian, whatever the calendar s
   if (/this\.parts\(/.test(moment)) throw new Error("_chartMoment converts through the display calendar");
   /* And the number actually handed over is epoch milliseconds. */
   if (!/data-at="\$\{ms\}"/.test(CAL)) throw new Error("the button does not carry an absolute instant");
-  if (!/openCalendarMoment\(btn\.dataset\.day, Number\(btn\.dataset\.at\)\)/.test(CAL)) {
+  /* The third argument is the instrument the trader picked for this
+     date, on a desk with several attached - see cal-chart-pick. The
+     instant is what this test is about and it still travels as
+     epoch milliseconds. */
+  if (!/openCalendarMoment\(btn\.dataset\.day, Number\(btn\.dataset\.at\), symbol\)/.test(CAL)) {
     throw new Error("the click does not pass the instant through");
   }
 });

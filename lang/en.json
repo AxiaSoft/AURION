@@ -1210,6 +1210,7 @@
     "remind_off": "News reminder off.",
     "peek_hint": "Preview — click the day to keep it open",
     "see_chart": "See {symbol} on this date",
+    "chart_symbol": "Chart for",
     "see_chart_none": "No chart to open — attach AurionBridge to a chart first.",
     "see_chart_short": "Your terminal does not hold candles that far back, so the chart stopped at its oldest one.",
     "chart_not_yet": "This day has not traded yet, so there is no chart for it.",
