@@ -10689,9 +10689,14 @@ const views = {
             <div class="stx-toggle-txt"><b>${I18N.t("upd.auto")}</b></div>
             ${switchHtml({ id: "upd-auto", label: I18N.t("upd.auto") })}
           </div>
-          <label class="field"><span>${I18N.t("upd.interval")}</span>
-            <input id="upd-interval" type="number" min="1" max="168" value="6" />
-          </label>
+          <!-- The "check every N hours" box is gone. Nobody knows when
+               a release will be cut, so no number entered there could
+               be right, and every number in it was a delay between a
+               fix existing and this desk hearing about it - out of a
+               support window that starts counting at publication. The
+               cadence is fixed at half an hour now, and said plainly
+               rather than asked for. -->
+          <p class="sub">${esc(I18N.t("upd.auto_how"))}</p>
           <button class="btn block" id="upd-save" type="button">${I18N.t("upd.save")}</button>
           <p class="sub" id="upd-save-msg"></p>
         </div>
@@ -10705,6 +10710,12 @@ const views = {
                instead. -->
           <div class="upd-facts">
             <div class="kv"><span>${I18N.t("upd.current_build")}</span><b class="mono" id="upd-current">\u2014</b></div>
+            <!-- The version alone does not identify a build. Most
+                 updates now come from main without moving the version
+                 number, so two machines both reading "v1.0.0" can be
+                 weeks apart. The build stamp is the part that differs,
+                 and it is what support asks for. -->
+            <div class="kv"><span>${I18N.t("upd.build_no")}</span><b class="mono" id="upd-current-build">\u2014</b></div>
             <div class="kv"><span>${I18N.t("upd.last_check")}</span><b id="upd-last-check">${esc(I18N.t("upd.never_checked"))}</b></div>
           </div>
           <p class="upd-state"><span class="upd-chip" id="upd-chip">${esc(I18N.t("upd.checking"))}</span></p>
@@ -11940,6 +11951,62 @@ function updWhen(iso) {
 }
 
 /**
+ * The offer itself: what is available, and the button that installs it.
+ *
+ * There were two renderings of this and only one of them could act.
+ * Pressing "Check for updates" produced a card with a download button;
+ * finding the very same update already on record - which is what the
+ * automatic check leaves behind, and what every visit to this panel
+ * reads - produced a paragraph describing it and nothing to press. So
+ * the desk that found an update by itself, which is the whole point of
+ * checking automatically, was the one that made you check again by
+ * hand before it would let you install.
+ *
+ * One card now, used by both paths, so the install is offered whenever
+ * an update is known about at all.
+ */
+function updateOfferHtml(upd, res) {
+  if (!upd) return "";
+  return '<div class="card upd-offer" style="background:rgb(var(--s9))">'
+    + '<h3>' + icon("spark") + ' ' + I18N.t('upd.available')
+    + ': <span class="mono">' + esc(updateStamp(upd)) + '</span></h3>'
+    + updateSizeHtml(upd)
+    + changelogHtml(upd)
+    + fromMainHtml(res || null)
+    + '<button class="btn" id="upd-apply-btn" type="button">'
+    + icon("download") + ' ' + I18N.t('upd.download_apply') + '</button>'
+    + '<p class="sub" style="margin-top:8px;color:var(--gold)">'
+    + I18N.t('upd.replace_note') + '</p>'
+    + '</div>';
+}
+
+/** Wire whichever copy of that card is currently on screen. */
+function bindUpdateApply(upd) {
+  const applyBtn = document.getElementById('upd-apply-btn');
+  if (!applyBtn || !upd) return;
+  applyBtn.onclick = async () => {
+    const go = await askConfirm({
+      /* The stamp, not the bare version. Most updates now come from
+         main with the version number unchanged, so "install 1.0.0?"
+         on a desk already running 1.0.0 reads as a dialog that has
+         lost track of itself. updateStamp adds the build date, which
+         is the part that actually differs. */
+      title: I18N.t('upd.download_apply'),
+      body: I18N.t('upd.confirm').replace('%s', updateStamp(upd)),
+      ok: I18N.t('upd.download_apply'),
+      cancel: I18N.t('common.cancel'),
+    });
+    if (!go) return;
+    applyBtn.disabled = true;
+    /* Everything the install has to say - progress, the restart, the
+       wait for the engine - it says on its own screen, and it is the
+       thing that reloads the page when it is finished. */
+    await runUpdateInstall(upd);
+    applyBtn.disabled = false;
+  };
+}
+
+/**
  * The three facts at the top of the update card, written in one place.
  *
  * They were assembled inline at three call sites, each concatenating its
@@ -11954,6 +12021,11 @@ function paintUpdateFacts(o) {
     const v = String((o && o.version) || S.version || "").trim();
     cur.textContent = v ? (/^v/i.test(v) ? v : "v" + v) : "\u2014";
   }
+  /* Always this machine's own build, never the offered one: the row is
+     labelled "installed", and putting the update's stamp in it would
+     answer the opposite question. */
+  const curBuild = document.getElementById("upd-current-build");
+  if (curBuild) curBuild.textContent = S.buildDate ? buildTag(S.buildDate, S.buildSeq) : "\u2014";
   if (last && o && "lastCheck" in o) last.textContent = updWhen(o.lastCheck);
   if (!chip) return;
   const state = (o && o.state) || "unknown";
@@ -11985,7 +12057,6 @@ function paintUpdateFacts(o) {
 async function bindUpdatePanel(){
   const urlDisplay = document.getElementById('upd-url-display');
   const autoEl = document.getElementById('upd-auto');
-  const intervalEl = document.getElementById('upd-interval');
   const saveMsg = document.getElementById('upd-save-msg');
   const statusEl = document.getElementById('upd-status');
   const resultEl = document.getElementById('upd-result');
@@ -11996,7 +12067,6 @@ async function bindUpdatePanel(){
       if(urlDisplay) urlDisplay.textContent = r.data.update_server_url || r.data.source_url || '—';
 
       if(autoEl) paintSwitch(autoEl, !!r.data.auto_check_enabled);
-      if(intervalEl) intervalEl.value = r.data.auto_check_interval_hours || 6;
     }
     /* Asked for directly rather than waited for: the snapshot poll
        carries the support status, but somebody who opens this panel in
@@ -12024,10 +12094,11 @@ async function bindUpdatePanel(){
            screen three times over - chip, this line, and the result
            below it. The chip is the one that is always current. */
         if (st.data.update_available && st.data.latest) {
-          statusEl.innerHTML = '<div class="kv"><span>'+esc(I18N.t('upd.new_version'))+'</span><b class="mono">'+esc(updateStamp(st.data.latest))+'</b></div>'
-            + updateSizeHtml(st.data.latest)
-            + changelogHtml(st.data.latest)
-            + fromMainHtml(st.data);
+          /* The same card the manual check puts up, install button and
+             all. This is the automatic check's result being read back,
+             and it is as installable as one you asked for. */
+          statusEl.innerHTML = updateOfferHtml(st.data.latest, st.data);
+          bindUpdateApply(st.data.latest);
         } else if (st.data.unpublished && st.data.latest) {
           /* Said in full, because the alternative is what was reported:
              a desk announcing an update on a product whose owner had
@@ -12057,7 +12128,6 @@ async function bindUpdatePanel(){
   if(saveBtn) saveBtn.onclick = async () => {
     const body = {
       auto_check_enabled: autoEl ? autoEl.classList.contains('on') : false,
-      auto_check_interval_hours: Number(intervalEl.value)||6,
     };
     const r = await API.post('/api/system/update/settings', body);
     const txt = r.ok ? I18N.t('upd.saved') : (r.error||I18N.t('upd.error'));
@@ -12092,28 +12162,8 @@ async function bindUpdatePanel(){
     if(statusEl) statusEl.innerHTML = '';
     const upd = res.latest;
     if(resultEl){
-      resultEl.innerHTML = '<div class="card" style="background:rgb(var(--s9))"><h3>'+icon("spark")+' '+I18N.t('upd.available')+': <span class="mono">'+esc(updateStamp(upd))+'</span></h3>'+updateSizeHtml(upd)+changelogHtml(upd)+fromMainHtml(res)+'<button class="btn" id="upd-apply-btn" type="button">'+icon("download")+' '+I18N.t('upd.download_apply')+'</button><p class="sub" style="margin-top:8px;color:var(--gold)">'+I18N.t('upd.replace_note')+'</p></div>';
-      const applyBtn = document.getElementById('upd-apply-btn');
-      if(applyBtn) applyBtn.onclick = async () => {
-        const go = await askConfirm({
-          title: I18N.t('upd.download_apply'),
-          /* The stamp, not the bare version. Most updates now come from
-             main with the version number unchanged, so "install 1.0.0?"
-             on a desk already running 1.0.0 reads as a dialog that has
-             lost track of itself. updateStamp adds the build date, which
-             is the part that actually differs. */
-          body: I18N.t('upd.confirm').replace('%s', updateStamp(upd)),
-          ok: I18N.t('upd.download_apply'),
-          cancel: I18N.t('common.cancel'),
-        });
-        if(!go) return;
-        applyBtn.disabled = true;
-        /* Everything the install has to say - progress, the restart, the
-           wait for the engine - it says on its own screen, and it is the
-           thing that reloads the page when it is finished. */
-        await runUpdateInstall(upd);
-        applyBtn.disabled = false;
-      };
+      resultEl.innerHTML = updateOfferHtml(upd, res);
+      bindUpdateApply(upd);
     }
   };
 
@@ -19626,6 +19676,11 @@ async function enterDesk() {
      cost is nothing; when it is not, the request is made here rather
      than in front of a trader staring at an empty grid. */
   try { if (typeof Calendar !== "undefined" && Calendar.warm) Calendar.warm(); } catch (e) { /* offline is not a failure */ }
+  /* The update notice, once per launch. After the desk is painted and
+     the first poll has been and gone, so it lands on a working screen
+     rather than over a loading one - and never in a way that can stop
+     the desk from opening. */
+  try { maybeShowUpdateNotice(); } catch (e) { /* never block the desk over a notice */ }
 }
 
 function welcomeIsMobile() {
@@ -21037,9 +21092,171 @@ function applySupportState(st) {
      fetched eleven minutes ago says eleven minutes too much. */
   const live = supportLive(st) || st;
   if (live.expired) { stopSupportTicker(); showSupportLock(live); return; }
+  /* The automatic check runs on the server every half hour, so an
+     update can appear while the desk is open and the trader is looking
+     at something else. The poll is where that news arrives, and the
+     once-per-launch guard inside means this cannot nag: if the notice
+     was already shown on the way in, nothing happens here. */
+  if (live.update_available) {
+    try { maybeShowUpdateNotice(); } catch (e) { /* never break the poll */ }
+  }
   paintSupportBar(live);
   paintSupportPolicyLine();
   if (live.deadline) startSupportTicker(); else stopSupportTicker();
+}
+
+/* ---- the update notice, once per launch ---------------------------
+ *
+ * Asked for directly: when an update is published and this desk
+ * notices it, say so in front of the trader - once each time the app
+ * comes up - explain that the current build stops being supported
+ * five days later, and say WHEN.
+ *
+ * Why a modal and not the bar. The warning bar already existed, and it
+ * is dismissable, easy to read past, and absent entirely until the
+ * poll that carries the support status lands. None of that is wrong
+ * for a bar, and all of it is wrong for a deadline that ends with the
+ * desk refusing to trade. The bar stays, for the rest of the session;
+ * this is the one that cannot be walked past.
+ *
+ * Once per launch, exactly. Not once per day - a desk left running for
+ * a week would never mention it again - and not once ever, which is
+ * how a notice becomes wallpaper. sessionStorage is the right store:
+ * it is per tab and dies with the window, so closing the app and
+ * opening it is a new launch, and an ordinary page reload is not.
+ */
+
+/** Has this launch already shown the notice? */
+function updateNagShown() {
+  try { return sessionStorage.getItem("aurion.updNag") === "1"; } catch { return Boolean(S._updNag); }
+}
+function markUpdateNagShown() {
+  S._updNag = true;
+  try { sessionStorage.setItem("aurion.updNag", "1"); } catch { /* private mode */ }
+}
+
+/**
+ * The deadline sentence, which is the part the owner actually asked
+ * for: not "support ends five days after publication" but the date.
+ *
+ * Three states, because all three happen:
+ *   counting   a deadline is known - the moment, and the time left.
+ *   policy     an update is offered with no publication date, so no
+ *              deadline can be computed. The rule is stated instead;
+ *              inventing a date would be worse than not having one.
+ */
+function updateNagDeadlineHtml(st) {
+  if (st && st.deadline) {
+    return '<p class="upd-nag-dl"><b>' + esc(supportLeftText(st)) + '</b>'
+      + '<span>' + esc(I18N.t("sup.until", { date: supportMoment(st.deadline) })) + '</span></p>';
+  }
+  return '<p class="upd-nag-dl"><span>'
+    + esc(I18N.t("sup.policy", { n: fmtNum(supportGraceDays(), 0) })) + '</span></p>';
+}
+
+/**
+ * Show the notice, if there is something to show and it has not been
+ * shown yet this launch.
+ *
+ * Deliberately quiet about everything that could go wrong: a desk that
+ * cannot reach its update server, a non-owner who could not install
+ * anyway, a locked desk that is already being told something far more
+ * urgent. None of those is a case for a dialog.
+ */
+async function maybeShowUpdateNotice() {
+  if (updateNagShown()) return false;
+  /* The lock screen is its own, louder, version of this conversation.
+     Two modals about the same deadline is one too many. */
+  if (document.getElementById("sup-lock")) return false;
+  /* Nothing to install from here without the right to install it, and
+     unlike the lock screen an unknown role is a reason to stay quiet:
+     this dialog is advice, not a way out of anything, so the one that
+     appears before the profile has loaded is better not shown. The
+     update state endpoint is owner-only anyway and would 403. */
+  if (!(S.user && (S.user.is_owner || S.user.role === "owner" || S.user.role === "admin"))) return false;
+
+  let latest = null;
+  let state = null;
+  try {
+    const st = await API.get("/api/system/update/state");
+    if (!st || !st.ok || !st.data || !st.data.update_available || !st.data.latest) return false;
+    latest = st.data.latest;
+    state = st.data;
+  } catch { return false; }
+
+  const sup = supportLive(null);
+  markUpdateNagShown();
+
+  let host = document.getElementById("upd-nag");
+  if (!host) {
+    host = document.createElement("div");
+    host.id = "upd-nag";
+    host.className = "modal upd-nag";
+    document.body.appendChild(host);
+  }
+  host.innerHTML = `
+    <div class="modal-card upd-nag-card" role="alertdialog" aria-modal="true" aria-labelledby="upd-nag-title">
+      <div class="upd-nag-mark" aria-hidden="true">${icon("spark")}</div>
+      <h3 id="upd-nag-title">${esc(I18N.t("upd.nag_title"))}</h3>
+      <p class="modal-body">${esc(I18N.t("upd.nag_body"))}</p>
+      <dl class="upd-nag-facts">
+        <div><dt>${esc(I18N.t("upd.nag_installed"))}</dt>
+             <dd><bdi class="mono">${esc(buildTag(S.buildDate, S.buildSeq))}</bdi></dd></div>
+        <div><dt>${esc(I18N.t("upd.nag_offered"))}</dt>
+             <dd><bdi class="mono">${esc(updateStamp(latest))}</bdi></dd></div>
+      </dl>
+      ${updateNagDeadlineHtml(sup)}
+      <p class="upd-nag-warn">${icon("hourglass")} ${esc(I18N.t("upd.nag_warn", { n: fmtNum(supportGraceDays(), 0) }))}</p>
+      <div class="modal-actions">
+        <button type="button" class="btn ghost" id="upd-nag-later">${esc(I18N.t("upd.nag_later"))}</button>
+        <button type="button" class="btn" id="upd-nag-go">${icon("download")} ${esc(I18N.t("upd.nag_now"))}</button>
+      </div>
+    </div>`;
+  host.hidden = false;
+  host.classList.add("open");
+  document.body.classList.add("modal-open");
+
+  const close = () => {
+    host.hidden = true;
+    host.classList.remove("open");
+    document.body.classList.remove("modal-open");
+    host.innerHTML = "";
+    document.removeEventListener("keydown", onKey, true);
+  };
+  const onKey = (e) => {
+    if (e.key !== "Escape") return;
+    e.preventDefault(); e.stopPropagation();
+    close();
+  };
+  document.addEventListener("keydown", onKey, true);
+  host.onclick = (e) => { if (e.target === host) close(); };
+
+  const later = document.getElementById("upd-nag-later");
+  if (later) later.onclick = close;
+  const go = document.getElementById("upd-nag-go");
+  if (go) go.onclick = async () => {
+    /* Straight into the install, with the same confirmation the panel
+       asks. Sending the reader to the settings page to find the button
+       themselves is how a call to action becomes a chore. */
+    close();
+    const ok = await askConfirm({
+      title: I18N.t("upd.download_apply"),
+      body: I18N.t("upd.confirm").replace("%s", updateStamp(latest)),
+      ok: I18N.t("upd.download_apply"),
+      cancel: I18N.t("common.cancel"),
+    });
+    if (!ok) {
+      /* Changed their mind at the confirmation, not at the notice.
+         Leave them on the panel, where the offer and its install
+         button are both waiting. */
+      show("settings");
+      setTimeout(() => showSetTab("set-update"), 60);
+      return;
+    }
+    await runUpdateInstall(latest);
+  };
+  void state;
+  return true;
 }
 
 function paintSupportBar(st) {

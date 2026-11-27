@@ -6793,6 +6793,57 @@ input[type="search"]::-webkit-search-results-decoration{
 }
 .sup-bar-x:hover{color:var(--ink)}
 .sup-bar-x svg{width:14px;height:14px}
+
+/* ------------------------------------------------------------------
+   The update notice
+   ------------------------------------------------------------------
+   Shown once per launch when a newer build exists. It reuses the
+   modal shell - same backdrop, same dismissal, same stacking - and
+   only adds the two fingerprints and the deadline, because what makes
+   this dialog worth interrupting for is the date, not the prose.
+   ------------------------------------------------------------------ */
+.upd-nag-card{max-inline-size:440px;text-align:center}
+.upd-nag-mark{
+  inline-size:46px;block-size:46px;margin:0 auto 12px;
+  display:grid;place-items:center;border-radius:50%;
+  background:rgb(var(--accent-rgb) / .14);color:rgb(var(--accent-rgb));
+}
+.upd-nag-mark svg{width:22px;height:22px}
+.upd-nag-card .modal-body{text-align:center;opacity:.78}
+/* The same slab as the lock screen's, so the two screens that discuss
+   this deadline present the same facts the same way. */
+.upd-nag-facts{
+  margin:14px 0;display:grid;gap:1px;
+  background:rgba(232,236,244,.1);border:1px solid rgba(232,236,244,.12);
+  border-radius:12px;overflow:hidden;text-align:start;
+}
+.upd-nag-facts > div{
+  display:flex;align-items:center;justify-content:space-between;gap:12px;
+  padding-block:9px;padding-inline:12px;background:#0a0c12;
+}
+.upd-nag-facts dt{margin:0;font-size:12px;opacity:.62}
+.upd-nag-facts dd{margin:0;font-size:12.5px}
+/* The deadline, given the weight of the thing it is: the one line in
+   the dialog that states when this build stops working. */
+.upd-nag-dl{
+  margin:0 0 10px;display:grid;gap:2px;
+  padding:10px;border-radius:12px;
+  background:rgb(var(--accent-rgb) / .08);
+  border:1px solid rgb(var(--accent-rgb) / .22);
+}
+.upd-nag-dl b{font-size:14px;color:var(--gold)}
+.upd-nag-dl span{font-size:12px;opacity:.75}
+.upd-nag-warn{
+  display:flex;align-items:flex-start;gap:7px;
+  margin:0 0 16px;font-size:12px;opacity:.72;text-align:start;
+}
+.upd-nag-warn svg{width:15px;height:15px;flex:none;margin-block-start:1px}
+.upd-nag-card .modal-actions{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+.upd-nag-card .modal-actions .btn{min-block-size:44px}
+/* The build stamp sits under the version it belongs to and must not
+   wrap mid-identifier: it is read back to support as one token. */
+.upd-facts .mono{white-space:nowrap}
+
 /* The last day is not a suggestion. */
 .sup-bar.is-urgent{border-color:var(--gold)}
 .sup-bar.is-urgent .sup-bar-txt b{color:var(--gold)}

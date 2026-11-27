@@ -43,6 +43,9 @@ const UPD = require("../backend/src/updater.js");
 const UPDSRC = read("backend/src/updater.js");
 const APP = read("apps/web/js/app.js");
 const CSS = read("apps/web/css/app.css");
+const PACKS = Object.fromEntries(
+  ["en", "fa", "ar"].map((c) => [c, JSON.parse(read("lang/" + c + ".json"))])
+);
 
 const results = [];
 const check = (name, ok, note) => {
@@ -51,86 +54,91 @@ const check = (name, ok, note) => {
 };
 
 const HOUR = 3600 * 1000;
-const WINDOW = 6 * HOUR;
 const NOW = Date.parse("2031-03-04T12:00:00Z");
 
 /* ------------------------------------------------------------------ */
-console.log("=== the check happens inside the window, not at the end of it ===");
+console.log("=== the check is frequent, fixed, and not a setting ===");
 
-{
-  /* The fraction is injected so this can be read as arithmetic rather
-     than as a coin toss: 0 is the earliest placement the rule allows
-     and 1 the latest. Both must be strictly inside the window. */
-  const earliest = UPD.nextCheckDelayMs(WINDOW, NOW, NOW, 0);
-  const latest = UPD.nextCheckDelayMs(WINDOW, NOW, NOW, 1);
-  check(
-    "the earliest placement is inside the window",
-    earliest > 0 && earliest < WINDOW,
-    `${(earliest / HOUR).toFixed(2)}h of 6h`
-  );
-  check(
-    "and so is the latest",
-    latest > earliest && latest < WINDOW,
-    `${(latest / HOUR).toFixed(2)}h of 6h - never the full six`
-  );
-  check(
-    "no window can pass without a check",
-    latest <= WINDOW * 0.9,
-    "which is the only promise the setting makes"
-  );
-  check(
-    "and a check is never immediate either",
-    earliest >= WINDOW * 0.5,
-    "a restart must not mean a check; the interval is still a budget"
-  );
-}
+/* The interval setting is gone, and so is autoCheckWindowMs. The owner
+   asked for it to be removed, and the reason stands on its own: nobody
+   knows when a release will be cut, so no number entered in that box
+   could be right, and every number in it was a delay between a fix
+   existing and this desk hearing about it -- out of a five-day support
+   window that starts counting at PUBLICATION, not at discovery. A desk
+   checking twice a day could spend a sixth of its grace period simply
+   not knowing. The cadence is now half an hour, fixed. */
 
-{
-  /* Ten placements drawn for real. The point is not the distribution,
-     it is that nothing escapes the window. */
-  let worstLow = Infinity;
-  let worstHigh = 0;
-  for (let i = 0; i < 200; i++) {
-    const d = UPD.nextCheckDelayMs(WINDOW, NOW, NOW);
-    worstLow = Math.min(worstLow, d);
-    worstHigh = Math.max(worstHigh, d);
-  }
-  check(
-    "two hundred unseeded draws all land inside the window",
-    worstLow > 0 && worstHigh < WINDOW,
-    `${(worstLow / HOUR).toFixed(2)}h..${(worstHigh / HOUR).toFixed(2)}h`
-  );
-}
+const FIRST = UPD.AUTO_CHECK_FIRST_MS;
+const WINDOW = UPD.AUTO_CHECK_WINDOW_MS;
 
 check(
-  "the window is measured from the last check, not from startup",
-  UPD.nextCheckDelayMs(WINDOW, NOW - 3 * HOUR, NOW, 1) < UPD.nextCheckDelayMs(WINDOW, NOW, NOW, 1),
-  "three hours into the window leaves less of it, however many times the desk was restarted"
+  "the interval setting is gone from the scheduler",
+  typeof UPD.autoCheckWindowMs === "undefined"
+    && !/auto_check_interval_hours/.test(UPDSRC.replace(/\/\*[\s\S]*?\*\//g, "")),
+  "a setting that is still read is still a setting"
 );
 check(
-  "a desk that was switched off for a week checks promptly, not a window later",
-  UPD.nextCheckDelayMs(WINDOW, NOW - 7 * 24 * HOUR, NOW, 1) === 30 * 1000,
-  "overdue is overdue"
+  "the cadence is frequent enough to be worth calling automatic",
+  WINDOW > 0 && WINDOW <= 60 * 60 * 1000,
+  `${WINDOW / 60000} minutes`
 );
 check(
-  "but never in the first seconds of a boot",
-  UPD.nextCheckDelayMs(WINDOW, NOW - 7 * 24 * HOUR, NOW, 0) >= 30 * 1000,
+  "and not so frequent it could spend the hourly API ceiling",
+  // GitHub allows 60 requests an hour per IP and a check costs at most
+  // three; anything at or above a minute apart is far inside it.
+  (60 * 60 * 1000) / WINDOW * 3 < 60,
+  `${Math.round((60 * 60 * 1000) / WINDOW * 3)} requests an hour at worst, against 60`
+);
+check(
+  "a desk that has never checked goes soon after boot",
+  UPD.nextCheckDelayMs(NaN, NOW) === FIRST,
+  "a release published while this machine was switched off is found on the way up"
+);
+check(
+  "but never in the first seconds of one",
+  FIRST >= 10 * 1000,
   "the engine is still coming up and the trader is waiting for it, not for this"
 );
 check(
-  "an installation that has never checked gets its first check inside the first window",
-  (() => {
-    const d = UPD.nextCheckDelayMs(WINDOW, NaN, NOW, 0.5);
-    return d > 0 && d < WINDOW;
-  })(),
-  "a missing last_check is a window that starts now, not a reason to check instantly"
+  "a desk switched off for a week checks promptly, not a window later",
+  UPD.nextCheckDelayMs(NOW - 7 * 24 * HOUR, NOW) === FIRST,
+  "overdue is overdue"
 );
 check(
-  "the interval is clamped the same way the route clamps it",
-  UPD.autoCheckWindowMs({ auto_check_interval_hours: 0 }) === 6 * HOUR
-    && UPD.autoCheckWindowMs({ auto_check_interval_hours: 9999 }) === 168 * HOUR
-    && UPD.autoCheckWindowMs({ auto_check_interval_hours: 12 }) === 12 * HOUR,
-  "one clamp disagreeing with the other is a setting that silently does something else"
+  "the window is measured from the last check, not from startup",
+  UPD.nextCheckDelayMs(NOW - 20 * 60 * 1000, NOW) < UPD.nextCheckDelayMs(NOW, NOW),
+  "twenty minutes into the window leaves less of it, however many times the desk was restarted"
+);
+check(
+  "a check that just happened waits the whole window",
+  UPD.nextCheckDelayMs(NOW, NOW) === WINDOW,
+  "and no restart can shorten it, which is what stops a restart loop hammering the API"
+);
+check(
+  "no window can pass without a check",
+  UPD.nextCheckDelayMs(NOW, NOW) <= WINDOW,
+  "which is the only promise the cadence makes"
+);
+check(
+  "the delay is pure arithmetic, with no randomness left in it",
+  (() => {
+    const a = UPD.nextCheckDelayMs(NOW - 5 * 60 * 1000, NOW);
+    for (let i = 0; i < 50; i++) {
+      if (UPD.nextCheckDelayMs(NOW - 5 * 60 * 1000, NOW) !== a) return false;
+    }
+    return true;
+  })(),
+  "the jitter existed to spread a six-hour window; half an hour does not need it"
+);
+check(
+  "the panel no longer asks for an interval it cannot use",
+  !/upd-interval/.test(APP) && !/auto_check_interval_hours/.test(APP),
+  "a field that is saved and ignored is worse than no field"
+);
+check(
+  "and says what the cadence is instead of asking for one",
+  /upd\.auto_how/.test(APP),
+  "removing the box without replacing it leaves the reader guessing"
 );
 
 check(
@@ -158,6 +166,160 @@ check(
 check(
   "a pending check never holds the process open",
   /autoCheckTimer\.unref === "function"\) autoCheckTimer\.unref\(\)/.test(UPDSRC)
+);
+
+/* ------------------------------------------------------------------ */
+console.log("\n=== the notice, once per launch ===");
+
+/* Asked for: when an update is published and the desk notices it, put
+   a modal in front of the trader encouraging the update, warn that
+   this build stops being supported five days later, say WHEN, and
+   show it once every time the app comes up. */
+
+check(
+  "there is a notice, and it is a modal rather than another bar",
+  /async function maybeShowUpdateNotice\(\)/.test(APP)
+    && /role="alertdialog" aria-modal="true"/.test(APP.slice(APP.indexOf("maybeShowUpdateNotice"))),
+  "the warning bar already existed and is dismissable past; a deadline that locks the desk is not"
+);
+check(
+  "it is shown once per launch, not once per render",
+  (() => {
+    if (!/sessionStorage\.getItem\("aurion\.updNag"\)/.test(APP)) return false;
+    if (!/sessionStorage\.setItem\("aurion\.updNag", "1"\)/.test(APP)) return false;
+    // And the guard is actually consulted on the way in. A store that
+    // is written and never read shows the dialog on every poll.
+    const fn = APP.slice(APP.indexOf("async function maybeShowUpdateNotice"),
+                         APP.indexOf("function paintSupportBar"));
+    return /if \(updateNagShown\(\)\) return false;/.test(fn);
+  })(),
+  "sessionStorage dies with the window, so closing and reopening the app is a new launch"
+);
+check(
+  "and the flag is set before the dialog is built, not after it is answered",
+  (() => {
+    const fn = APP.slice(APP.indexOf("async function maybeShowUpdateNotice"));
+    const body = fn.slice(0, fn.indexOf("\nfunction paintSupportBar"));
+    const mark = body.indexOf("markUpdateNagShown()");
+    const paint = body.indexOf("host.innerHTML");
+    // Both must be there. A missing call makes indexOf -1, which would
+    // otherwise satisfy "before" and let the guard be deleted.
+    return mark > 0 && paint > 0 && mark < paint;
+  })(),
+  "setting it on dismissal means two polls landing together show it twice"
+);
+check(
+  "a desk with no update to install is not interrupted",
+  /!st\.data\.update_available \|\| !st\.data\.latest\) return false/.test(APP),
+  "a modal on every launch regardless is how a notice becomes wallpaper"
+);
+check(
+  "nor is one that is already being told something louder",
+  /document\.getElementById\("sup-lock"\)\) return false/.test(APP),
+  "two modals about the same deadline is one too many"
+);
+check(
+  "nor somebody who could not install it anyway",
+  /S\.user\.is_owner \|\| S\.user\.role === "owner"/.test(
+    APP.slice(APP.indexOf("async function maybeShowUpdateNotice"), APP.indexOf("function paintSupportBar"))),
+  "a call to action that answers 403 is worse than silence"
+);
+check(
+  "it states the deadline, not merely the rule",
+  /function updateNagDeadlineHtml\(st\)/.test(APP)
+    && /supportMoment\(st\.deadline\)/.test(APP)
+    && /supportLeftText\(st\)/.test(APP),
+  "the one thing asked for was WHEN this desk stops working"
+);
+check(
+  "and falls back to the rule rather than inventing a date",
+  /sup\.policy", \{ n: fmtNum\(supportGraceDays\(\), 0\) \}/.test(
+    APP.slice(APP.indexOf("function updateNagDeadlineHtml"), APP.indexOf("async function maybeShowUpdateNotice"))),
+  "an offer with no publication date cannot be timed, and a guessed deadline is worse than none"
+);
+check(
+  "the warning says what happens when the clock runs out",
+  /upd\.nag_warn/.test(APP) && PACKS.en.upd.nag_warn.length > 40
+    && /\{n\}/.test(PACKS.en.upd.nag_warn),
+  "the grace period is interpolated from the server's own number, not written into the sentence"
+);
+check(
+  "it shows both builds, so the reader can see they differ",
+  (() => {
+    const fn = APP.slice(APP.indexOf("async function maybeShowUpdateNotice"), APP.indexOf("function paintSupportBar"));
+    return /buildTag\(S\.buildDate, S\.buildSeq\)/.test(fn) && /updateStamp\(latest\)/.test(fn);
+  })(),
+  "most updates come from main without moving the version, so the version alone shows nothing"
+);
+check(
+  "its action installs rather than sending the reader to go and find the button",
+  /runUpdateInstall\(latest\)/.test(APP),
+  "a call to action that ends on a settings page is a chore"
+);
+check(
+  "it can be dismissed, by button, by Escape and by the backdrop",
+  (() => {
+    const fn = APP.slice(APP.indexOf("async function maybeShowUpdateNotice"), APP.indexOf("function paintSupportBar"));
+    return /upd-nag-later/.test(fn) && /e\.key !== "Escape"/.test(fn) && /e\.target === host/.test(fn);
+  })(),
+  "a dialog with no way out is a lock screen, and this is advice"
+);
+check(
+  "it is raised when the desk opens, and again if an update appears mid-session",
+  (() => {
+    const n = APP.split("maybeShowUpdateNotice()").length - 1;
+    return n >= 2 && /live\.update_available\) \{[\s\S]{0,160}maybeShowUpdateNotice\(\)/.test(APP);
+  })(),
+  "the server checks every half hour, so the news can arrive while the desk is already open"
+);
+check(
+  "and never at the cost of the desk starting",
+  /try \{ maybeShowUpdateNotice\(\); \} catch \(e\) \{/.test(APP),
+  "a notice that can throw during boot is a desk that does not open"
+);
+check(
+  "the notice is translated in all three languages",
+  ["en", "fa", "ar"].every((c) => ["nag_title", "nag_body", "nag_warn", "nag_later",
+    "nag_now", "nag_installed", "nag_offered", "auto_how", "build_no"]
+    .every((k) => typeof PACKS[c].upd[k] === "string" && PACKS[c].upd[k].length > 1)),
+  "9 keys x 3 languages"
+);
+check(
+  "and the interval string went with the field",
+  ["en", "fa", "ar"].every((c) => PACKS[c].upd.interval === undefined),
+  "a key for a control that no longer exists"
+);
+check(
+  "it is styled, and its facts read the same way the lock screen's do",
+  /\.upd-nag-card\{/.test(CSS) && /\.upd-nag-facts\{/.test(CSS) && /\.upd-nag-dl\{/.test(CSS),
+  "the two screens that discuss this deadline should present it alike"
+);
+
+/* ------------------------------------------------------------------ */
+console.log("\n=== the build number, beside the version ===");
+
+check(
+  "the panel has a row for it",
+  /id="upd-current-build"/.test(APP) && /upd\.build_no/.test(APP),
+  'two machines both reading "v1.0.0" can be weeks apart'
+);
+check(
+  "filled with this machine's build, not the offered one",
+  /curBuild\.textContent = S\.buildDate \? buildTag\(S\.buildDate, S\.buildSeq\)/.test(APP),
+  "the row is labelled installed; the update's stamp would answer the opposite question"
+);
+check(
+  "and it is painted by the same function that paints the version",
+  (() => {
+    const i = APP.indexOf("function paintUpdateFacts(o)");
+    return APP.slice(i, i + 1400).includes("upd-current-build");
+  })(),
+  "a second call site is how the first one came to read a dash"
+);
+check(
+  "the stamp does not wrap mid-identifier",
+  /\.upd-facts \.mono\{white-space:nowrap\}/.test(CSS),
+  "it is read back to support as one token"
 );
 
 /* ------------------------------------------------------------------ */

@@ -1293,11 +1293,10 @@ guarded.post("/system/update/settings", (req, res) => {
   const patch = {};
   // update_server_url is source-defined in config/aurion.json, not editable from dashboard
   if (body.auto_check_enabled !== undefined) patch.auto_check_enabled = !!body.auto_check_enabled;
-  if (body.auto_check_interval_hours !== undefined) {
-    const h = Number(body.auto_check_interval_hours);
-    if (isNaN(h) || h < 1 || h > 168) return res.status(400).json({ ok:false, error:"invalid_interval" });
-    patch.auto_check_interval_hours = h;
-  }
+  /* auto_check_interval_hours is gone. The cadence is fixed at half
+     an hour and is not a setting any more - see updater.js for why.
+     An older desk sending the field is not an error; it is accepted
+     and ignored, so a stale cached page cannot start failing saves. */
   /* No GitHub token is accepted here, by design.
      
      The panel used to offer one to raise the hourly ceiling. It is not
@@ -1309,7 +1308,7 @@ guarded.post("/system/update/settings", (req, res) => {
      read from now are the environment and the operator's own config,
      neither of which the dashboard can write. */
   const saved = updater.saveSettings(patch);
-  if (patch.auto_check_enabled !== undefined || patch.auto_check_interval_hours !== undefined) {
+  if (patch.auto_check_enabled !== undefined) {
     updater.stopAutoChecker();
     updater.startAutoChecker();
   }

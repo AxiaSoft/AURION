@@ -1068,7 +1068,7 @@
        is invented here: left out, the desk falls back to the one it
        already booted with. */
     if (p === "/api/system/update/settings") {
-      return { ok: true, data: { auto_check_enabled: true, auto_check_interval_hours: 6 } };
+      return { ok: true, data: { auto_check_enabled: true } };
     }
     if (p === "/api/system/update/state") {
       return { ok: true, data: {
