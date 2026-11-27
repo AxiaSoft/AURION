@@ -496,16 +496,14 @@ check("the three ticket fields step by what they display", () => {
     const at = ticket.indexOf('id="' + id + '"');
     if (at < 0) throw new Error(id + " is gone");
     const tag = ticket.slice(at, at + 200);
-    if (/step="0\.000/.test(tag)) {
-      throw new Error(id + " steps finer than it shows, so the arrow keys move digits it hides");
-    }
     /* pStep, not PRICE_STEP. The step was a single desk-wide constant
        when every price was written to two decimals; it is now this
-       instrument's, because EURUSD's fields step by 0.0001 and
-       gold's by 0.01. Still derived from the displayed count, which
-       is what this check is actually for - a field that steps finer
-       than it shows leaves the arrow keys moving nothing visible. */
-    if (!/step="\$\{pStep\}"/.test(tag)) throw new Error(id + " does not take its step from priceDp");
+       instrument's, taken from the BROKER'S digit count rather than
+       from the displayed one. A `step` is the grid the arrow keys and
+       the on-screen plus/minus snap onto, and a grid rounder than the
+       broker's tick is what put a 1.0936 stop onto its own entry
+       price and closed the trade the moment it opened. */
+    if (!/step="\$\{pStep\}"/.test(tag)) throw new Error(id + " does not take its step from the instrument");
     if (!/priceField\([^)]*,\s*sym\)/.test(tag)) {
       throw new Error(id + " renders the value without naming its instrument");
     }
@@ -519,13 +517,19 @@ check("a price going into a field is not localised", () => {
      the field empty - so the writer path has its own helper. */
   const fn = liftFn(APP, "priceField");
   if (/toLocaleString|I18N/.test(fn)) throw new Error("priceField localises: " + fn.replace(/\s+/g, " "));
-  /* priceDp(symbol), not the flat PRICE_DP it used to take: the count
-     is per instrument now, two to four. The stub below stands in for
-     the lookup so this check stays about localisation and rounding,
-     which is what it is for - the count itself is measured in
+  /* tradeDp(symbol), not priceDp and certainly not the flat PRICE_DP
+     it started as. priceDp is the READING count and is capped at four
+     so a column of prices can be scanned; this value becomes an order,
+     and that cap was dropping the fifth digit of every five-digit
+     quote on its way into the ticket. Reported as "on the symbols with
+     smaller prices AURION rounds the numbers and the trade opens and
+     closes straight away". The stub below stands in for the lookup so
+     this check stays about localisation and rounding, which is what it
+     is for - the count itself is measured in
      tests/price-precision.test.js. */
-  if (!/toFixed\(priceDp\(/.test(fn)) throw new Error("priceField does not ask for the symbol's precision");
-  const ctx = { Number, Math, priceDp: () => 2 };
+  if (!/toFixed\(tradeDp\(/.test(fn)) throw new Error("priceField does not ask for the symbol's precision");
+  if (/priceDp\(/.test(fn)) throw new Error("priceField still rounds through the display ceiling");
+  const ctx = { Number, Math, tradeDp: () => 2 };
   const run = (v) => new (require("vm").Script)(fn + ";priceField(" + JSON.stringify(v) + ");")
     .runInNewContext({ ...ctx });
   if (run(1.084513) !== "1.08") throw new Error("got " + run(1.084513));
