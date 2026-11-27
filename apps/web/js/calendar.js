@@ -32,6 +32,11 @@ const Calendar = {
   source: "",
   blackout: { before: 15, after: 15 },
   selected: null, // "YYYY-MM-DD"
+  /* Which attached instrument a date opens on the chart, when the desk
+     has more than one. Empty means "whatever the desk is showing" -
+     see calendarChartSymbol. Remembered across days, because a trader
+     reads one instrument through a month. */
+  chartSymbol: "",
   session: null, // market session from GET /api/market/session
   tip: null,
 
@@ -641,8 +646,34 @@ const Calendar = {
     const ahead = ms > now;
     if (ahead) ms = now;
 
-    const sym = calendarChartSymbol();
-    return `<button type="button" class="btn ghost small cal-chart-go" data-day="${esc(key)}" data-at="${ms}">
+    /* WHICH instrument's chart, when there is more than one.
+     *
+     * Asked for in these words: "in the calendar, let me choose the
+     * symbol whose chart I want to see for that date, when several
+     * symbols are attached to the desk."
+     *
+     * It used to pick for the trader - the focused chart, or the
+     * selected symbol, or simply the first expert that happened to
+     * connect - and on a desk with four instruments attached that is
+     * a guess about the one question the person is asking. The
+     * picker is only rendered when there IS a choice: one attached
+     * symbol is not a decision, and a dropdown offering a single
+     * option is furniture. */
+    const live = (typeof liveSymbols === "function" ? liveSymbols() : []) || [];
+    const sym = this.chartSymbol && live.some((a) => a.symbol === this.chartSymbol)
+      ? this.chartSymbol
+      : calendarChartSymbol();
+    const picker = live.length > 1
+      ? `<label class="field cal-chart-sym">
+          <span>${esc(I18N.t("calendar.chart_symbol"))}</span>
+          <select class="ctrl cal-chart-pick" aria-label="${esc(I18N.t("calendar.chart_symbol"))}">${
+            live.map((a) =>
+              `<option value="${esc(a.symbol)}"${a.symbol === sym ? " selected" : ""}>${esc(a.label || a.symbol)}</option>`
+            ).join("")
+          }</select>
+        </label>`
+      : "";
+    return `${picker}<button type="button" class="btn ghost small cal-chart-go" data-day="${esc(key)}" data-at="${ms}" data-sym="${esc(sym)}">
       ${esc(I18N.t("calendar.see_chart", { symbol: sym }))}
     </button>` +
       (ahead ? `<p class="cal-dp-wait">${esc(I18N.t("calendar.chart_up_to_now"))}</p>` : "");
@@ -1085,10 +1116,34 @@ const Calendar = {
       e.preventDefault();
       e.stopPropagation();
       if (typeof openCalendarMoment === "function") {
-        openCalendarMoment(btn.dataset.day, Number(btn.dataset.at));
+        /* The symbol the trader picked for this date, when the desk
+           has more than one attached. Read off the panel at the
+           moment of the press rather than from the render, so a
+           choice made and then changed is honoured. */
+        const pick = btn.parentElement
+          && btn.parentElement.querySelector(".cal-chart-pick");
+        const symbol = (pick && pick.value) || btn.dataset.sym || "";
+        openCalendarMoment(btn.dataset.day, Number(btn.dataset.at), symbol);
       }
     };
     day?.addEventListener("click", goChart);
+
+    /* Picking an instrument re-renders the offer, so the button names
+       the chart it will actually open. The choice is remembered for
+       the next day the trader looks at - they are reading one
+       instrument through a month, not choosing again each time. */
+    const pickChart = (e) => {
+      const pick = e.target.closest && e.target.closest(".cal-chart-pick");
+      if (!pick) return;
+      this.chartSymbol = String(pick.value || "");
+      const host = pick.closest(".cal-day") || pick.parentElement?.parentElement;
+      const btn = host && host.querySelector(".cal-chart-go");
+      if (btn) {
+        btn.dataset.sym = this.chartSymbol;
+        btn.textContent = I18N.t("calendar.see_chart", { symbol: this.chartSymbol });
+      }
+    };
+    day?.addEventListener("change", pickChart);
 
     const select = (key) => {
       if (!key) return;
@@ -1257,6 +1312,13 @@ const Calendar = {
         if (live && popCell) placePop(live, popCell);
       });
       node.addEventListener("click", goChart);
+      /* The same instrument picker as the card beside the month - the
+         popover draws the same panel, so it gets the same handler. */
+      node.addEventListener("change", pickChart);
+      /* ...and the same dropdown treatment, so a <select> inside a
+         popover parented to <body> is the desk's own control rather
+         than the system's list. See enhanceSelects. */
+      try { if (typeof enhanceSelects === "function") enhanceSelects(node); } catch (_) { /* */ }
       /* The popover is appended to document.body, not to the grid, so
          this click cannot reach the day-select handler on #cal-pane -
          the cross cannot choose a day by accident today.

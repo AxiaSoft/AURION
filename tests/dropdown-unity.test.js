@@ -327,5 +327,57 @@ console.log("\n-- no native list anywhere ------------------------------");
     "...and cannot be clicked, which is what opened the system list");
 }
 
+console.log("\n-- a label must not open the system list ----------------");
+
+/* Reported again, after hiding the native control was not enough:
+   "a second drawer still opens when I click AROUND a drawer; clicking
+   the drawer itself opens AURION's own one."
+
+   Nearly every dropdown on this desk sits inside
+   <label class="field"><span>caption</span><select></label>, and
+   clicking a label ACTIVATES the control it labels - which goes
+   straight past pointer-events, opacity and a 1px box, because it is
+   not a click on the select at all. */
+{
+  const fn = appJs.slice(appJs.indexOf("function enhanceSelects("));
+  const body = fn.slice(0, fn.indexOf("\n}\n"));
+  ok(/sel\.addEventListener\("click", swallow\)/.test(body)
+    && /sel\.addEventListener\("mousedown", swallow\)/.test(body),
+    "the native control refuses to be activated");
+  ok(/e\.preventDefault\(\); e\.stopPropagation\(\);/.test(body),
+    "...by cancelling the activation rather than hoping it is unreachable");
+  ok(/sel\.addEventListener\("keydown", swallow\)/.test(body),
+    "...including from the keyboard");
+  ok(/owner\.htmlFor = btn\.id/.test(body),
+    "whatever labelled the select now labels the desk's own button");
+  ok(/sel\.closest\("label"\)/.test(body),
+    "...and a label wrapping its control is found too, not only label[for]");
+  ok(/btn\.click\(\)/.test(body),
+    "clicking a field's caption opens the desk's dropdown");
+}
+
+console.log("\n-- the calendar says which chart ------------------------");
+
+/* "In the calendar, let me choose the symbol whose chart I want to
+   see for that date, when several symbols are attached." */
+{
+  const calJs = read("apps/web/js/calendar.js");
+  ok(/cal-chart-pick/.test(calJs), "the day panel offers an instrument picker");
+  ok(/live\.length > 1/.test(calJs),
+    "...only when there is a choice to make - one symbol is not a decision");
+  ok(/openCalendarMoment\(btn\.dataset\.day, Number\(btn\.dataset\.at\), symbol\)/.test(calJs),
+    "...and the chosen instrument is what is opened");
+  ok(/chartSymbol/.test(calJs), "the choice is remembered across days");
+  const open = appJs.slice(appJs.indexOf("function openCalendarMoment("));
+  ok(/function openCalendarMoment\(dayKey, at, want\)/.test(open),
+    "the jump takes a symbol rather than guessing one");
+  ok(/liveSymbols\(\) \|\| \[\]\)\.some/.test(open.slice(0, 900)),
+    "...checked against what is actually attached");
+  for (const pack of ["lang/en.json", "lang/fa.json", "lang/ar.json"]) {
+    ok(Boolean(JSON.parse(read(pack)).calendar.chart_symbol),
+      `${pack} names the picker`);
+  }
+}
+
 console.log(failed ? `\n${failed} check(s) failed` : "\nall checks passed");
 process.exit(failed ? 1 : 0);
