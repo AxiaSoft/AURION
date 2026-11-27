@@ -358,7 +358,39 @@ html[dir="rtl"] .field span,html[dir="rtl"] .field > label{letter-spacing:0}
    them - see the .sympick section. Two separate style blocks are how
    the two controls drifted into visibly different dropdowns sitting on
    the same toolbar. What is left here is structure. */
-.dd-wrap{position:relative;flex:1 1 148px;min-width:0;max-width:100%}
+/* The wrapper is exactly its button, in both directions.
+ *
+ * This used to read `flex:1 1 148px`, and 148px is a WIDTH - it was
+ * written when every dropdown lived in a horizontal toolbar. A
+ * flex-basis is measured along the CONTAINER'S main axis, though, and
+ * most of the desk's dropdowns do not live in a row: `.field` is
+ * `flex-direction:column`, and so are `.cal-chart-row` and `.snd-text`.
+ * In those the same declaration silently meant "148px TALL", around a
+ * button about 36px high.
+ *
+ * That one line is the empty space under the drawers, the buttons sitting
+ * far below the control they belong to, the calendar's news list losing
+ * its height to a gap, and a good share of the scrolling in the backtest
+ * panel - around 110 dead pixels per dropdown, in eleven places.
+ *
+ * With a basis of `auto` the axis stops being guessed: the size comes
+ * from the control itself, which is the right answer in both
+ * directions - as tall as its button, as wide as its field - and
+ * `flex-grow:1` still makes it take the slack of a row, which is what
+ * the 148px was really there for. No floor is restated, because a
+ * minimum width that suits one toolbar is the thing that makes the next
+ * one overflow on a phone; a dropdown that needs a particular width
+ * asks for it where it lives (see .mk-pick). */
+.dd-wrap{
+  position:relative;
+  display:flex;flex-direction:column;
+  flex:1 1 auto;
+  min-inline-size:0;min-width:0;max-inline-size:100%;
+}
+/* And if a container ever does stretch the wrapper, the button stretches
+   with it rather than leaving a hole underneath - which is the shape the
+   fault above took, and is worth making structurally impossible. */
+.dd-wrap > .dd-btn{inline-size:100%;block-size:100%}
 .dd-native{
   position:absolute !important;opacity:0 !important;pointer-events:none !important;
   width:1px !important;height:1px !important;padding:0 !important;margin:0 !important;
