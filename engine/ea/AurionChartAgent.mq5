@@ -7,9 +7,9 @@
 //| socket protocol — one compiled expert, many charts.              |
 //+------------------------------------------------------------------+
 #property copyright "AURION"
-#define AURION_EA_VERSION "1.31"
-#property version   "1.31"
-#property description "Use AurionBridge.mq5 1.31 — set InpEaName = AurionChartAgent"
+#define AURION_EA_VERSION "1.32"
+#property version   "1.32"
+#property description "Use AurionBridge.mq5 1.32 — set InpEaName = AurionChartAgent"
 
 int OnInit()
   {

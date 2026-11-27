@@ -5520,16 +5520,27 @@ function bindCloseButtons(root) {
     b.dataset.bound = "1";
     b.onclick = async () => {
       if (b.disabled) return;
-      const what = b.dataset.closeWhat || "";
-      const ok = await askConfirm({
-        title: I18N.t("exec.close_title"),
-        body: what ? I18N.t("exec.close_confirm_one", { what }) : I18N.t("exec.close_confirm"),
-        ok: I18N.t("exec.close"),
-        cancel: I18N.t("common.cancel"),
-        danger: true,
-      });
-      if (!ok) return;
+      /* No question asked.
+       *
+       * Closing one position used to open a confirmation dialog. A
+       * trader pressing Close has already decided - they are watching a
+       * number move against them - and the dialog put a round trip
+       * through a modal, a render and a second deliberate press between
+       * the decision and the order. That is the slowest part of the
+       * whole path by a wide margin, and it is the part that is pure
+       * ceremony: the position is closed at market either way, and the
+       * result is reported.
+       *
+       * Closing EVERYTHING still asks. One mis-tap there is every
+       * position on the account, which is not the same decision.
+       */
       b.disabled = true;
+      /* Say something immediately. The order still has to reach the
+         terminal and come back; without this the button simply goes
+         dead and the trader presses it again. */
+      const was = b.textContent;
+      b.textContent = I18N.t("exec.closing");
+      b.classList.add("is-busy");
       try {
         const r = await API.post("/api/order", { action: "close", ticket: +b.dataset.close });
         if (r && r.ok === false) toast(r.message || errText(r));
@@ -5542,6 +5553,8 @@ function bindCloseButtons(root) {
            a refused close must leave a control the trader can press
            again. */
         b.disabled = false;
+        b.classList.remove("is-busy");
+        if (b.textContent === I18N.t("exec.closing")) b.textContent = was;
       }
     };
   });

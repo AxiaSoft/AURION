@@ -2874,15 +2874,34 @@ class MT5Bridge:
         return files
 
     def _write_cmd_file(self, chart_id: int, message: dict[str, Any]) -> None:
+        """Queue one command for a chart. APPENDED, never overwritten.
+
+        This file used to be written with write_bytes, which replaces
+        whatever was already in it. The expert reads it on its timer, so
+        any two commands issued inside one poll window left only the
+        second: the first was dropped on the floor, silently, and the
+        engine then sat out its twelve-second wait for an acknowledgement
+        that could never come.
+
+        That is not a rare race. Closing several positions sends one
+        command per ticket back to back, and a trader pressing two close
+        buttons does the same thing - which is exactly the "closing a
+        position takes far too long" that was reported, because the
+        twelve seconds were spent waiting for a command nobody still had.
+
+        One JSON object per line, so the expert can drain every command
+        that arrived since it last looked.
+        """
         name = f"aurion_cmd_{int(chart_id)}.json"
         try:
-            blob = json.dumps(message, ensure_ascii=False).encode("utf-8")
+            blob = json.dumps(message, ensure_ascii=False).encode("utf-8") + b"\n"
         except Exception:
             return
         for folder in self._inbox_dirs():
             try:
                 folder.mkdir(parents=True, exist_ok=True)
-                (folder / name).write_bytes(blob)
+                with open(folder / name, "ab") as handle:
+                    handle.write(blob)
             except Exception:
                 continue
 

@@ -310,10 +310,13 @@ if (!jsdom) {
       if (!/bindCloseButtons\(/.test(fn)) throw new Error("paintPositions does not re-bind");
     });
 
-    /* Driven for real rather than read: "it calls askConfirm" is not the
-       guarantee -- the guarantee is that saying no leaves the position
-       open. An earlier version of this test passed while ignoring the
-       answer entirely. */
+    /* Driven for real rather than read.
+       This used to prove that answering NO left the position open. The
+       dialog is gone - asked for directly: "it should close fast, don't
+       even ask me a question to close a position" - and a trader
+       pressing Close has already decided. So the guarantee inverts:
+       the close must go out whatever a dialog would have answered,
+       because nothing may stand between the press and the order. */
     const drive = async (answer) => {
       const calls = [];
       const realPost = T.API.post;
@@ -333,12 +336,15 @@ if (!jsdom) {
       }
     };
 
-    check("answering no to the confirmation leaves the position open", async () => {
+    check("closing a position asks nothing at all", async () => {
+      /* setConfirm is rigged to refuse. The order must go out anyway:
+         if it does not, something is still gating the press. */
       const { calls } = await drive(false);
-      if (calls.length) throw new Error("the position was closed anyway: " + JSON.stringify(calls[0]));
+      if (calls.length !== 1) throw new Error("a question still stands between the press and the order");
+      if (calls[0].body.action !== "close") throw new Error("action was " + calls[0].body.action);
     });
 
-    check("answering yes closes exactly that ticket", async () => {
+    check("the press closes exactly that ticket", async () => {
       const { calls } = await drive(true);
       if (calls.length !== 1) throw new Error(calls.length + " requests sent");
       if (calls[0].url !== "/api/order") throw new Error("posted to " + calls[0].url);
@@ -346,10 +352,21 @@ if (!jsdom) {
       if (calls[0].body.ticket !== 101) throw new Error("closed ticket " + calls[0].body.ticket);
     });
 
-    check("the confirmation is marked destructive", () => {
+    check("the press is acknowledged even though nothing is asked", () => {
       const fn = /function bindCloseButtons\(root\) \{[\s\S]*?\n\}\n/.exec(appJs)[0];
-      if (!/danger: true/.test(fn)) throw new Error("the dialog is not styled as a destructive action");
+      if (/askConfirm/.test(fn)) throw new Error("closing one position still stops to ask");
       if (!/b\.disabled = true/.test(fn)) throw new Error("the button is not disabled while in flight");
+      if (!/exec\.closing/.test(fn)) {
+        throw new Error("the button goes dead with no feedback, so it gets pressed twice");
+      }
+    });
+
+    check("closing EVERY position is still a question", () => {
+      /* The one that is not merely undoing a decision already made:
+         a mis-tap here is the whole account. */
+      const fn = /function flattenAll\(reason\) \{[\s\S]*?\n\}\n/.exec(appJs)[0];
+      if (!/askConfirm/.test(fn)) throw new Error("close-all no longer confirms");
+      if (!/danger: true/.test(fn)) throw new Error("close-all is not styled as destructive");
     });
 
     check("closing a trade from a chart card does not also open the chart", () => {

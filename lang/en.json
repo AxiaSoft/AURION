@@ -537,6 +537,7 @@
     "close_title": "Close position",
     "close_confirm": "Close this position at the current market price?",
     "close_confirm_one": "Close {what} at the current market price?",
+    "closing": "Closing…",
     "orders": "Pending orders",
     "danger": "Emergency",
     "manual_why": "A ticket you send yourself. The robot is not involved.",
