@@ -513,7 +513,10 @@ function logNotice(note) {
   list.unshift(entry);
   if (list.length > NOTIF_LOG_MAX) list.length = NOTIF_LOG_MAX;
   paintBell();
-  if (S._notifOpen) renderNotifPanel();
+  /* Not while rows are leaving: a re-render mid-sweep would put the
+     rows back on screen with their animation reset. The arrival is on
+     the list either way and appears when the sweep finishes. */
+  if (S._notifOpen && !S._notifSweeping) renderNotifPanel();
   return entry;
 }
 
@@ -544,9 +547,15 @@ function renderNotifPanel() {
   host.innerHTML =
     `<header class="notif-head">
        <h3 id="notif-title">${esc(I18N.t("notify.bell"))}</h3>
-       <button type="button" class="icon-btn notif-x" id="notif-close"
-               aria-label="${esc(I18N.t("common.close"))}"
-               title="${esc(I18N.t("common.close"))}">${icon("close")}</button>
+       <div class="notif-head-acts">
+         ${list.length
+           ? `<button type="button" class="btn tiny ghost notif-clear" id="notif-clear"
+                      title="${esc(I18N.t("notify.clear"))}">${esc(I18N.t("notify.clear"))}</button>`
+           : ""}
+         <button type="button" class="icon-btn notif-x" id="notif-close"
+                 aria-label="${esc(I18N.t("common.close"))}"
+                 title="${esc(I18N.t("common.close"))}">${icon("close")}</button>
+       </div>
      </header>
      <div class="notif-list" id="notif-list">${
        list.length
@@ -562,9 +571,98 @@ function renderNotifPanel() {
                             data-nrid="${esc(n.id)}">${esc(I18N.t("signal.open_ea_chart"))}</button>`
                  : ""}
              </span>
+             <button type="button" class="icon-btn notif-drop" data-nrid="${esc(n.id)}"
+                     aria-label="${esc(I18N.t("notify.dismiss"))}"
+                     title="${esc(I18N.t("notify.dismiss"))}">${icon("close")}</button>
            </article>`).join("")
          : `<p class="sub notif-empty">${esc(I18N.t("notify.empty"))}</p>`
      }</div>`;
+}
+
+/* ---- clearing, and being seen to clear ------------------------------
+ *
+ * Asked for: "put a clear option in the notifications section too, and
+ * let the notifications be cleared with an animation."
+ *
+ * The animation is not decoration here. The panel is a list of things
+ * that already happened, and a list that empties instantly leaves a
+ * trader unsure whether they cleared it or whether it was always empty -
+ * especially on the clear-all, which destroys a whole session's record
+ * in one click. Watching the rows leave is the receipt. */
+
+/** How long one row takes to go. */
+const NOTIF_SWEEP_MS = 220;
+/** Stagger between rows on a clear-all, so it reads as a sweep. */
+const NOTIF_SWEEP_STEP_MS = 40;
+/** Past this many rows the stagger stops growing - see clearNotifLog. */
+const NOTIF_SWEEP_ROWS = 12;
+
+/** Somebody who asked the operating system for less movement gets none. */
+function reducedMotion() {
+  try { return window.matchMedia("(prefers-reduced-motion: reduce)").matches; }
+  catch { return false; }
+}
+
+/** Drop one notification, after letting it leave. */
+function dropNotice(id) {
+  const list = S.notifLog || [];
+  const at = list.findIndex((n) => String(n.id) === String(id));
+  if (at < 0) return;
+  const finish = () => {
+    const i = (S.notifLog || []).findIndex((n) => String(n.id) === String(id));
+    if (i >= 0) S.notifLog.splice(i, 1);
+    S._notifSweeping = false;
+    paintBell();
+    if (S._notifOpen) renderNotifPanel();
+  };
+  const row = notifRow(id);
+  if (!row || reducedMotion()) { finish(); return; }
+  /* The height is frozen before the class goes on, because a row
+     collapsing from `auto` does not animate - the browser has no start
+     value to animate from. */
+  row.style.blockSize = `${row.offsetHeight}px`;
+  S._notifSweeping = true;
+  requestAnimationFrame(() => row.classList.add("is-going"));
+  setTimeout(finish, NOTIF_SWEEP_MS + 40);
+}
+
+/** Clear the lot, one row after another. */
+function clearNotifLog() {
+  const list = S.notifLog || [];
+  if (!list.length) return;
+  const host = $("notif-list");
+  const rows = host ? Array.from(host.querySelectorAll(".notif-row")) : [];
+  const finish = () => {
+    S.notifLog = [];
+    S._notifSweeping = false;
+    paintBell();
+    if (S._notifOpen) renderNotifPanel();
+    toast(I18N.t("notify.cleared"), { silent: true });
+  };
+  if (!rows.length || reducedMotion()) { finish(); return; }
+  S._notifSweeping = true;
+  rows.forEach((row, i) => {
+    row.style.blockSize = `${row.offsetHeight}px`;
+    /* The stagger is capped: with sixty rows an un-capped one would take
+       nearly three seconds, and a clear that takes three seconds is a
+       broken button, not a flourish. */
+    const step = Math.min(i, NOTIF_SWEEP_ROWS) * NOTIF_SWEEP_STEP_MS;
+    row.style.setProperty("--sweep-delay", `${step}ms`);
+  });
+  requestAnimationFrame(() => rows.forEach((row) => row.classList.add("is-going")));
+  const last = Math.min(rows.length - 1, NOTIF_SWEEP_ROWS) * NOTIF_SWEEP_STEP_MS;
+  setTimeout(finish, NOTIF_SWEEP_MS + last + 40);
+}
+
+/** The row for one id, found by reading the attribute rather than
+    building a selector from it - note ids come from the engine, and
+    CSS.escape is not available in every runtime the desk runs in. */
+function notifRow(id) {
+  const host = $("notif-list");
+  if (!host) return null;
+  const wanted = String(id);
+  return Array.from(host.querySelectorAll(".notif-row"))
+    .find((el) => el.getAttribute("data-nrid") === wanted) || null;
 }
 
 /**
@@ -610,6 +708,17 @@ function bindNotifPanel() {
       if (e.target.closest("#notif-close")) {
         e.preventDefault();
         toggleNotifPanel(false);
+        return;
+      }
+      if (e.target.closest("#notif-clear")) {
+        e.preventDefault();
+        clearNotifLog();
+        return;
+      }
+      const drop = e.target.closest(".notif-drop");
+      if (drop) {
+        e.preventDefault();
+        dropNotice(drop.dataset.nrid);
         return;
       }
       const go = e.target.closest(".notif-go");

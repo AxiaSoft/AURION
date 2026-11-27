@@ -219,4 +219,62 @@ ok("every path that raises a card puts it on that clock", lives >= 5,
 ok("...and a card nobody asked to keep uses the shared default",
    /const life = Number\(ms\) > 0 \? Number\(ms\) : NOTIFY_LIFE_MS;/.test(app));
 
+/* --- clearing, and being seen to clear -------------------------------
+ *
+ * "Put a clear option in the notifications section too, and let the
+ * notifications be cleared with an animation."
+ *
+ * The animation is a requirement rather than a flourish: the panel is a
+ * record of things that already happened, so a list that empties
+ * instantly leaves the trader unable to tell a clear from an empty
+ * panel - above all on the clear-all, which destroys a session's record
+ * in one click.
+ */
+
+ok("the panel offers a clear-all", /id="notif-clear"/.test(app));
+ok("...only when there is something to clear",
+   /list\.length[\s\S]{0,120}notif-clear/.test(app),
+   "a clear button over an empty list is a button that does nothing");
+ok("every row can also be dropped on its own", /notif-drop/.test(app));
+ok("clearing is wired to the button",
+   /closest\("#notif-clear"\)[\s\S]{0,120}clearNotifLog\(\)/.test(app));
+ok("...and dropping one row to its own cross",
+   /closest\("\.notif-drop"\)[\s\S]{0,160}dropNotice\(/.test(app));
+ok("clearing really empties the record, not just the screen",
+   /S\.notifLog = \[\]/.test(app));
+ok("...and the bell's dot goes with it",
+   /S\.notifLog = \[\][\s\S]{0,160}paintBell\(\)/.test(app));
+ok("...and the trader is told it happened",
+   /notify\.cleared/.test(app));
+
+ok("a row is animated out before it is removed",
+   /is-going/.test(app) && /\.notif-row\.is-going\{/.test(css));
+ok("...its height is frozen first, or it cannot animate at all",
+   /row\.style\.blockSize = `\$\{row\.offsetHeight\}px`/.test(app),
+   "a row collapsing from auto has no start value to animate from");
+ok("...and the row is only spliced out when the animation has finished",
+   /setTimeout\(finish, NOTIF_SWEEP_MS/.test(app));
+ok("a clear-all staggers the rows rather than blinking them away",
+   /--sweep-delay/.test(app) && /--sweep-delay/.test(css));
+ok("...with the stagger capped, so sixty rows is not a three-second wait",
+   /Math\.min\(i, NOTIF_SWEEP_ROWS\)/.test(app));
+ok("an arrival mid-sweep does not re-render the rows back into place",
+   /S\._notifOpen && !S\._notifSweeping/.test(app));
+ok("somebody who asked for less movement gets none",
+   /prefers-reduced-motion: reduce/.test(css.slice(css.indexOf(".notif-row.is-going{"))) &&
+   /function reducedMotion\(/.test(app));
+ok("the row is found by reading its attribute, not by building a selector",
+   /getAttribute\("data-nrid"\)/.test(app),
+   "CSS.escape is not available in every runtime the desk has to survive");
+ok("the leaving row travels towards the reading margin in both directions",
+   /html\[dir="rtl"\] \.notif-row\.is-going/.test(css));
+ok("a row's own cross is reachable without a hover",
+   /@media \(hover: none\)\{ \.notif-row \.notif-drop/.test(css));
+
+for (const lang of ["en", "fa", "ar"]) {
+  const pack = JSON.parse(fs.readFileSync(path.join(root, "lang", `${lang}.json`), "utf8"));
+  ok(`lang/${lang}.json names the clear button`,
+     Boolean(pack.notify.clear) && Boolean(pack.notify.cleared));
+}
+
 console.log(`\n${passed} checks passed`);

@@ -599,6 +599,57 @@ html[dir="rtl"] .switch.on i{transform:translate(calc(var(--sw-travel) * -1),-50
 .notif-row .notif-body b{font-size:13px;font-weight:600}
 .notif-row .sub{font-size:12px}
 .notif-row .notif-go{align-self:flex-start;margin-block-start:4px}
+/* The row's own dismiss. It keeps to itself until the row is pointed at
+   or focused, because sixty crosses down the side of a list is noise -
+   but it never disappears for a touch screen, which has no hover to
+   reveal it with. */
+.notif-row .notif-drop{
+  margin-inline-start:auto;flex:0 0 auto;
+  inline-size:26px;block-size:26px;opacity:0;
+  transition:opacity .15s var(--ease, ease);
+}
+.notif-row:hover .notif-drop,
+.notif-row:focus-within .notif-drop{opacity:.75}
+@media (hover: none){ .notif-row .notif-drop{opacity:.6} }
+.notif-head-acts{display:flex;align-items:center;gap:6px;flex:0 0 auto}
+
+/* ---- rows leaving ----------------------------------------------------
+   Asked for with the clear button: the notifications should be cleared
+   WITH an animation. That is not decoration. This panel is a list of
+   things that already happened, and a list that empties instantly
+   leaves the trader unsure whether they cleared it or whether it was
+   empty all along - most of all on a clear-all, which destroys a
+   session's record in one click. Watching the rows go is the receipt.
+
+   The row slides out along the reading direction and collapses its own
+   height, so the rows below close the gap rather than jumping up. The
+   height is frozen in JS first: a row collapsing from `auto` has no
+   start value and does not animate at all. */
+.notif-row{
+  transition:
+    opacity .2s var(--ease, ease) var(--sweep-delay, 0ms),
+    transform .22s var(--ease, ease) var(--sweep-delay, 0ms),
+    block-size .22s var(--ease, ease) var(--sweep-delay, 0ms),
+    margin-block .22s var(--ease, ease) var(--sweep-delay, 0ms),
+    padding-block .22s var(--ease, ease) var(--sweep-delay, 0ms);
+}
+.notif-row.is-going{
+  opacity:0;
+  transform:translateX(12%);
+  block-size:0 !important;
+  padding-block:0;
+  margin-block-start:-6px;
+  overflow:hidden;
+  pointer-events:none;
+}
+/* Out towards the trader's own margin, in either direction. */
+html[dir="rtl"] .notif-row.is-going{transform:translateX(-12%)}
+/* Asked the operating system for less movement: the row still goes, it
+   just does not travel. */
+@media (prefers-reduced-motion: reduce){
+  .notif-row{transition:none}
+  .notif-row.is-going{transform:none}
+}
 .notif-row.is-signal{border-inline-start:3px solid rgb(var(--accent-rgb))}
 .notif-row.is-loss,.notif-row.is-block{border-inline-start:3px solid var(--red, #e5484d)}
 .notif-row.is-profit{border-inline-start:3px solid var(--green, #30a46c)}
