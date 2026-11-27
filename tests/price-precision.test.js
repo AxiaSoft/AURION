@@ -230,19 +230,55 @@ check("the fifth digit is gone for good", () => {
   return "capped at four";
 });
 
-check("a price field carries machine-readable digits, at the same count", () => {
+check("a price field carries machine-readable digits, at the BROKER'S count", () => {
   const { priceField, priceStep } = rig(SPECS);
   /* Not price(): <input type=number> rejects Persian digits and
-     thousands separators, silently, leaving the field empty. */
-  eq(priceField(1.0865, "EURUSD"), "1.0865", "EURUSD into an input");
+     thousands separators, silently, leaving the field empty.
+
+     And not priceDp either - this is the fix for "on the symbols with
+     smaller prices AURION rounds the numbers and the trade opens and
+     closes straight away; entry 1.0900, stop 1.0936, and it keeps
+     making the stop 1.0900 too". The four-decimal ceiling is a READING
+     rule, and it was being applied to a number on its way to the
+     broker. A field whose value becomes an order keeps every digit
+     that broker quotes. */
+  eq(priceField(1.08651, "EURUSD"), "1.08651", "the fifth digit survives the ticket");
+  eq(priceField(1.0865, "EURUSD"), "1.08650", "...at the instrument's own precision");
   eq(priceField(2338.4, "XAUUSD"), "2338.40", "gold into an input - no grouping");
   eq(priceField(0, "EURUSD"), "", "an empty level stays empty");
-  /* The step has to match what is displayed or the arrow keys move a
-     digit the field then hides, and the value looks stuck. */
-  eq(priceStep("EURUSD", 1.0865), "0.0001", "EURUSD step");
+  /* The step is built from the same count, so the grid the arrow keys
+     snap to is the broker's tick and not a rounder one. */
+  eq(priceStep("EURUSD", 1.0865), "0.00001", "EURUSD step");
   eq(priceStep("USDJPY", 151.42), "0.001", "USDJPY step");
   eq(priceStep("XAUUSD", 2338.4), "0.01", "gold step");
-  return "0.0001 / 0.001 / 0.01";
+  return "0.00001 / 0.001 / 0.01";
+});
+
+check("an unknown precision is no grid at all, never a guessed one", () => {
+  /* The ticket is drawn before the broker's specification and before
+     the first quote. priceDp answers that with a flat two, which is
+     right for reading and fatal as a `step`: 0.01 is a GRID, and the
+     browser snaps the arrow keys and the on-screen plus/minus onto it.
+     One nudge took a 1.0936 stop to 1.09 - the entry price - and the
+     trade closed the moment it opened. */
+  const { priceStep } = rig({});
+  eq(priceStep("EURUSD"), "any", "no specification and no price seen");
+  eq(priceStep("EURUSD", 0), "any", "a zero sample is not a price");
+  /* Once either is known it is a real grid again. */
+  eq(priceStep("EURUSD", 1.0865), "0.0001", "judged by the price when the broker is silent");
+  eq(rig(SPECS).priceStep("EURUSD"), "0.00001", "judged by the broker when it is not");
+  return "any, until something is actually known";
+});
+
+check("the display ceiling still applies to reading", () => {
+  /* The two questions stay apart. Nothing above is allowed to turn
+     into five-digit prices all over the desk - that was the original
+     complaint, years of it, and it is still answered by priceDp. */
+  const { price, priceDp, tradeDp } = rig(SPECS);
+  eq(priceDp("EURUSD", 1.08651), 4, "reading is still capped at four");
+  eq(tradeDp("EURUSD", 1.08651), 5, "trading is not capped at all");
+  eq(price(1.08651, "EURUSD"), "1.0865", "a price on screen is unchanged");
+  return "read four, trade five";
 });
 
 check("Persian digits still come out of price(), and still parse back", () => {
@@ -254,7 +290,7 @@ check("Persian digits still come out of price(), and still parse back", () => {
     .replace(/\u066B/g, ".").replace(/[\u060C\u066C]/g, "");
   eq(ascii, "1.0865", "folded back to ASCII");
   /* priceField must NOT localise - the input would reject it. */
-  eq(ctx.priceField(1.0865, "EURUSD"), "1.0865", "the input's value stayed Latin");
+  eq(ctx.priceField(1.0865, "EURUSD"), "1.08650", "the input's value stayed Latin");
   return out;
 });
 
@@ -394,6 +430,39 @@ check("no price on the desk is written with the old flat count", () => {
   must(calls.length === 0,
     "these still print at the desk default: " + calls.map(([n]) => n).join(", "));
   return "every call site names its instrument";
+});
+
+check("the ticket's grid is corrected on every repaint, like its lot", () => {
+  /* The ticket is drawn before the broker's specification and before
+     the first quote, so whatever step it is born with can be a guess.
+     The LOT field has always been re-bounded on every repaint for
+     exactly that reason - the price fields were not, and kept their
+     birth step for the rest of the session. */
+  must(/function paintTicketSteps\(/.test(APP), "nothing re-applies the price step");
+  const fn = APP.slice(APP.indexOf("function paintTicketSteps("));
+  const body = fn.slice(0, fn.indexOf("\n}\n"));
+  for (const id of ["ct-price", "ct-sl", "ct-tp"]) {
+    must(body.includes(id), `${id} is left on its birth step`);
+  }
+  must(/priceStep\(/.test(body), "it does not ask for the instrument's own step");
+  must(!/\.value/.test(body),
+    "it rewrites the value - re-rounding what the trader typed is the same bug again");
+  const paint = APP.slice(APP.indexOf("function paintTicketPrices("));
+  must(/paintTicketSteps\(/.test(paint.slice(0, paint.indexOf("\n}\n"))),
+    "the repaint never calls it, so the correction never happens");
+  return "step re-applied, value untouched";
+});
+
+check("nothing on the trading path rounds through the display ceiling", () => {
+  /* priceField and priceStep are the two functions whose output
+     becomes an order. Both must ask tradeDp. */
+  for (const name of ["function priceField(", "function priceStep("]) {
+    const fn = APP.slice(APP.indexOf(name));
+    const body = fn.slice(0, fn.indexOf("\n}\n"));
+    must(/tradeDp\(/.test(body), `${name.slice(9)} still uses the reading precision`);
+    must(!/priceDp\(/.test(body), `${name.slice(9)} still calls priceDp`);
+  }
+  return "both on tradeDp";
 });
 
 check("the ladder is written once", () => {

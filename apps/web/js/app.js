@@ -964,6 +964,54 @@ function dpForPrice(p) {
 const clampDp = (d) => Math.min(PRICE_DP_MAX, Math.max(PRICE_DP_MIN, Math.round(Number(d))));
 
 /**
+ * How many decimals this instrument's price really HAS.
+ *
+ * Not the same question as priceDp, and the difference is the fault
+ * this exists for. priceDp answers "how should a price be written so a
+ * column of them can be read", and the answer is capped at four
+ * because the fifth digit of a five-digit quote is noise to the eye.
+ * That cap is right for reading and catastrophic for a number that is
+ * about to become an order.
+ *
+ * Reported: "on the symbols with smaller prices - the ones trading at
+ * a dollar and something - AURION rounds the numbers, and the trade
+ * opens and closes straight away. Entry 1.0900, stop 1.0936, and the
+ * robot keeps making it entry 1.0900, stop 1.0900."
+ *
+ * Two separate roundings did that, and both came through the display
+ * ladder:
+ *
+ *   * the four-decimal ceiling silently dropped the broker's fifth
+ *     digit from every value written back into a ticket field;
+ *   * and when neither the broker's specification nor a sample price
+ *     was available - the ticket is drawn before the first snapshot
+ *     arrives - priceDp falls back to a flat TWO. That two reached the
+ *     `step` attribute of the entry, stop and target fields, where
+ *     0.01 is a grid: one press of an arrow key or of the on-screen
+ *     plus/minus snapped 1.0936 to 1.09, which is the entry price. A
+ *     stop equal to the entry is a trade that closes the moment it
+ *     opens.
+ *
+ * So anything that MOVES MONEY asks this instead: the broker's own
+ * digit count, floored at two and with no ceiling at all, and the
+ * display ladder only as a last resort. A price on its way to the
+ * engine is never rounded for the convenience of the eye.
+ */
+function tradeDp(symbol, sample) {
+  const spec = typeof specFor === "function" ? specFor(symbol) : null;
+  const d = spec && Number(spec.digits);
+  if (Number.isFinite(d) && d > 0) return Math.min(10, Math.max(PRICE_DP_MIN, Math.round(d)));
+  return dpForPrice(sample);
+}
+
+/** True when the broker has actually told us this symbol's precision. */
+function knowsDigits(symbol) {
+  const spec = typeof specFor === "function" ? specFor(symbol) : null;
+  const d = spec && Number(spec.digits);
+  return Number.isFinite(d) && d > 0;
+}
+
+/**
  * The decimal count for one symbol.
  *
  * `sample` is any price of that instrument, used only when the broker
@@ -1001,8 +1049,25 @@ function price(n, symbol) {
 const stepFor = (d) => (1 / Math.pow(10, d)).toFixed(d);
 const PRICE_STEP = stepFor(PRICE_DP);
 
-/** The step for one symbol's price fields. */
-function priceStep(symbol, sample) { return stepFor(priceDp(symbol, sample)); }
+/**
+ * The step for one symbol's price fields.
+ *
+ * "any" is a real answer and the important one. Until the broker has
+ * named this symbol's precision and a price has been seen, we do not
+ * know what one tick is - and a `step` is a GRID, not a hint: the
+ * browser snaps the arrow keys and the on-screen plus/minus onto it.
+ * Guessing 0.01 there is what turned a 1.0936 stop into 1.0900 on the
+ * first nudge. An unknown grid must be no grid.
+ *
+ * Note it is tradeDp, not priceDp: this field's value is sent, so it
+ * steps by the broker's real tick even when the desk DISPLAYS fewer
+ * digits elsewhere.
+ */
+function priceStep(symbol, sample) {
+  const seen = Number(sample);
+  if (!knowsDigits(symbol) && !(Number.isFinite(seen) && seen > 0)) return "any";
+  return stepFor(tradeDp(symbol, sample));
+}
 
 /**
  * A price on its way INTO an input, as a plain machine-readable number.
@@ -1015,7 +1080,14 @@ function priceStep(symbol, sample) { return stepFor(priceDp(symbol, sample)); }
  */
 function priceField(v, symbol) {
   const n = Number(v);
-  return n > 0 ? n.toFixed(priceDp(symbol, n)) : "";
+  if (!(n > 0)) return "";
+  /* tradeDp, not priceDp. What goes into this box comes back out as an
+     order, so it is written at the broker's own precision - the
+     display ceiling of four was silently dropping the fifth digit of
+     every five-digit quote on its way through here, and the same
+     count is what the field's step is built from, so the two cannot
+     disagree. */
+  return n.toFixed(tradeDp(symbol, n));
 }
 
 /**
@@ -6225,10 +6297,13 @@ function chartTicketHtml() {
      specification can arrive after the ticket has been drawn. */
   const ctLots = lotBounds(sym);
   const tick = (S.snap && S.snap.ticks && S.snap.ticks[sym]) || {};
-  /* This instrument's step, not the desk's. EURUSD's fields step by
-     0.0001 and gold's by 0.01, because a field that steps by a digit
-     it does not display leaves the trader pressing an arrow key and
-     watching the number refuse to move. */
+  /* This instrument's step, not the desk's, and the BROKER'S tick
+     rather than the number of digits the desk chooses to print -
+     these three fields become an order. Re-applied on every repaint
+     by paintTicketSteps below, exactly like the lot bounds above,
+     because the specification and the first quote both arrive after
+     the ticket has been drawn and a grid guessed in the meantime is
+     the one that snapped a 1.0936 stop onto the entry price. */
   const pStep = priceStep(sym, tick.bid);
   return `<div class="chart-ticket" id="chart-ticket">
       <div class="ct-head">
@@ -6332,7 +6407,31 @@ function paintTicketPrices() {
   /* A market order's risk is measured from the live quote, so it moves
      with the quote. Here rather than on a timer of its own: this is
      already the function the tick wakes up. */
+  paintTicketSteps(sym, tick);
   paintTicketRisk();
+}
+
+/**
+ * Put the right grid under the three price fields.
+ *
+ * The ticket is drawn before the broker's specification and before the
+ * first quote, so the step it was born with can be a guess. The lot
+ * field has always been corrected on every repaint for exactly that
+ * reason; the price fields were not, and kept whatever they were given
+ * for the rest of the session - 0.01 on a five-digit pair, which is a
+ * grid one arrow key wide enough to put a stop on top of its entry.
+ *
+ * The VALUE is never touched here. Only the step: re-rounding what the
+ * trader typed, in a repaint they did not ask for, would be the same
+ * bug wearing a different hat.
+ */
+function paintTicketSteps(symbol, tick) {
+  const sample = tick && Number(tick.bid) > 0 ? Number(tick.bid) : 0;
+  const step = priceStep(symbol, sample);
+  for (const id of ["ct-price", "ct-sl", "ct-tp"]) {
+    const el = $(id);
+    if (el && el.getAttribute("step") !== step) el.setAttribute("step", step);
+  }
 }
 
 /**
