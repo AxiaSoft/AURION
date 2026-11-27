@@ -393,5 +393,51 @@ console.log("\n-- the calendar says which chart ------------------------");
   }
 }
 
+console.log("\n-- a dropdown is as big as its dropdown -----------------");
+
+/* Reported as several separate complaints that turned out to be one
+   line of CSS: "under the drawers it is mostly empty, the buttons are
+   far away from them - in the calendar news card the drawer is in the
+   right place but there is a lot of empty space under it and the
+   see-the-chart button is far from it, and it made the news area
+   smaller too. Also in the backtest section the drawers are a long way
+   from the time-range part. There are several places with a drawer
+   that cause big gaps and a lot of scrolling."
+
+   `.dd-wrap` carried `flex:1 1 148px`. 148px is a WIDTH, and it was
+   written for a horizontal toolbar - but a flex-basis is measured along
+   the CONTAINER'S main axis, and most of the desk's dropdowns sit in
+   column containers (`.field` above all). There the same declaration
+   meant 148px TALL around a ~36px button: about 110 dead pixels under
+   every drawer, in eleven places. */
+{
+  const wrap = appCss.slice(appCss.indexOf(".dd-wrap{"), appCss.indexOf(".dd-wrap{") + 400);
+  ok(!/flex:\s*\d+\s+\d+\s+\d+px/.test(wrap),
+    "the wrapper no longer states a flex-basis in pixels",
+    "a pixel basis is a height in a column container and a width in a row - it cannot be both");
+  ok(/flex:1 1 auto/.test(wrap),
+    "...it is sized by the control it wraps, in whichever direction that is");
+  ok(/\.dd-wrap > \.dd-btn\{[^}]*block-size:100%/.test(appCss),
+    "...and a stretched wrapper cannot leave a hole under its button");
+
+  /* The containers that made this visible, named so nobody re-reads the
+     old rule as harmless. */
+  for (const sel of [".field{", ".cal-chart-row{", ".snd-text{"]) {
+    const at = appCss.indexOf(sel);
+    ok(at >= 0 && /flex-direction:column/.test(appCss.slice(at, at + 200)),
+      `${sel.slice(0, -1)} really is a column, which is why the basis was a height`);
+  }
+
+  /* The symbol picker next door already did it the right way - it is the
+     proof the idiom was available, not invented for this fix. */
+  ok(/\.sympick\{[^}]*flex:1 1 auto/.test(appCss),
+    "the sibling picker sizes itself the same way");
+
+  /* A control that genuinely wants a width asks for one where it lives,
+     rather than a global floor that overflows the next narrow row. */
+  ok(/\.mk-pick > \.dd-wrap\{[^}]*inline-size:clamp\(/.test(appCss),
+    "a dropdown that needs a particular width still asks for it locally");
+}
+
 console.log(failed ? `\n${failed} check(s) failed` : "\nall checks passed");
 process.exit(failed ? 1 : 0);
