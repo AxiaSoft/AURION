@@ -183,7 +183,10 @@ check("the relaunch starts the product again even if a port is stuck", () => {
   const at = cmd.search(/^:HELD$/m);
   if (at < 0) throw new Error("the relaunch has no failure path at all");
   const held = cmd.slice(at);
-  if (!/call "%~dp0\.\.\\start-aurion\.cmd"/.test(held)) {
+  /* :OPENWINDOW is what starts the product now - the window first, and
+     start-aurion.cmd only as its fallback. The failure path has to reach
+     it like the success path does. */
+  if (!/call :OPENWINDOW/.test(held)) {
     throw new Error("a stuck port leaves the user with no desk at all");
   }
   const sh = code(read("scripts", "relaunch-aurion.sh"));
@@ -379,10 +382,101 @@ check("the relaunch puts the window back on screen", () => {
   if (calls.length < 2) {
     throw new Error("one of the two endings still finishes with no window");
   }
-  const start = cmd.indexOf("start-aurion.cmd");
-  if (start < 0 || cmd.indexOf("call :OPENWINDOW") < start) {
-    throw new Error("the window is opened before there is a desk for it to show");
+  if (cmd.indexOf("start-aurion.cmd") < 0) {
+    throw new Error("nothing can bring the services up when there is no shell");
   }
+});
+
+/* --- the three faults reported after an update ----------------------
+ *
+ * "1. When the update finishes it only shuts down and the app closes -
+ *     I want it to run again by itself afterwards.
+ *  2. When I open the app myself after an update, the AURION experts
+ *     are not detected and their files are not found in the settings
+ *     either; I have to shut it down once and open it again before it
+ *     comes up properly, the experts appear and the app connects to
+ *     MetaTrader."
+ *
+ * One cause. AURION.exe sets AURION_OWNER_PID to its own pid for the
+ * desk it launches, so the desk can take the engine down if the window
+ * is killed (see watchOwner). That variable travelled from the window,
+ * through the desk, into this script - which kills the window and then
+ * started a new desk, handing it the pid of the process it had just
+ * killed. The new desk looked its owner up, found a corpse, and shut
+ * itself and the engine down seconds after starting.
+ */
+
+check("the relaunch does not hand the new desk a dead owner", () => {
+  const cmd = code(read("scripts", "relaunch-aurion.cmd"));
+  const at = cmd.search(/^:OPENWINDOW$/m);
+  if (at < 0) throw new Error("there is no start path to clear it in");
+  const open = cmd.slice(at);
+  if (!/set "AURION_OWNER_PID="/.test(open)) {
+    throw new Error("the pid of the window this script just killed is passed on");
+  }
+  if (!/set "AURION_NO_BROWSER="/.test(open)) {
+    throw new Error("a variable set by a window that is gone still suppresses the fallback");
+  }
+  const clear = open.indexOf('set "AURION_OWNER_PID="');
+  const run = open.indexOf("AURION.exe");
+  if (clear > run) throw new Error("it is cleared after the product has already started");
+  return "cleared before anything starts";
+});
+
+check("the relaunch starts the product once, not twice", () => {
+  /* start-aurion.cmd begins by running stop-engine.ps1. Calling it and
+     THEN opening the window meant AURION.exe's own launch stopped the
+     engine and desk that had just been started here and started them
+     again - three processes racing for two ports, which is why the
+     engine sometimes came up without its EA bridge. */
+  const cmd = code(read("scripts", "relaunch-aurion.cmd"));
+  const at = cmd.search(/^:OPENWINDOW$/m);
+  const open = cmd.slice(at);
+  const before = cmd.slice(0, at);
+  if (/call "%~dp0\.\.\\start-aurion\.cmd"/.test(before)) {
+    throw new Error("the launcher is still called before the window is opened");
+  }
+  const win = open.indexOf('start "" "%~dp0..\\AURION.exe"');
+  const launcher = open.indexOf('call "%~dp0..\\start-aurion.cmd"');
+  if (win < 0 || launcher < 0) throw new Error("one of the two ways to start is missing");
+  if (launcher < win) throw new Error("the launcher still runs before the window");
+  return "window first, launcher as its fallback";
+});
+
+check("...and a window that will not start is not the end of it", () => {
+  const cmd = code(read("scripts", "relaunch-aurion.cmd"));
+  const open = cmd.slice(cmd.search(/^:OPENWINDOW$/m));
+  if (!/tasklist \/fi "imagename eq AURION\.exe"/.test(open)) {
+    throw new Error("nothing checks whether the window actually came up");
+  }
+  if (!/call "%~dp0\.\.\\start-aurion\.cmd"/.test(open)) {
+    throw new Error("there is no fallback when it did not");
+  }
+  return "checked, with the launcher behind it";
+});
+
+check("the same variable is cleared on the other platform too", () => {
+  const sh = read("scripts", "relaunch-aurion.sh");
+  if (!/unset AURION_OWNER_PID/.test(sh)) {
+    throw new Error("the shell relaunch still passes the owner pid on");
+  }
+  return "unset before the desk is started";
+});
+
+check("a desk whose owner is already dead does not shut itself down", () => {
+  /* The second lock on the same door, in the desk itself: a pid that
+     was never alive on our watch cannot be something we watched die. */
+  const idx = read("backend", "src", "index.js");
+  if (!/function pidAlive\(/.test(idx)) throw new Error("there is no liveness check to reuse");
+  const fn = idx.slice(idx.indexOf("function watchOwner("));
+  const body = fn.slice(0, fn.indexOf("\n}\n"));
+  if (!/if \(!pidAlive\(owner\)\) \{/.test(body)) {
+    throw new Error("a stale inherited pid is still treated as a window that disappeared");
+  }
+  if (!/return null;/.test(body.slice(body.indexOf("if (!pidAlive(owner))")))) {
+    throw new Error("it notices but still arms the watch");
+  }
+  return "ignored, and said so in the log";
 });
 
 console.log("");

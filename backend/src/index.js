@@ -395,13 +395,43 @@ app.post("/api/shutdown", (req, res) => {
  * Deliberately not on by default: a desk started from a terminal has no
  * owner and must not invent one.
  */
+/** Is that pid a process right now? EPERM means yes, and not ours. */
+function pidAlive(pid) {
+  try { process.kill(pid, 0); return true; }
+  catch (err) { return Boolean(err) && err.code === "EPERM"; }
+}
+
 function watchOwner(pid, everyMs) {
   const owner = Number(pid);
   if (!Number.isFinite(owner) || owner <= 0) return null;
+  /* An owner that is ALREADY dead when the desk boots is not a window
+     that disappeared - it is a variable that outlived the window that
+     set it.
+   *
+   * That is exactly what a relaunch after an update used to produce.
+   * The window sets AURION_OWNER_PID for the desk it starts; the desk
+   * passes its environment to the relaunch script; the script kills
+   * the window and then starts a new desk, which inherited the pid of
+   * the window that had just been killed. The new desk looked up its
+   * owner, found a corpse, and shut itself and the engine down within
+   * two seconds of coming up. Reported as "when the update finishes it
+   * just shuts down and the app closes", and - when the window did win
+   * the race - as a desk that was on its way out while the trader was
+   * looking at it, with no MT5 connection and no expert advisors.
+   *
+   * The script no longer passes the variable on, and this is the
+   * second lock on the same door: a pid that was never alive on our
+   * watch cannot be something we watched die. */
+  if (!pidAlive(owner)) {
+    console.log(JSON.stringify({
+      ts: new Date().toISOString(),
+      msg: `AURION_OWNER_PID=${owner} was not running when the desk started - ignoring it `
+         + "(a stale value inherited from a window that has already gone)",
+    }));
+    return null;
+  }
   const timer = setInterval(() => {
-    let gone = false;
-    try { process.kill(owner, 0); } catch (err) { gone = !err || err.code !== "EPERM"; }
-    if (!gone) return;
+    if (pidAlive(owner)) return;
     clearInterval(timer);
     console.log(JSON.stringify({
       ts: new Date().toISOString(),

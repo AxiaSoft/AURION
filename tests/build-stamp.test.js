@@ -172,6 +172,113 @@ check("/api/meta prefers the build's own stamp over the local count", () => {
   if (!/\} else \{/.test(head)) throw new Error("both are used at once, which cannot be right");
 });
 
+/* ── 7. it counts builds, not commits ──────────────────────────────── */
+
+/* Reported after the fix above had shipped: "the build number is going
+ * up two at a time - I had taken two updates, it should have been 12
+ * and it counted 14."
+ *
+ * It was. dailySeq counted every commit the day's window returned, and
+ * a pull request merged with a merge commit puts two of them there: the
+ * work, and the merge that brought it in. A branch of three commits
+ * would have moved the number by four. The number was describing how
+ * the work was WRITTEN rather than how many builds were published.
+ *
+ * A build number means "how many times the branch moved today", which
+ * is its first-parent history. These run the real function over the
+ * shape GitHub actually returns.
+ */
+
+const gh = require(path.join(ROOT, "backend", "src", "github-update.js"));
+
+/** A commit as the API gives it: a sha and its parents, newest first. */
+function c(sha, ...parents) {
+  return { sha, parents: parents.map((p) => ({ sha: p })) };
+}
+
+check("two merged pull requests are two builds, not four", () => {
+  /* m2 merges b2 into m1; m1 merges b1 into base. Four commits, two
+     landings - the exact shape that counted double. */
+  const list = [
+    c("m2", "m1", "b2"),
+    c("b2", "m1"),
+    c("m1", "base", "b1"),
+    c("b1", "base"),
+  ];
+  const chain = gh.firstParentChain(list);
+  if (chain.length !== 2) {
+    throw new Error(`counted ${chain.length} landings from ${list.length} commits`);
+  }
+  if (chain[0] !== "m2" || chain[1] !== "m1") {
+    throw new Error("the chain is not the first-parent history: " + chain.join(","));
+  }
+  return "4 commits, 2 builds";
+});
+
+check("a branch of several commits is still one build", () => {
+  const list = [
+    c("m1", "base", "b3"),
+    c("b3", "b2"), c("b2", "b1"), c("b1", "base"),
+  ];
+  if (gh.firstParentChain(list).length !== 1) {
+    throw new Error("a three-commit branch still moves the number by three");
+  }
+  return "3 commits on a branch, 1 build";
+});
+
+check("a commit pushed straight to the branch is a build of its own", () => {
+  /* Not everything arrives through a pull request, and a direct push is
+     a landing like any other. */
+  const list = [c("d2", "d1"), c("d1", "base")];
+  if (gh.firstParentChain(list).length !== 2) {
+    throw new Error("direct pushes are no longer counted");
+  }
+  return "2 direct pushes, 2 builds";
+});
+
+check("a release tag on the work is counted as the merge that shipped it", () => {
+  /* A tag usually points at the branch commit, which is not on the
+     first-parent chain at all. Counting it as "not found" would make
+     every tagged release report the day's full count. */
+  const list = [c("m2", "m1", "b2"), c("b2", "m1"), c("m1", "base", "b1"), c("b1", "base")];
+  const chain = gh.firstParentChain(list);
+  if (gh.landingFor(list, chain, "b1") !== "m1") {
+    throw new Error("the work is not mapped back to its landing");
+  }
+  if (gh.landingFor(list, chain, "m2") !== "m2") {
+    throw new Error("a landing is no longer itself");
+  }
+  if (gh.landingFor(list, chain, "nope") !== "") {
+    throw new Error("an unknown commit is given a landing it does not have");
+  }
+  return "b1 -> m1";
+});
+
+check("nothing in the count can loop or throw", () => {
+  /* The commits endpoint is a page of someone else's data. */
+  for (const junk of [[], null, undefined, [null], [{}], [c("a", "a")],
+                      [c("x", "y")], [{ sha: "s" }]]) {
+    const chain = gh.firstParentChain(junk);
+    if (!Array.isArray(chain)) throw new Error("it did not answer with a list");
+  }
+  /* A commit that is its own parent is the one that can spin for ever. */
+  if (gh.firstParentChain([c("a", "a")]).length !== 1) {
+    throw new Error("a self-referencing commit is counted more than once");
+  }
+  return "no loop, no throw";
+});
+
+check("the day is still the window, and a failure is still no number", () => {
+  const fn = GH.slice(GH.indexOf("async function dailySeq("), GH.indexOf("async function resolveTarget("));
+  if (!/firstParentChain\(list\)/.test(fn)) {
+    throw new Error("dailySeq does not use the first-parent walk");
+  }
+  if (/list\.length - at/.test(fn) && !/chain\.length - at/.test(fn)) {
+    throw new Error("the position is still measured against every commit");
+  }
+  return "counted off the chain";
+});
+
 console.log("");
 if (fails.length) {
   console.log(`build-stamp: ${fails.length} of ${pass + fails.length} checks FAILED`);

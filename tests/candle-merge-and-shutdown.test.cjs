@@ -278,7 +278,14 @@ ok(/AURION_OWNER_PID/.test(INDEX) && /AURION_OWNER_PID/.test(WINDOW),
 {
   const at = INDEX.indexOf("function watchOwner(pid, everyMs)");
   const body = INDEX.slice(at, INDEX.indexOf("\n}\n", at));
-  ok(/process\.kill\(owner, 0\)/.test(body), "signal 0 asks whether the pid is there without touching it");
+  /* The question itself now lives in pidAlive(), because the watch asks
+     it twice: once at boot, to throw out a stale pid inherited from a
+     window that has already gone, and then on every tick. */
+  ok(/function pidAlive\(pid\)/.test(INDEX) && /process\.kill\(pid, 0\)/.test(INDEX),
+    "signal 0 asks whether the pid is there without touching it");
+  ok(/pidAlive\(owner\)/.test(body), "...and the watch asks it that way");
+  ok(/if \(!pidAlive\(owner\)\)/.test(body),
+    "an owner that was already dead at boot is a stale variable, not a window that vanished");
   ok(/shutdownAurion\("owner_gone", \{ hard: true \}\)/.test(body),
     "a window that was killed takes the desk and the engine with it");
 }

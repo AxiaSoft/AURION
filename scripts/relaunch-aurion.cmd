@@ -96,7 +96,6 @@ call :WIPE "%~dp0..\data\tmp"
 
 REM Quiet. Start the product as if it were being opened for the first
 REM time today.
-call "%~dp0..\start-aurion.cmd"
 call :OPENWINDOW
 exit /b 0
 
@@ -120,13 +119,55 @@ REM So the window is opened here, by name. A browser is the fallback
 REM for a tree that has no shell built next to it, and it is opened
 REM whatever AURION_NO_BROWSER says: the window that set it is gone,
 REM so the reason for it is gone too.
+REM Two variables must NOT survive into what we start, and one of them
+REM was the reported fault.
+REM
+REM AURION.exe sets AURION_OWNER_PID to its own pid for the desk it
+REM launches, so the desk can shut the engine down if the window is
+REM killed. That variable reached this script through the desk, and
+REM this script had just killed the window it names. Starting the desk
+REM from here therefore handed the new desk the pid of a process that
+REM no longer existed; it looked its owner up, found a corpse, and shut
+REM itself and the engine down within two seconds of starting.
+REM
+REM That is "the update finishes, it shuts down, and the app closes" -
+REM and the second report too: when the window happened to win the
+REM race, the trader was looking at a desk that was already on its way
+REM out, with no MetaTrader connection and no expert advisors, which
+REM one manual close-and-open then fixed.
+REM
+REM AURION_NO_BROWSER goes for the same kind of reason: it was set by a
+REM window that is gone, so the reason for it is gone too.
+set "AURION_OWNER_PID="
+set "AURION_NO_BROWSER="
+
+REM The window starts the product, not us.
+REM
+REM This script used to call start-aurion.cmd and then open the window,
+REM which started everything TWICE: start-aurion.cmd begins by running
+REM stop-engine.ps1, so AURION.exe's own launch stopped the engine and
+REM desk that had just been brought up here and started them again,
+REM while the first desk was still shutting itself down over the stale
+REM owner pid above. Three processes racing for two ports is why the
+REM engine sometimes came up without its EA bridge.
+REM
+REM Letting the window do it is also the only way the new desk gets a
+REM CORRECT owner pid, which is the whole point of the variable.
 if exist "%~dp0..\AURION.exe" (
   start "" "%~dp0..\AURION.exe"
   >>"%LOG%" echo {"msg":"relaunch: the window was started again"}
-  exit /b 0
+  REM ...but not blindly. If the shell cannot start - a missing
+  REM WebView2 runtime, a blocked executable - then nothing at all is
+  REM running, which is the worst outcome of the two. Give it time to
+  REM appear and fall back to the launcher if it does not.
+  timeout /t 12 /nobreak >nul
+  tasklist /fi "imagename eq AURION.exe" 2>nul | find /i "AURION.exe" >nul
+  if not errorlevel 1 exit /b 0
+  >>"%LOG%" echo {"msg":"relaunch: the window did not stay up - starting the services directly"}
 )
+call "%~dp0..\start-aurion.cmd"
 start "" "http://127.0.0.1:8080"
->>"%LOG%" echo {"msg":"relaunch: no AURION.exe beside this tree - opened the desk in a browser"}
+>>"%LOG%" echo {"msg":"relaunch: opened the desk in a browser"}
 exit /b 0
 
 :WIPE
@@ -146,6 +187,5 @@ REM on screen, so starting is visible rather than silently wrong.
 echo AURION could not be stopped completely - see data\logs\desk.log
 echo Opening it anyway so the problem can be seen and acted on.
 >>"%LOG%" echo {"msg":"relaunch: a port was still held; opening the desk anyway so the state is visible"}
-call "%~dp0..\start-aurion.cmd"
 call :OPENWINDOW
 exit /b 0
