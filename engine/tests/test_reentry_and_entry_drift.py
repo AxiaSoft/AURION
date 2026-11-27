@@ -254,15 +254,19 @@ from aurion.runtime.trader import Trader  # noqa: E402
 class FakeBot:
     _reentry_key = Trader._reentry_key
     _reentry_memory = Trader._reentry_memory
+    _forget_setups = Trader._forget_setups
     _note_exit = Trader._note_exit
     _reentry_ok = Trader._reentry_ok
     reentry_state = Trader.reentry_state
 
-    def __init__(self, timeframe="M15"):
+    def __init__(self, timeframe="M15", cooldown=True):
         self._reentry_block = {}
         self._loss_streak = {}
         self._taken_setups = {}
         self.reentry_guard = True
+        # The cooldown SHIPS OFF - see the tests at the end of this
+        # file. These exercise the mechanism, so they ask for it.
+        self.cooldown_enabled = cooldown
         self.reentry_loss_bars = r.DEFAULT_COOLDOWN_LOSS_BARS
         self.reentry_win_bars = r.DEFAULT_COOLDOWN_WIN_BARS
         self.max_consecutive_losses = r.DEFAULT_MAX_CONSECUTIVE_LOSSES
@@ -330,8 +334,70 @@ def test_an_exit_lets_the_setup_look_new_again() -> None:
 def test_the_guard_can_be_turned_off_entirely() -> None:
     bot = FakeBot()
     bot._note_exit("EURUSD", -14.0)
-    bot.reentry_guard = False
+    bot.cooldown_enabled = False
     assert bot._reentry_ok("EURUSD")[0]
+
+
+# ------------------------------------------- what ships, and what does not
+#
+# Asked for directly, twice: "take the quarantine off, I want it like it
+# was before." The cooldown is the stand-down after an exit, and it now
+# ships OFF. It is kept rather than deleted because the loss-streak
+# stand-down rides on it and the trader may want it back - but nothing
+# about it may run while it is off.
+#
+# The setup fingerprint is a different brake and stays on: it is about
+# one signal repeating itself every bar while its condition holds, which
+# has nothing to do with a trade having closed.
+
+
+def test_the_cooldown_ships_off() -> None:
+    bot = FakeBot(cooldown=False)
+    bot._note_exit("EURUSD", -14.0)
+    allowed, why = bot._reentry_ok("EURUSD")
+    assert allowed and why == "", "a quarantine the trader asked to remove is still running"
+
+
+def test_nothing_is_even_armed_while_it_is_off() -> None:
+    """Not merely ignored at the gate: a stand-down left armed would come
+    back to life the moment the setting was flipped on."""
+    bot = FakeBot(cooldown=False)
+    bot._note_exit("EURUSD", -14.0)
+    assert bot._reentry_memory("_reentry_block") == {}
+    assert bot.reentry_state() == []
+
+
+def test_the_setup_memory_still_clears_on_an_exit_with_it_off() -> None:
+    """The two brakes are independent. A closed trade must still let the
+    next signal on that symbol look new, or turning the cooldown off
+    would quietly leave the symbol muted instead."""
+    bot = FakeBot(cooldown=False)
+    bot._taken_setups["EURUSD|buy"] = "EURUSD|buy|ema_rsi||1.08650"
+    bot._taken_setups["GBPUSD|buy"] = "GBPUSD|buy|ema_rsi||1.31000"
+    bot._note_exit("EURUSD", -1.0)
+    assert "EURUSD|buy" not in bot._taken_setups
+    assert "GBPUSD|buy" in bot._taken_setups
+
+
+def test_the_trader_can_ask_for_it_back() -> None:
+    bot = FakeBot(cooldown=False)
+    bot.cooldown_enabled = True
+    bot._note_exit("EURUSD", -14.0)
+    assert not bot._reentry_ok("EURUSD")[0]
+
+
+def test_the_fingerprint_is_not_switched_off_with_it() -> None:
+    """Different brake, different switch - and this is the one that stops
+    a single setup being bought once a bar for as long as it lasts."""
+    import inspect
+
+    src = inspect.getsource(Trader._dispatch_signal)
+    gate = src[src.index("same_setup("):]
+    assert "cooldown_enabled" not in src[src.index("reentry_guard"):src.index("same_setup(")], \
+        "the fingerprint now depends on the cooldown switch"
+    assert "reentry_guard" in src[:src.index("same_setup(")], \
+        "the fingerprint lost its own switch"
+    assert gate
 
 
 def test_the_desk_can_say_what_is_cooling_down_and_for_how_long() -> None:

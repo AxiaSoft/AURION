@@ -372,7 +372,19 @@ class Trader:
         self._reentry_block: dict[str, dict[str, Any]] = {}
         self._loss_streak: dict[str, int] = {}
         self._taken_setups: dict[str, str] = {}
+        # Two different brakes, two different switches.
+        #
+        # reentry_guard is the setup fingerprint: one signal repeating
+        # itself every bar is not a second opportunity. It stays on.
+        #
+        # cooldown_enabled is the bar-count stand-down after an exit.
+        # It ships OFF, asked for directly - "I want it like it was
+        # before, without the quarantine". It is kept rather than
+        # deleted because the loss-streak stand-down lives on it and
+        # the trader may want it back; nothing about it runs while it
+        # is off.
         self.reentry_guard = True
+        self.cooldown_enabled = False
         self.reentry_loss_bars = reentry_rules.DEFAULT_COOLDOWN_LOSS_BARS
         self.reentry_win_bars = reentry_rules.DEFAULT_COOLDOWN_WIN_BARS
         self.max_consecutive_losses = reentry_rules.DEFAULT_MAX_CONSECUTIVE_LOSSES
@@ -3158,6 +3170,7 @@ class Trader:
         self._auto_cap_last = 0.0
         re_cfg = runtime.get("reentry") if isinstance(runtime.get("reentry"), dict) else {}
         self.reentry_guard = bool(re_cfg.get("enabled", True))
+        self.cooldown_enabled = bool(re_cfg.get("cooldown", False))
         self.reentry_loss_bars = self._clamp_int(
             re_cfg.get("loss_bars"), reentry_rules.DEFAULT_COOLDOWN_LOSS_BARS, 0, 500
         )
@@ -4007,6 +4020,7 @@ class Trader:
             "auto_entry_confirm": str(getattr(self, "auto_entry_confirm", "normal")),
             "auto_entry_max_drift": float(getattr(self, "auto_entry_max_drift", DEFAULT_MAX_DRIFT)),
             "reentry_guard": bool(getattr(self, "reentry_guard", True)),
+            "cooldown_enabled": bool(getattr(self, "cooldown_enabled", False)),
             "reentry_loss_bars": int(getattr(self, "reentry_loss_bars", 3)),
             "reentry_win_bars": int(getattr(self, "reentry_win_bars", 1)),
             "max_consecutive_losses": int(getattr(self, "max_consecutive_losses", 3)),
@@ -4081,6 +4095,7 @@ class Trader:
                     },
                     "reentry": {
                         "enabled": bool(getattr(self, "reentry_guard", True)),
+                        "cooldown": bool(getattr(self, "cooldown_enabled", False)),
                         "loss_bars": int(getattr(self, "reentry_loss_bars", 3)),
                         "win_bars": int(getattr(self, "reentry_win_bars", 1)),
                         "max_consecutive_losses": int(getattr(self, "max_consecutive_losses", 3)),
@@ -4515,6 +4530,8 @@ class Trader:
             cfg = raw if isinstance(raw, dict) else {"enabled": bool(raw)}
             if "enabled" in cfg:
                 self.reentry_guard = bool(cfg.get("enabled"))
+            if "cooldown" in cfg:
+                self.cooldown_enabled = bool(cfg.get("cooldown"))
             for key, attr, default, hi in (
                 ("loss_bars", "reentry_loss_bars", reentry_rules.DEFAULT_COOLDOWN_LOSS_BARS, 500),
                 ("win_bars", "reentry_win_bars", reentry_rules.DEFAULT_COOLDOWN_WIN_BARS, 500),
@@ -5217,9 +5234,17 @@ class Trader:
         return store
 
     def _note_exit(self, symbol: str, net: float) -> None:
-        """A position closed: start this symbol's cooldown."""
+        """A position closed: start this symbol's cooldown.
+
+        The setup memory for this symbol is cleared either way - an exit
+        means the next signal here is genuinely new - but no stand-down
+        is armed unless the trader asked for one.
+        """
         key = self._reentry_key(symbol)
         if not key:
+            return
+        if not getattr(self, "cooldown_enabled", False):
+            self._forget_setups(key)
             return
         losing = float(net or 0) <= 0
         streak = (self._reentry_memory("_loss_streak").get(key, 0) + 1) if losing else 0
@@ -5248,13 +5273,21 @@ class Trader:
         # A new setup is allowed to look new again after an exit - the
         # fingerprint guard is about one signal repeating itself, not
         # about never trading this symbol twice.
+        self._forget_setups(key)
+
+    def _forget_setups(self, key: str) -> None:
+        """After an exit this symbol's setups may look new again.
+
+        The fingerprint guard is about one signal repeating itself, not
+        about never trading the same symbol twice.
+        """
         taken = self._reentry_memory("_taken_setups")
         for setup_key in [k for k in taken if k.startswith(f"{key}|")]:
             taken.pop(setup_key, None)
 
     def _reentry_ok(self, symbol: str) -> tuple[bool, str]:
         """May the robot enter this symbol right now?"""
-        if not getattr(self, "reentry_guard", True):
+        if not getattr(self, "cooldown_enabled", False):
             return True, ""
         blocks = self._reentry_memory("_reentry_block")
         block = blocks.get(self._reentry_key(symbol))
@@ -5273,6 +5306,8 @@ class Trader:
     def reentry_state(self) -> list[dict[str, Any]]:
         """What the robot is standing down on, for the desk to explain."""
         out: list[dict[str, Any]] = []
+        if not getattr(self, "cooldown_enabled", False):
+            return out
         for key, block in self._reentry_memory("_reentry_block").items():
             left = reentry_rules.cooldown_left(block)
             if left <= 0:
