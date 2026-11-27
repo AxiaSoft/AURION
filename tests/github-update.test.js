@@ -369,8 +369,19 @@ console.log("\n=== the rate limit ===");
      whole path was removed - and these guards are what stop it coming
      back one convenience at a time. */
   say(!/id="upd-token"/.test(app), "there is no token field on the desk");
-  say(!/type="password"/.test(app.slice(app.indexOf("upd-interval") - 400, app.indexOf("upd-save"))),
-    "nor any other password box in the update panel");
+  /* This used to slice between "upd-interval" and "upd-save". Both
+     controls have since been removed - the interval was unanswerable
+     and the save button made the switch beside it do nothing until it
+     was pressed - so indexOf returned -1 for each and the slice became
+     an arbitrary tail of the file that happened to contain no password
+     box. Anchored on the panel itself now, which is what it meant. */
+  {
+    const from = app.indexOf('block("set-update"');
+    const to = app.indexOf('block("set-system"', from);
+    say(from > 0 && to > from, "the update panel can be located in the source");
+    say(!/type="password"/.test(app.slice(from, to)),
+      "nor any other password box in the update panel");
+  }
   say(!/github_token/.test(app), "the desk never sends a token anywhere");
   say(!/body\.github_token/.test(idx), "the settings route does not accept one");
   say(!/invalid_token/.test(idx), "so there is no token validation left to get wrong");

@@ -42,6 +42,7 @@ const read = (p) => fs.readFileSync(path.join(ROOT, p), "utf8");
 const UPD = require("../backend/src/updater.js");
 const UPDSRC = read("backend/src/updater.js");
 const APP = read("apps/web/js/app.js");
+const IDX = read("backend/src/index.js");
 const CSS = read("apps/web/css/app.css");
 const PACKS = Object.fromEntries(
   ["en", "fa", "ar"].map((c) => [c, JSON.parse(read("lang/" + c + ".json"))])
@@ -182,25 +183,52 @@ check(
     && /role="alertdialog" aria-modal="true"/.test(APP.slice(APP.indexOf("maybeShowUpdateNotice"))),
   "the warning bar already existed and is dismissable past; a deadline that locks the desk is not"
 );
+/* The record used to be a bare flag: shown once per launch, full stop.
+   That answered "do not nag" and broke the thing actually asked for -
+   "show it WHENEVER an update is found" - because the desk now checks
+   every half hour, so an update appearing an hour into a session was
+   announced only by the bar at the bottom of the screen. The record is
+   keyed by the build it is about instead. */
 check(
-  "it is shown once per launch, not once per render",
+  "the notice is remembered per build, not as a bare flag",
   (() => {
-    if (!/sessionStorage\.getItem\("aurion\.updNag"\)/.test(APP)) return false;
-    if (!/sessionStorage\.setItem\("aurion\.updNag", "1"\)/.test(APP)) return false;
-    // And the guard is actually consulted on the way in. A store that
-    // is written and never read shows the dialog on every poll.
+    if (!/function updateNagKey\(latest\)/.test(APP)) return false;
+    if (!/sessionStorage\.getItem\("aurion\.updNag"\) === key/.test(APP)) return false;
+    if (!/sessionStorage\.setItem\("aurion\.updNag", key\)/.test(APP)) return false;
+    // And the guard is actually consulted. A store that is written and
+    // never read shows the dialog on every poll.
     const fn = APP.slice(APP.indexOf("async function maybeShowUpdateNotice"),
                          APP.indexOf("function paintSupportBar"));
-    return /if \(updateNagShown\(\)\) return false;/.test(fn);
+    return /if \(updateNagShown\(key\)\) return false;/.test(fn);
   })(),
-  "sessionStorage dies with the window, so closing and reopening the app is a new launch"
+  "a newly published build is a new thing to say; the same one is not"
+);
+check(
+  "the key is built from facts that change when the build does",
+  (() => {
+    const fn = APP.slice(APP.indexOf("function updateNagKey(latest)"),
+                         APP.indexOf("function updateNagShown"));
+    return /latest\.version/.test(fn) && /build_date/.test(fn) && /latest\.id/.test(fn);
+  })(),
+  "keying on the version alone would stay silent for every build from main"
+);
+check(
+  "and it is read only once the build is known",
+  (() => {
+    const fn = APP.slice(APP.indexOf("async function maybeShowUpdateNotice"),
+                         APP.indexOf("function paintSupportBar"));
+    // The state fetch has to come first: the question is "has THIS
+    // build been announced", not "has anything been announced".
+    return fn.indexOf("update/state") < fn.indexOf("updateNagShown(key)");
+  })(),
+  "checking the guard before fetching would need a key nobody has yet"
 );
 check(
   "and the flag is set before the dialog is built, not after it is answered",
   (() => {
     const fn = APP.slice(APP.indexOf("async function maybeShowUpdateNotice"));
     const body = fn.slice(0, fn.indexOf("\nfunction paintSupportBar"));
-    const mark = body.indexOf("markUpdateNagShown()");
+    const mark = body.indexOf("markUpdateNagShown(key)");
     const paint = body.indexOf("host.innerHTML");
     // Both must be there. A missing call makes indexOf -1, which would
     // otherwise satisfy "before" and let the guard be deleted.
@@ -251,10 +279,47 @@ check(
   })(),
   "most updates come from main without moving the version, so the version alone shows nothing"
 );
+/* This used to install directly from the modal. Asked to change: "put
+   a button that goes to the update section". It is the better of the
+   two anyway - that page shows the size, the notes and what will be
+   replaced, and it has carried its own install button in every state
+   since the offer card was shared. A modal is the wrong place to begin
+   something that rewrites the installation and restarts it. */
 check(
-  "its action installs rather than sending the reader to go and find the button",
-  /runUpdateInstall\(latest\)/.test(APP),
-  "a call to action that ends on a settings page is a chore"
+  "its action opens the update section rather than installing in place",
+  (() => {
+    const fn = APP.slice(APP.indexOf("async function maybeShowUpdateNotice"),
+                         APP.indexOf("function paintSupportBar"));
+    return /show\("settings"\)/.test(fn)
+      && /showSetTab\("set-update"\)/.test(fn)
+      && !/runUpdateInstall/.test(fn);
+  })(),
+  "the page it opens is where the offer, its notes and its install button already are"
+);
+check(
+  "and the button says so",
+  /upd\.nag_open/.test(APP)
+    && ["en", "fa", "ar"].every((c) => typeof PACKS[c].upd.nag_open === "string"),
+  "a download icon over a label that promises an install would be a lie about what it does"
+);
+check(
+  "the headline leads with the consequence when a deadline is known",
+  (() => {
+    const fn = APP.slice(APP.indexOf("async function maybeShowUpdateNotice"),
+                         APP.indexOf("function paintSupportBar"));
+    return /sup && sup\.deadline[\s\S]{0,160}upd\.nag_title_deadline/.test(fn)
+      && /\{n\}/.test(PACKS.en.upd.nag_title_deadline);
+  })(),
+  '"a new version is available" is news about the product; "this one stops in 5 days" is news about the reader'
+);
+check(
+  "and falls back to the plain announcement rather than inventing urgency",
+  (() => {
+    const fn = APP.slice(APP.indexOf("async function maybeShowUpdateNotice"),
+                         APP.indexOf("function paintSupportBar"));
+    return /upd\.nag_title"\)\)}<\/h3>/.test(fn) || /: I18N\.t\("upd\.nag_title"\)/.test(fn);
+  })(),
+  "an offer with no publication date has no deadline to lead with"
 );
 check(
   "it can be dismissed, by button, by Escape and by the backdrop",
@@ -293,6 +358,134 @@ check(
   "it is styled, and its facts read the same way the lock screen's do",
   /\.upd-nag-card\{/.test(CSS) && /\.upd-nag-facts\{/.test(CSS) && /\.upd-nag-dl\{/.test(CSS),
   "the two screens that discuss this deadline should present it alike"
+);
+
+/* ------------------------------------------------------------------ */
+console.log("\n=== the switch writes itself, and never silences the check ===");
+
+/* Two requests, one idea. "Remove the save button - when I flip the
+   toggle it should apply", and "when the automatic check is off, still
+   check for the update, just do not fetch it; tell me instead."
+
+   The old switch did neither. It only painted, so flipping it and
+   walking away changed nothing until a separate Save button was
+   pressed - and when it WAS saved, off stopped the checking entirely,
+   which left the desk blind to a release while a five-day clock it
+   could not see ran against it. */
+
+check(
+  "the save button is gone from the update panel",
+  !/id="upd-save"/.test(APP) && !/getElementById\('upd-save'\)/.test(APP),
+  "a switch that needs confirming is a switch you can leave half-set"
+);
+check(
+  "the switch writes on the press",
+  (() => {
+    const i = APP.indexOf("if (autoEl) autoEl.onclick");
+    if (i < 0) return false;
+    const fn = APP.slice(i, i + 1200);
+    return /API\.post\('\/api\/system\/update\/settings', \{ auto_check_enabled: want \}\)/.test(fn);
+  })(),
+  "it used to only repaint, which is why flipping it did nothing"
+);
+check(
+  "it paints first, so the control answers the finger",
+  (() => {
+    const i = APP.indexOf("if (autoEl) autoEl.onclick");
+    const fn = APP.slice(i, i + 1200);
+    return fn.indexOf("paintSwitch(autoEl, want)") < fn.indexOf("API.post");
+  })(),
+  "a switch that waits for a round trip reads as a switch that is stuck"
+);
+check(
+  "and puts the paint back if the write is refused",
+  (() => {
+    const i = APP.indexOf("if (autoEl) autoEl.onclick");
+    const fn = APP.slice(i, i + 1200);
+    return /paintSwitch\(autoEl, before\)/.test(fn);
+  })(),
+  "a switch showing a state the server never accepted is worse than one that refuses visibly"
+);
+check(
+  "a double press cannot race two writes",
+  /autoEl\.dataset\.busy === "1"\) return/.test(APP),
+  "two in-flight writes can land in either order, and the loser wins"
+);
+
+check(
+  "the scheduler is no longer gated on the switch",
+  (() => {
+    const i = UPDSRC.indexOf("function startAutoChecker()");
+    const fn = UPDSRC.slice(i, i + 1400).replace(/\/\*[\s\S]*?\*\//g, "");
+    return !/if \(!settings\.auto_check_enabled\) return;/.test(fn);
+  })(),
+  "off must mean \"do not install\", never \"do not look\""
+);
+check(
+  "what the switch gates now is the install",
+  /async function maybeAutoInstall\(res\)/.test(UPDSRC)
+    && /if \(!settings\.auto_check_enabled\) return \{ ok: false, skipped: "notify_only" \}/.test(UPDSRC),
+  "off is not do-nothing; off is tell-me"
+);
+check(
+  "and the check still runs before it, on every tick",
+  /await checkForUpdates\(\);[\s\S]{0,200}await maybeAutoInstall\(res\)/.test(UPDSRC),
+  "the state file is written either way, which is what the desk's notice reads"
+);
+check(
+  "a failed install cannot stop the next check being scheduled",
+  (() => {
+    const i = UPDSRC.indexOf("autoCheckTimer = setTimeout");
+    const fn = UPDSRC.slice(i, i + 900);
+    return /try \{ await maybeAutoInstall\(res\); \} catch/.test(fn)
+      && fn.indexOf("maybeAutoInstall") < fn.indexOf("startAutoChecker()");
+  })(),
+  "an updater that stops rescheduling after one bad night is an updater that stopped"
+);
+
+/* Installing restarts the desk. This repository's own rule, stated
+   over the crash handlers, is that a desk still up beats a clean exit
+   while positions are open - so an automatic install waits for a quiet
+   moment rather than taking one. */
+check(
+  "an automatic install asks whether this is a safe moment",
+  /function setAutoInstallGuard\(fn\)/.test(UPDSRC)
+    && /verdict = await autoInstallGuard\(\)/.test(UPDSRC)
+    && /if \(!verdict \|\| !verdict\.ok\)/.test(UPDSRC),
+  "an update that restarts the desk under an open position is not a safe default"
+);
+check(
+  "the guard refuses while positions are open",
+  /why: "positions_open"/.test(IDX) && /\/v1\/positions/.test(IDX),
+  "there is another check along in half an hour; declining costs nothing"
+);
+check(
+  "and refuses when it cannot tell",
+  /why: "engine_unreachable"/.test(IDX) && /why: "positions_unknown"/.test(IDX),
+  '"I could not tell" must never be read as "nothing is open"'
+);
+check(
+  "the guard is only consulted for an automatic install",
+  (() => {
+    // The owner pressing the button has decided for themselves. The
+    // hook lives in the scheduler's path, not in applyUpdate.
+    const i = UPDSRC.indexOf("async function applyUpdate");
+    return !/autoInstallGuard/.test(UPDSRC.slice(i, i + 3000));
+  })(),
+  "second-guessing a deliberate press is how a button stops being trusted"
+);
+
+check(
+  "the panel says plainly that checking always happens",
+  ["en", "fa", "ar"].every((c) =>
+    typeof PACKS[c].upd.auto_hint === "string" && PACKS[c].upd.auto_hint.length > 20)
+    && /upd\.auto_hint/.test(APP),
+  "a switch labelled \"check automatically\" that cannot stop the checking needs to say so"
+);
+check(
+  "and the switch is labelled for what it now does",
+  /install/i.test(PACKS.en.upd.auto),
+  "it gates the install, so calling it \"check automatically\" would be the old lie"
 );
 
 /* ------------------------------------------------------------------ */

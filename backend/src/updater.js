@@ -1190,11 +1190,64 @@ function nextCheckDelayMs(lastCheckMs, nowMs) {
   return Math.max(AUTO_CHECK_FIRST_MS, due - now);
 }
 
+/* Something the updater must not decide for itself: whether this is a
+ * safe moment to replace the files and restart.
+ *
+ * The server registers a predicate (see index.js). The updater asks it
+ * and believes the answer. It is wired this way round so that nothing
+ * about open positions or engine health has to be reachable from here.
+ */
+let autoInstallGuard = null;
+function setAutoInstallGuard(fn) {
+  autoInstallGuard = typeof fn === "function" ? fn : null;
+}
+
+/**
+ * Install what the last check found, if the owner asked for that.
+ *
+ * The switch used to mean "check automatically", and turning it off
+ * stopped the checking - which left the desk silent about a release it
+ * could easily have seen, while a five-day clock it could not see ran
+ * against it. Checking is therefore unconditional now, and the switch
+ * means the part that was always the real decision: whether the update
+ * is FETCHED AND APPLIED without being asked.
+ *
+ * Off is not "do nothing". Off is "tell me" - the state file is
+ * written either way and the desk raises its notice from that.
+ */
+async function maybeAutoInstall(res) {
+  const settings = getSettings();
+  if (!settings.auto_check_enabled) return { ok: false, skipped: "notify_only" };
+  if (!res || !res.ok || !res.update_available) return { ok: false, skipped: "nothing_to_do" };
+  const latest = res.latest || (readJsonSecure(UPDATE_STATE_FILE, {}) || {}).latest;
+  if (!latest || !latest.id) return { ok: false, skipped: "no_target" };
+
+  /* Applying restarts the desk. This file's own rule, stated at the
+     top of index.js, is that a desk which is still up beats a clean
+     exit while positions are open - so an automatic install waits for
+     a quiet moment rather than taking one. There is another check
+     along in half an hour; nothing is lost by declining this one. */
+  if (autoInstallGuard) {
+    let verdict = null;
+    try { verdict = await autoInstallGuard(); } catch { verdict = null; }
+    if (!verdict || !verdict.ok) {
+      return { ok: false, skipped: (verdict && verdict.why) || "guard_refused" };
+    }
+  }
+  try {
+    const out = await applyUpdate(String(latest.id), "", { auto: true });
+    return out || { ok: false, error: "apply_failed" };
+  } catch (e) {
+    return { ok: false, error: (e && e.message) || "apply_failed" };
+  }
+}
+
 let autoCheckTimer = null;
 function startAutoChecker() {
   stopAutoChecker();
   const settings = getSettings();
-  if (!settings.auto_check_enabled) return;
+  /* Deliberately NOT gated on auto_check_enabled any more. Detection is
+     unconditional; the setting decides only what happens afterwards. */
   if (getSourceKind() !== "github" && !settings.update_server_url) return;
 
   const last = Date.parse(String(settings.last_check || "")); // NaN when never
@@ -1202,10 +1255,11 @@ function startAutoChecker() {
 
   autoCheckTimer = setTimeout(async () => {
     autoCheckTimer = null;
-    try { await checkForUpdates(); } catch { /* offline is not a failure */ }
-    /* Re-read the settings rather than closing over them: the interval
-       may have been changed while this one was pending, and the next
-       window should be the one that is configured now. */
+    let res = null;
+    try { res = await checkForUpdates(); } catch { /* offline is not a failure */ }
+    try { await maybeAutoInstall(res); } catch { /* an install that fails must not stop the next check */ }
+    /* Re-read the settings rather than closing over them: the switch
+       may have been changed while this check was pending. */
     try { startAutoChecker(); } catch { /* never let the scheduler stop the desk */ }
   }, delay);
   /* A pending check must not be the reason a process refuses to exit. */
@@ -1245,6 +1299,8 @@ module.exports = {
   stopAutoChecker,
   /* Exported for the tests: the placement rule is the whole feature. */
   nextCheckDelayMs,
+  setAutoInstallGuard,
+  maybeAutoInstall,
   AUTO_CHECK_FIRST_MS,
   AUTO_CHECK_WINDOW_MS,
 };
