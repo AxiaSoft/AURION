@@ -135,7 +135,6 @@ function getSettings() {
   const defaults = {
     update_server_url: "",
     auto_check_enabled: false,
-    auto_check_interval_hours: 6,
     last_check: null,
     last_check_result: null,
   };
@@ -204,7 +203,9 @@ function saveSettings(patch) {
   }
   writeSecure(UPDATE_SETTINGS_FILE, {
     auto_check_enabled: next.auto_check_enabled,
-    auto_check_interval_hours: next.auto_check_interval_hours,
+    /* auto_check_interval_hours is deliberately not written back. A
+       file from an older build may still carry one; it is dropped on
+       the next save rather than migrated, because nothing reads it. */
     last_check: next.last_check,
     last_check_result: next.last_check_result,
     // do not persist url from dashboard, only from source; keep placeholder for compatibility
@@ -1136,67 +1137,57 @@ function getUpdateState() {
 
 /* ---- the automatic check, and when it actually happens -------------
  *
- * The setting is "every N hours", and it used to be a setInterval of
- * exactly N hours started when the process came up. Two things were
- * wrong with that, and both were reported:
+ * There used to be a second setting here: "check every N hours",
+ * default six. It has been removed, and the reason is the one the
+ * owner gave - an interval is not a decision anybody has the
+ * information to make. Nobody knows when a release will be cut, so no
+ * number entered in that box can be right, and every number in it is
+ * a delay between a fix existing and a desk being told about it. The
+ * five-day support window runs from PUBLICATION, not from discovery,
+ * so a desk that checked twice a day could spend a sixth of its grace
+ * period simply not knowing.
  *
- *   1. The check landed at the END of the window. Six hours was read
- *      as "within six hours" and behaved as "after six hours", so a
- *      release published a minute after a tick sat unseen for the
- *      whole period - and on a desk that is restarted during the day,
- *      the tick never arrived at all, because the interval counted
- *      uptime rather than time.
+ * So the cadence is fixed and frequent, and it is not configurable:
  *
- *   2. The only thing that saved it was a check thirty seconds after
- *      every boot, which ignored the setting completely in the other
- *      direction: a desk opened six times a day checked six times,
- *      whatever the interval said.
+ *   AUTO_CHECK_FIRST_MS   shortly after the process comes up, which is
+ *                         what catches a release published while this
+ *                         machine was switched off. Not instant: the
+ *                         engine is still starting and the trader is
+ *                         waiting for the desk, not for this.
+ *   AUTO_CHECK_WINDOW_MS  every half hour after that.
  *
- * So the window is now measured from the LAST CHECK, which is on disk
- * and survives restarts, and the check is placed INSIDE it rather than
- * on its edge - at a random point in the middle of the window. Random
- * for two reasons: it is still inside the window wherever it lands, and
- * a field of desks that all started from the same release do not line
- * up on the same minute afterwards.
+ * The cost is nothing like the old setting implied. A check is three
+ * requests when something has moved and none when nothing has - the
+ * HEAD of the branch is compared first - against a ceiling of sixty an
+ * hour. Forty-eight checks a day sit far inside it.
  *
- * The guarantee is the one the setting claims: no window of N hours
- * passes without a check, and no window gets two.
+ * The window is measured from the LAST CHECK, which is on disk and
+ * survives restarts, so a desk restarted six times in an hour still
+ * checks about twice. That part of the old design was right and is
+ * kept.
  */
 
-/* Where in the window the check goes: never at the start (a restart
-   must not mean an immediate check), never at the end (that is the
-   fault being fixed). With six hours this is between three hours and
-   five and a half. */
-const AUTO_CHECK_EARLIEST = 0.5;
-const AUTO_CHECK_LATEST = 0.9;
-
-/** The window, in ms, honouring the same 1..168 hour clamp as the route. */
-function autoCheckWindowMs(settings) {
-  const hours = Math.max(1, Math.min(168, Number(settings && settings.auto_check_interval_hours) || 6));
-  return hours * 3600 * 1000;
-}
+/** How soon after startup the first check runs. */
+const AUTO_CHECK_FIRST_MS = 20 * 1000;
+/** And the gap between checks after that. Fixed, deliberately. */
+const AUTO_CHECK_WINDOW_MS = 30 * 60 * 1000;
 
 /**
  * How long until the next check, given when the last one happened.
  *
- * Exported for the tests, and pure: no clock, no disk, no network. A
- * scheduler that can only be observed by waiting six hours is a
- * scheduler nobody checks.
+ * Exported for the tests, and pure: no clock, no disk, no network, no
+ * randomness. A scheduler that can only be observed by waiting six
+ * hours is a scheduler nobody checks.
  */
-function nextCheckDelayMs(windowMs, lastCheckMs, nowMs, frac) {
-  const span = Math.max(60 * 1000, Number(windowMs) || 0);
+function nextCheckDelayMs(lastCheckMs, nowMs) {
   const now = Number.isFinite(nowMs) ? nowMs : Date.now();
-  /* No check on record - a fresh install, or a settings file from
-     before this existed. Treat the window as having started now, so
-     the first check is inside the first window like every other. */
-  const last = Number.isFinite(lastCheckMs) && lastCheckMs > 0 ? lastCheckMs : now;
-  const r = Number.isFinite(frac) ? frac : Math.random();
-  const at = last + span * (AUTO_CHECK_EARLIEST + (AUTO_CHECK_LATEST - AUTO_CHECK_EARLIEST) * r);
-  /* Overdue - the desk was off, or the clock moved. Check promptly,
-     but not in the first seconds of a boot: the engine is still coming
-     up and a network call there competes with the thing the trader is
-     waiting for. */
-  return Math.max(30 * 1000, at - now);
+  const last = Number.isFinite(lastCheckMs) && lastCheckMs > 0 ? lastCheckMs : 0;
+  /* Never checked, or the window already elapsed while the desk was
+     off. Go soon - but not in the first seconds of a boot, where a
+     network call competes with the thing the trader is waiting for. */
+  if (!last) return AUTO_CHECK_FIRST_MS;
+  const due = last + AUTO_CHECK_WINDOW_MS;
+  return Math.max(AUTO_CHECK_FIRST_MS, due - now);
 }
 
 let autoCheckTimer = null;
@@ -1206,9 +1197,8 @@ function startAutoChecker() {
   if (!settings.auto_check_enabled) return;
   if (getSourceKind() !== "github" && !settings.update_server_url) return;
 
-  const windowMs = autoCheckWindowMs(settings);
   const last = Date.parse(String(settings.last_check || "")); // NaN when never
-  const delay = nextCheckDelayMs(windowMs, last, Date.now());
+  const delay = nextCheckDelayMs(last, Date.now());
 
   autoCheckTimer = setTimeout(async () => {
     autoCheckTimer = null;
@@ -1255,5 +1245,6 @@ module.exports = {
   stopAutoChecker,
   /* Exported for the tests: the placement rule is the whole feature. */
   nextCheckDelayMs,
-  autoCheckWindowMs,
+  AUTO_CHECK_FIRST_MS,
+  AUTO_CHECK_WINDOW_MS,
 };

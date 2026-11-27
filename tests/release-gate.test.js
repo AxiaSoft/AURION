@@ -313,21 +313,61 @@ check("the progress object carries both numbers from the start", () => {
 /* =============== 7. the desk says the right thing ==================== */
 
 check("an update with no release behind it can be installed from the panel", () => {
-  const i = APP.indexOf("async function bindUpdatePanel");
-  const bind = APP.slice(i, i + 7000);
-  must(/upd-apply-btn/.test(bind), "the install button is gone");
+  // The card used to be written inline inside bindUpdatePanel. It is
+  // one function now, because there were two renderings of the same
+  // offer and only the one you reached by pressing "check" could
+  // install anything -- see the test below.
+  const i = APP.indexOf("function updateOfferHtml(upd, res)");
+  must(i > 0, "the offer card is no longer written in one place");
+  const card = APP.slice(i, i + 2000);
+  must(/upd-apply-btn/.test(card), "the install button is gone");
+  const j = APP.indexOf("async function bindUpdatePanel");
+  const bind = APP.slice(j, j + 7000);
   must(/st\.data\.update_available && st\.data\.latest/.test(bind),
     "the offer branch no longer keys off update_available");
   must(!/upd-dev-btn/.test(APP), "a second, separate install button for branch builds has appeared");
   return "one button, one path";
 });
 
+check("the install is offered however the update was found", () => {
+  // Reported: "when the update is detected automatically, show the
+  // install option the same way the manual check does, and keep it
+  // there in every state." The automatic check writes its result to
+  // the update state, which is what the panel reads on open -- and
+  // that path used to render a description with nothing to press, so
+  // the desk that found the update by itself made you find it again
+  // by hand before it would install it.
+  const i = APP.indexOf("async function bindUpdatePanel");
+  const bind = APP.slice(i, i + 9000);
+  // Path one: the state the automatic check left behind.
+  must(/statusEl\.innerHTML = updateOfferHtml\(st\.data\.latest, st\.data\)/.test(bind),
+    "the automatically-found update is still rendered without an install button");
+  must(/bindUpdateApply\(st\.data\.latest\)/.test(bind),
+    "that card's button is drawn but never wired");
+  // Path two: pressing check.
+  must(/resultEl\.innerHTML = updateOfferHtml\(upd, res\)/.test(bind),
+    "the manual check no longer uses the shared card");
+  must(/bindUpdateApply\(upd\)/.test(bind), "the manual card's button is not wired");
+  // And one behaviour, not two copies of it.
+  must(APP.split("updateOfferHtml(").length - 1 >= 3,
+    "the card is not shared between the two paths");
+  must(/function bindUpdateApply\(upd\)/.test(APP), "the apply handler was not extracted with it");
+  return "one card, both paths, both wired";
+});
+
 check("and it says where it came from, so a blank changelog is not a bug", () => {
   must(/function fromMainHtml\(res\)/.test(APP), "nothing explains an offer with no notes");
   must(/if \(!res \|\| !res\.unpublished\) return "";/.test(APP),
     "the note is drawn for tagged releases too");
-  must(/\+ fromMainHtml\(st\.data\)/.test(APP), "the panel does not show it");
-  must(/\+fromMainHtml\(res\)/.test(APP), "the result card after pressing check does not show it");
+  // Both paths now render through updateOfferHtml, which is the one
+  // place the note is drawn -- and it is handed the response object
+  // each caller has, so an unpublished offer explains itself whether
+  // it was found by hand or by the automatic check.
+  must(/fromMainHtml\(res \|\| null\)/.test(APP), "the shared offer card does not show it");
+  must(/updateOfferHtml\(st\.data\.latest, st\.data\)/.test(APP),
+    "the panel does not pass the state through, so it cannot say where it came from");
+  must(/updateOfferHtml\(upd, res\)/.test(APP),
+    "the result card after pressing check does not pass its response");
   must(/unpublished: Boolean\(r\.unpublished\)/.test(APP),
     "checkForUpdate drops the flag, so the result card can never draw the note");
   for (const code of ["en", "fa", "ar"]) {

@@ -1267,7 +1267,6 @@
     "title": "System updates",
     "settings": "Update settings",
     "auto": "Check automatically",
-    "interval": "Check every (hours)",
     "save": "Save settings",
     "status": "Update status",
     "last_check": "Last check",
@@ -1364,7 +1363,16 @@
     "err_finish": "Finish the update",
     "err_cancel": "Cancel the update",
     "err_cancel_partial": "Cancel anyway",
-    "err_cancel_partial_confirm": "Some files were already replaced. If you cancel now, AURION will be running a mix of the old and new versions until the update is finished. Cancel anyway?"
+    "err_cancel_partial_confirm": "Some files were already replaced. If you cancel now, AURION will be running a mix of the old and new versions until the update is finished. Cancel anyway?",
+    "auto_how": "Checked automatically every half hour, and shortly after the app starts.",
+    "build_no": "Build number",
+    "nag_title": "A new version of AURION is available",
+    "nag_body": "Installing it takes a few minutes and changes nothing in your setup — your strategies, keys and settings stay exactly as they are.",
+    "nag_installed": "Installed build",
+    "nag_offered": "New build",
+    "nag_warn": "This build stops being supported {n} days after the new one was published. After that the desk locks and automatic trading stops until it is updated.",
+    "nag_later": "Later",
+    "nag_now": "Update now"
   },
   "sup": {
     "warn_days": "{n} days until this version's support ends",

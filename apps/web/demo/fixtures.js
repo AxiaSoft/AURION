@@ -2453,7 +2453,6 @@ window.AURION_DEMO_FIXTURES = {
   "settings": {
    "update_server_url": "http://127.0.0.1:8898",
    "auto_check_enabled": false,
-   "auto_check_interval_hours": 6,
    "last_check": null,
    "last_check_result": null,
    "source_url": "http://127.0.0.1:8898",
@@ -2465,7 +2464,6 @@ window.AURION_DEMO_FIXTURES = {
   "data": {
    "update_server_url": "http://127.0.0.1:8898",
    "auto_check_enabled": false,
-   "auto_check_interval_hours": 6,
    "last_check": null,
    "last_check_result": null,
    "source_url": "http://127.0.0.1:8898",
