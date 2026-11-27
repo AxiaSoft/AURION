@@ -466,6 +466,166 @@ function toast(msg, opts) {
   if (!opts.silent) noticeSound();
   return el;
 }
+
+/* ===================================================================
+ * The bell, and the panel behind it.
+ *
+ * Asked for in these words: "add an icon to the header with a bell
+ * so the notifications can be seen there, in case the user could not
+ * see them; the panel should come over the menu panel, be a bit
+ * bigger so it reads properly, have a cross to close it, and work
+ * responsively on mobile."
+ *
+ * The cards on screen expire after five seconds - deliberately, they
+ * carry prices that go stale - which until now meant a trader who was
+ * looking at a chart simply never learned a signal had fired. Every
+ * announcement is therefore also written here, and the bell is where
+ * it is read back.
+ * =================================================================== */
+
+/** How many announcements are kept. Enough for a session, not a log. */
+const NOTIF_LOG_MAX = 60;
+
+/**
+ * Remember one announcement.
+ *
+ * Called by every path that puts a card on screen, so the panel is a
+ * record of what the desk said rather than a second thing that has to
+ * be kept in step by hand.
+ */
+function logNotice(note) {
+  if (!note || !note.title) return null;
+  const list = S.notifLog || (S.notifLog = []);
+  const entry = {
+    id: String(note.id || `n-${Date.now()}-${list.length}`),
+    kind: String(note.kind || "info"),
+    title: String(note.title || ""),
+    body: String(note.body || ""),
+    extra: String(note.extra || ""),
+    symbol: String(note.symbol || ""),
+    timeframe: String(note.timeframe || ""),
+    sig: note.sig && typeof note.sig === "object" ? note.sig : null,
+    at: Number(note.at) || Date.now(),
+  };
+  /* The same announcement arriving twice - a poll re-reading a note it
+     has already shown - is one line, not two. */
+  if (list.some((n) => n.id === entry.id)) return null;
+  list.unshift(entry);
+  if (list.length > NOTIF_LOG_MAX) list.length = NOTIF_LOG_MAX;
+  paintBell();
+  if (S._notifOpen) renderNotifPanel();
+  return entry;
+}
+
+/** The dot on the bell: something has arrived and not been read. */
+function paintBell() {
+  const dot = $("bell-dot");
+  if (!dot) return;
+  const unread = (S.notifLog || []).some((n) => !n.read);
+  dot.hidden = !unread;
+}
+
+function notifTime(ms) {
+  try {
+    return new Date(Number(ms) || Date.now())
+      .toLocaleTimeString(I18N.lang === "fa" ? "fa-IR" : I18N.lang === "ar" ? "ar" : "en-GB",
+        { hour: "2-digit", minute: "2-digit" });
+  } catch { return ""; }
+}
+
+function renderNotifPanel() {
+  const host = $("notif-panel");
+  if (!host) return;
+  const where = overlayHost();
+  if (host.parentElement !== where) where.appendChild(host);
+  const scrim = $("notif-scrim");
+  if (scrim && scrim.parentElement !== where) where.appendChild(scrim);
+  const list = S.notifLog || [];
+  host.innerHTML =
+    `<header class="notif-head">
+       <h3 id="notif-title">${esc(I18N.t("notify.bell"))}</h3>
+       <button type="button" class="icon-btn notif-x" id="notif-close"
+               aria-label="${esc(I18N.t("common.close"))}"
+               title="${esc(I18N.t("common.close"))}">${icon("close")}</button>
+     </header>
+     <div class="notif-list" id="notif-list">${
+       list.length
+         ? list.map((n) => `<article class="notif-row is-${esc(n.kind)}" data-nrid="${esc(n.id)}">
+             <span class="notif-when mono">${esc(notifTime(n.at))}</span>
+             <span class="notif-body">
+               <b>${esc(n.title)}</b>
+               ${n.body ? `<span class="sub">${esc(n.body)}</span>` : ""}
+               ${n.extra ? `<span class="sub dim">${esc(n.extra)}</span>` : ""}
+               ${n.symbol && n.kind === "signal"
+                 ? `<button type="button" class="btn tiny notif-go"
+                            data-nsym="${esc(n.symbol)}" data-ntf="${esc(n.timeframe)}"
+                            data-nrid="${esc(n.id)}">${esc(I18N.t("signal.open_ea_chart"))}</button>`
+                 : ""}
+             </span>
+           </article>`).join("")
+         : `<p class="sub notif-empty">${esc(I18N.t("notify.empty"))}</p>`
+     }</div>`;
+}
+
+/**
+ * Open or close the panel.
+ *
+ * Opening it marks everything read, because that is what reading it
+ * is. The dot comes back with the next announcement.
+ */
+function toggleNotifPanel(force) {
+  const host = $("notif-panel");
+  const scrim = $("notif-scrim");
+  const btn = $("btn-bell");
+  if (!host) return;
+  const open = force === undefined ? !S._notifOpen : Boolean(force);
+  S._notifOpen = open;
+  if (open) {
+    renderNotifPanel();
+    for (const n of S.notifLog || []) n.read = true;
+    paintBell();
+  }
+  host.hidden = !open;
+  host.classList.toggle("open", open);
+  if (scrim) scrim.hidden = !open;
+  if (btn) btn.setAttribute("aria-expanded", open ? "true" : "false");
+}
+
+function bindNotifPanel() {
+  if (S._notifBound) return;
+  S._notifBound = true;
+  const btn = $("btn-bell");
+  if (btn) {
+    btn.onclick = (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      toggleNotifPanel();
+    };
+  }
+  const scrim = $("notif-scrim");
+  if (scrim) scrim.onclick = () => toggleNotifPanel(false);
+  const host = $("notif-panel");
+  if (host) {
+    host.addEventListener("click", (e) => {
+      if (e.target.closest("#notif-close")) {
+        e.preventDefault();
+        toggleNotifPanel(false);
+        return;
+      }
+      const go = e.target.closest(".notif-go");
+      if (!go) return;
+      e.preventDefault();
+      const entry = (S.notifLog || []).find((n) => n.id === go.dataset.nrid);
+      toggleNotifPanel(false);
+      openSignalChart(go.dataset.nsym, go.dataset.ntf, entry && entry.sig);
+    });
+  }
+  document.addEventListener("keydown", (e) => {
+    if (e.key === "Escape" && S._notifOpen) toggleNotifPanel(false);
+  });
+  paintBell();
+}
+
 function modalOpen() {
   const host = $("desk-modal");
   return Boolean(host && !host.hidden);
@@ -2622,6 +2782,11 @@ function announcePropCheck(d) {
     `<p class="sub">${esc(line)}</p>` +
     (ok ? "" : `<p class="sub n-only">${esc(String(d.why || ""))}</p>`);
   stack.prepend(card);
+  logNotice({
+    id, kind: ok ? "pass" : "block",
+    title: I18N.t(ok ? "notify.prop_pass" : "notify.prop_stop"),
+    body: line, extra: ok ? "" : String(d.why || ""), symbol: d.symbol || "",
+  });
   bindDismiss(card);
   while (stack.children.length > 4) stack.lastElementChild.remove();
   autoDismiss(card);
@@ -2924,6 +3089,12 @@ function pushTradeCard(t) {
     `<h4>${esc(tradeHeadline(t))}</h4>` +
     `<p class="sub">${esc(tradeDetail(t))}</p>`;
   stack.prepend(card);
+  /* ...and into the bell, so a trader who was looking at a chart for
+     the five seconds this card was up can still read it. */
+  logNotice({
+    id, kind: t.kind === "entry" ? "entry" : (t.result === "loss" ? "loss" : "profit"),
+    title: tradeHeadline(t), body: tradeDetail(t), symbol: t.symbol || "",
+  });
   /* Local card: dismissing it is a removal, not a request. Routing it
      through the server dismissal is what used to clear the whole stack. */
   bindDismiss(card);
@@ -2978,6 +3149,13 @@ function pushSignalCard(sig) {
     `<button type="button" class="btn tiny" data-sig-open="${esc(sig.symbol || "")}"
              data-sig-tf="${esc(sig.timeframe || "")}">${esc(I18N.t("signal.open_ea_chart"))}</button>`;
   stack.prepend(card);
+  logNotice({
+    id, kind: "signal",
+    title: signalHeadline(sig),
+    body: signalDetail(sig) || I18N.t("signal.no_levels"),
+    extra: signalSource(sig) || "",
+    symbol: sig.symbol || "", timeframe: sig.timeframe || "", sig,
+  });
   bindDismiss(card);
 
   // Signals stack up during a busy session; keep the newest few.
@@ -3019,7 +3197,15 @@ function openSignalChart(symbol, timeframe, sig) {
     S.showSignals = true;
     localStorage.setItem("aurion.signalsEnabled", "1");
   }
-  openChartDesk(symbol, timeframe || S.timeframe);
+  /* Full screen, like every other door into a chart.
+   *
+   * Reported: "when a buy or sell notification arrives and I press
+   * 'go to the chart', that chart screen is not complete - it should
+   * come up full screen, the way it does when I open a chart from the
+   * chart list." It was the only caller not passing the flag, so the
+   * same chart looked like a smaller, half-finished feature depending
+   * on which door was used. */
+  openChartDesk(symbol, timeframe || S.timeframe, { fullscreen: true });
   if (S.pendingSignal) fetchChartSignals(symbol, timeframe || S.timeframe);
 }
 
@@ -3663,28 +3849,44 @@ function enhanceSelects(root) {
     wrap.appendChild(btn);
     document.body.appendChild(menu);
 
-    /* Whatever labelled the select now labels the button.
+    /* A label around a dropdown opens NOTHING.
      *
-     * A field's caption is part of its target - people click it, and
-     * they should get the desk's dropdown rather than the system's.
-     * Both spellings are handled: <label for="..."> and the common
-     * one on this desk, a <label> with the control inside it. An
-     * explicit `for` wins over the implicit association, so pointing
-     * it at the button is enough to stop the select being activated
-     * from there - which is the second drawer that kept opening. */
+     * Said plainly, twice: "the drawers still open when I click
+     * around them - make it open only when I click the control
+     * itself."
+     *
+     * Two different things were doing that, and the second one was
+     * mine. The original fault was the system list: clicking a label
+     * ACTIVATES the control it labels, and a hidden <select> being
+     * activated opens the operating system's popup, whatever
+     * pointer-events or opacity say. The cure was to point the label
+     * at the desk's own button instead - which stopped the system
+     * list, and left the caption, its padding and the whole width of
+     * the row opening the desk's dropdown. For a field whose caption
+     * is a line of text above a narrow control, that is a dropdown
+     * opening when a person clicks what looks like empty space.
+     *
+     * So the label is neutralised rather than redirected. It stays a
+     * label - it still names the control for assistive technology
+     * through aria-labelledby - but clicking it does nothing at all.
+     * The dropdown opens when the dropdown is clicked. */
     const owner = sel.closest("label")
       || (sel.id ? labelFor(sel.id) : null);
     if (owner) {
-      if (!btn.id) btn.id = `dd-btn-${Math.random().toString(36).slice(2, 9)}`;
-      owner.htmlFor = btn.id;
-      /* An implicit label wrapping its control keeps forwarding to
-         that control in some engines even with `for` set elsewhere,
-         so the caption is also wired directly. */
+      /* An explicit `for` pointing at nothing beats the implicit
+         association with the select inside it, so the browser has
+         no control to activate from here. */
+      if (!owner.id) owner.id = `dd-lbl-${Math.random().toString(36).slice(2, 9)}`;
+      owner.setAttribute("for", `${owner.id}-names-only`);
+      btn.setAttribute("aria-labelledby", owner.id);
+      /* ...and the default action is refused outright, for the
+         engines that keep forwarding a click from a label to the
+         control nested inside it regardless. Capture, so it is
+         settled before anything else sees the click. */
       owner.addEventListener("click", (e) => {
         if (e.target.closest(".dd-btn") || e.target.closest(".dd-menu")) return;
         e.preventDefault();
-        btn.click();
-      });
+      }, true);
     }
 
     const paint = () => {
@@ -18723,9 +18925,11 @@ async function loadNotifies() {
  */
 function paintNotifies() {
   const stack = $("notify-stack");
-  const dot = $("bell-dot");
   const notes = (S.notes || []).filter((n) => !n.dismissed);
-  if (dot) dot.hidden = !notes.length;
+  /* The dot belongs to the bell's own record now - see paintBell. It
+     used to be driven from the engine's undismissed notes alone, which
+     said nothing about the signals and fills that never go to the
+     engine at all. */
   if (!stack) return;
 
   stack.querySelectorAll('[data-note="server"]').forEach((el) => el.remove());
@@ -18746,6 +18950,7 @@ function paintNotifies() {
                aria-label="${esc(I18N.t("notify.dismiss"))}">${icon("close")}</button>` +
       `<h4>${esc(n.title || "")}</h4><p>${esc(n.body || "")}</p>`;
     stack.appendChild(card);
+    logNotice({ id: String(n.id), kind: "note", title: n.title || "", body: n.body || "" });
     bindDismiss(card, () => dismissNote(n.id));
     /* Timing out is not the same as being dismissed: the card goes and
        is not shown again, but the note stays on the engine. Closing or
@@ -18778,8 +18983,9 @@ async function dismissNote(id) {
   });
   const stack = $("notify-stack");
   if (stack) stack.hidden = stack.children.length === 0;
-  const dot = $("bell-dot");
-  if (dot) dot.hidden = !(S.notes || []).filter((n) => !n.dismissed).length;
+  /* The dot is the bell's, and the bell knows about more than the
+     engine's notes. See paintBell. */
+  paintBell();
   try { await API.post("/api/notify/" + encodeURIComponent(id) + "/dismiss", {}); } catch { /* offline */ }
 }
 function showPayResult(ok, extra) {
@@ -20774,6 +20980,9 @@ function showSupportLock(st) {
 
 async function boot() {
   bindChrome();
+
+  /* The bell in the header, and the panel it opens. */
+  bindNotifPanel();
 
   /* Every <select> on the desk becomes the desk's own dropdown, in
      every sheet and drawer and not only on the stage. See

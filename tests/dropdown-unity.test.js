@@ -348,12 +348,26 @@ console.log("\n-- a label must not open the system list ----------------");
     "...by cancelling the activation rather than hoping it is unreachable");
   ok(/sel\.addEventListener\("keydown", swallow\)/.test(body),
     "...including from the keyboard");
-  ok(/owner\.htmlFor = btn\.id/.test(body),
-    "whatever labelled the select now labels the desk's own button");
+  /* Reported a THIRD time: "it still opens when I click around it."
+     Pointing the label at the desk's button did stop the system list,
+     but it made the caption, its padding and the whole width of the row
+     open the dropdown - which is exactly the "around it" the trader
+     meant. So the label is now neutralised rather than redirected: it
+     labels nothing, it lends its text to the button through
+     aria-labelledby, and a click anywhere on it that is not on the
+     button or the menu is cancelled outright. */
+  ok(/htmlFor = `\$\{owner\.id\}-names-only`|-names-only/.test(body),
+    "the label is pointed at nothing, so it activates nothing");
+  ok(!/owner\.htmlFor = btn\.id/.test(body),
+    "...and specifically not at the desk's button, which made the whole row a trigger");
+  ok(/aria-labelledby/.test(body),
+    "...while the button still borrows the caption for its accessible name");
   ok(/sel\.closest\("label"\)/.test(body),
     "...and a label wrapping its control is found too, not only label[for]");
-  ok(/btn\.click\(\)/.test(body),
-    "clicking a field's caption opens the desk's dropdown");
+  ok(!/btn\.click\(\)/.test(body),
+    "a click on the caption is not forwarded to the dropdown");
+  ok(/addEventListener\("click",[\s\S]{0,200}?true\s*\)/.test(body),
+    "...it is cancelled in the capture phase, before anything can act on it");
 }
 
 console.log("\n-- the calendar says which chart ------------------------");

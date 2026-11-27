@@ -198,6 +198,16 @@
           <button class="icon-btn hdr-drawer-btn" id="btn-hdr-drawer" type="button" data-i18n-title="hdr.drawer" aria-label="Status and equity" aria-expanded="false" aria-controls="hdr-drawer">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><polyline points="6,9.5 12,15.5 18,9.5"/></svg>
           </button>
+          <!-- The bell. A notification that has timed out is not a
+               notification that never happened: everything the desk
+               announces is kept here so a trader who was looking
+               somewhere else can still read it. -->
+          <button class="icon-btn hdr-bell" id="btn-bell" type="button"
+                  data-i18n-title="notify.bell" aria-label="Notifications"
+                  aria-expanded="false" aria-controls="notif-panel">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M18 16V11a6 6 0 10-12 0v5l-1.6 2.2a.6.6 0 00.5.95h14.2a.6.6 0 00.5-.95z"/><path d="M10 21.5a2.2 2.2 0 004 0"/></svg>
+            <span class="bell-dot" id="bell-dot" hidden></span>
+          </button>
           <button class="icon-btn" id="btn-refresh" type="button" aria-label="Refresh" title="Refresh">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M20.5 12a8.5 8.5 0 11-2.6-6.1"/><polyline points="20.5,3.5 20.5,8 16,8"/></svg>
           </button>
@@ -226,6 +236,12 @@
   </div>
   <div class="toast-wrap" id="toasts"></div>
   <div class="notify-stack" id="notify-stack" hidden></div>
+  <!-- The bell's panel and its scrim. Parented to <body> and above the
+       navigation drawer on purpose: it is opened from the header while
+       the menu may be open behind it. -->
+  <div class="notif-scrim" id="notif-scrim" hidden></div>
+  <aside class="notif-panel" id="notif-panel" role="dialog" aria-modal="false" hidden
+         aria-labelledby="notif-title"></aside>
   <div class="pay-veil hidden" id="pay-veil"></div>
   <!--
     Loaded before everything that talks to the network.  It is inert unless

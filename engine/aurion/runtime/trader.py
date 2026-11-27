@@ -350,6 +350,13 @@ class Trader:
         self.auto_entry_confirm = "normal"
         self._auto_entry_sweep = 0.0
         self._auto_entry_tickets: set[int] = set()
+        # Plans waiting for the market to agree with them, keyed by
+        # symbol+side. A signal that cannot be confirmed in the same
+        # instant it fires is parked here at ITS OWN price and asked
+        # again on later candles, instead of being dropped and re-planned
+        # from a market that has since moved past the level. See
+        # _watch_parked_entries.
+        self._parked_entries: dict[str, dict[str, Any]] = {}
         # Entries on the wire, per symbol. Held from just before the send
         # until MetaTrader reports the position (or the send fails), so a
         # second signal arriving in the gap cannot reuse the same slot.
@@ -1352,6 +1359,12 @@ class Trader:
             await self.sweep_pending()
         except Exception:
             log.exception("pending sweep failed")
+        try:
+            # Entries waiting on confirmation get another look on every
+            # cycle, not only when the strategy happens to speak again.
+            await self.watch_parked_entries()
+        except Exception:
+            log.exception("parked entry watch failed")
         tg = getattr(self, "telegram", None)
         if getattr(self, "_pos_bootstrapped", False):
             # One event per real entry and exit, published where the
@@ -5003,6 +5016,18 @@ class Trader:
             mode=str(getattr(self, "auto_entry_confirm", "normal")),
         )
         if not verdict.get("confirmed"):
+            # Park it. This is the whole fix for an entry that was always
+            # planted too late: the plan used to be thrown away here, and
+            # the only way back was for the strategy to fire again - by
+            # which time the market had moved, so the next plan was measured
+            # back from a NEW market price. The level the trader was shown
+            # kept running away from price, the candle sailed through where
+            # the entry should have been, and the order never existed.
+            #
+            # The plan is kept at the price it was born with, and asked
+            # again on every watch tick. Nothing goes on the wire yet - that
+            # is what confirmation means - but nothing is lost either.
+            self._park_entry(symbol, side, request, plan, verdict)
             await self.journal(
                 "info",
                 "auto_entry_waiting",
@@ -5012,6 +5037,7 @@ class Trader:
             )
             return {**request, "action": "hold", "auto_entry_waiting": True,
                     "confirm": dict(verdict), "plan": dict(plan)}
+        self._unpark_entry(symbol, side)
         out = {
             **request,
             "action": "pending",
@@ -5034,6 +5060,150 @@ class Trader:
             {"plan": dict(plan)},
         )
         return out
+
+    @staticmethod
+    def _park_key(symbol: str, side: str) -> str:
+        return f"{str(symbol or '').upper()}|{str(side or '').lower()}"
+
+    def _park_entry(
+        self,
+        symbol: str,
+        side: str,
+        request: dict[str, Any],
+        plan: dict[str, Any],
+        verdict: dict[str, Any],
+    ) -> None:
+        """Keep an unconfirmed plan alive at its own price.
+
+        A newer signal for the same symbol and side replaces the old plan -
+        the strategy has just said something more recent about the same
+        trade - but the parking time is carried over, so a strategy that
+        repeats itself every candle cannot keep its own entry alive for
+        ever past the shelf life.
+        """
+        key = self._park_key(symbol, side)
+        now = time.time()
+        previous = self._parked_entries.get(key) or {}
+        self._parked_entries[key] = {
+            "symbol": str(symbol or ""),
+            "side": str(side or "").lower(),
+            "request": dict(request),
+            "plan": dict(plan),
+            "confirm": dict(verdict),
+            "since": float(previous.get("since") or now),
+            "last_look": now,
+        }
+
+    def _unpark_entry(self, symbol: str, side: str) -> dict[str, Any] | None:
+        return self._parked_entries.pop(self._park_key(symbol, side), None)
+
+    def parked_entries(self) -> list[dict[str, Any]]:
+        """What the robot is waiting at, for the desk to draw and explain."""
+        out: list[dict[str, Any]] = []
+        for item in self._parked_entries.values():
+            plan = item.get("plan") or {}
+            out.append({
+                "symbol": item.get("symbol"),
+                "side": item.get("side"),
+                "price": plan.get("price"),
+                "order_type": plan.get("order_type"),
+                "sl": plan.get("sl"),
+                "tp": plan.get("tp"),
+                "since": item.get("since"),
+                "why": (item.get("confirm") or {}).get("reason"),
+            })
+        return out
+
+    async def watch_parked_entries(self) -> int:
+        """Ask the market again about every entry that is still waiting.
+
+        Runs on the same cycle as the pending sweep. For each parked plan
+        the confirmation is re-read against the latest candles at the
+        ORIGINAL price; when it finally passes, the order goes on the wire
+        at that price. If price has already traded through the level by
+        then the resting order would be on the wrong side and the broker
+        would refuse it, so it is sent at market - the level confirmed, and
+        the trade the trader was shown is the trade they get.
+
+        Never raises: a failure here must not stop the trading loop.
+        """
+        if not self._parked_entries:
+            return 0
+        if not getattr(self, "auto_entry", False):
+            # The setting was turned off while plans were waiting. They
+            # were made under a rule that no longer applies.
+            self._parked_entries.clear()
+            return 0
+        expiry = int(getattr(self, "auto_entry_expiry", 120))
+        mode = str(getattr(self, "auto_entry_confirm", "normal"))
+        now = time.time()
+        sent = 0
+        for key, item in list(self._parked_entries.items()):
+            symbol = str(item.get("symbol") or "")
+            side = str(item.get("side") or "")
+            plan = dict(item.get("plan") or {})
+            price = float(plan.get("price") or 0)
+            if expiry > 0 and now - float(item.get("since") or now) > expiry * 60:
+                self._parked_entries.pop(key, None)
+                await self.journal(
+                    "info",
+                    "auto_entry_expired",
+                    f"Entry for {side} {symbol} at {price} was never confirmed within "
+                    f"{expiry} minutes — dropped",
+                )
+                continue
+            verdict = confirm_entry(side, self._confirm_candles(symbol), price, mode=mode)
+            item["confirm"] = dict(verdict)
+            item["last_look"] = now
+            if not verdict.get("confirmed"):
+                continue
+            self._parked_entries.pop(key, None)
+            request = dict(item.get("request") or {})
+            tick = self.tick_of(symbol) or {}
+            market = float(tick.get("ask") if side == "buy" else tick.get("bid") or 0) or 0.0
+            passed = bool(market) and (
+                (side == "buy" and market <= price) or (side == "sell" and market >= price)
+            )
+            if passed:
+                # Price is already at or beyond the level. Resting an order
+                # here is the rejected-order case; the confirmation we were
+                # waiting for has arrived, so take it.
+                request.update({"action": "market", "auto_entry_taken": True})
+                request.pop("price", None)
+            else:
+                request.update({
+                    "action": "pending",
+                    "order_type": plan.get("order_type"),
+                    "price": price,
+                    "auto_entry": True,
+                })
+                if plan.get("sl"):
+                    request["sl"] = plan["sl"]
+                if plan.get("tp"):
+                    request["tp"] = plan["tp"]
+            request["confirm"] = dict(verdict)
+            await self.journal(
+                "info",
+                "auto_entry_confirmed",
+                f"Entry for {side} {symbol} at {price} confirmed ({verdict.get('reason')}) — "
+                + ("taking it at market" if passed else "resting the order now"),
+                {"plan": plan, "confirm": dict(verdict)},
+            )
+            try:
+                result = await self.execute(request)
+            except Exception:
+                log.exception("could not send the confirmed entry for %s", symbol)
+                continue
+            if (result or {}).get("ok"):
+                sent += 1
+            else:
+                await self.journal(
+                    "warning",
+                    "auto_entry_refused",
+                    f"The confirmed entry for {side} {symbol} was refused: "
+                    f"{(result or {}).get('error') or 'no reason given'}",
+                )
+        return sent
 
     def _confirm_candles(self, symbol: str, count: int = 6) -> list[dict[str, Any]]:
         """The last few closed bars, for the entry confirmation check."""

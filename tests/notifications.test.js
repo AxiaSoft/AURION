@@ -127,4 +127,96 @@ ok("the desktop host accepts a trade message, not only a signal",
 ok("a losing exit is raised with a warning icon",
    /Field\(raw, "level"\) == "warning" \? ToolTipIcon\.Warning/.test(host));
 
+
+/* --- the bell, and the panel behind it -------------------------------
+ *
+ * Asked for after the cards themselves were working: "add an icon to
+ * the header with a bell so the notifications can be seen there, in
+ * case the user could not see them; the panel should come over the
+ * menu panel, be a bit bigger so it reads properly, have a cross to
+ * close it, and work responsively on mobile."
+ *
+ * The cards expire after five seconds on purpose - they carry prices
+ * that go stale - so until now a trader who was looking at a chart
+ * simply never learned that a signal had fired. These checks pin the
+ * record, not the decoration.
+ */
+
+const html = fs.readFileSync(path.join(root, "apps/web/index.html"), "utf8");
+const css = fs.readFileSync(path.join(root, "apps/web/css/app.css"), "utf8");
+
+ok("the header carries a bell", /id="btn-bell"/.test(html));
+ok("...inside the header's own action row",
+   html.slice(html.indexOf("top-actions"), html.indexOf("top-actions") + 2000).includes("btn-bell"));
+ok("...with the unread dot it has always tried to paint",
+   /id="bell-dot"/.test(html),
+   "app.js referenced #bell-dot for a long time with no such element in the page");
+ok("the bell opens a panel that exists", /id="notif-panel"/.test(html));
+ok("...and the panel has a scrim to click away on", /id="notif-scrim"/.test(html));
+
+ok("every announcement is written to the bell's record",
+   /function logNotice\(/.test(app));
+for (const [who, where] of [
+  ["a trade", "function pushTradeCard("],
+  ["a signal", "function pushSignalCard("],
+  ["a prop decision", "function announcePropCheck("],
+]) {
+  const body = app.slice(app.indexOf(where), app.indexOf(where) + 2600);
+  ok(`${who} card is recorded as well as shown`, /logNotice\(/.test(body),
+     "a card nobody saw in five seconds would be lost for good");
+}
+const paint = app.slice(app.indexOf("function paintNotifies("), app.indexOf("function paintNotifies(") + 2200);
+ok("an engine note is recorded too", /logNotice\(/.test(paint));
+
+ok("the record is capped so a long session cannot grow for ever",
+   /NOTIF_LOG_MAX/.test(app));
+ok("the same announcement twice is one line",
+   /list\.some\(\(n\) => n\.id === entry\.id\)/.test(app));
+ok("opening the panel marks what is in it as read",
+   /for \(const n of S\.notifLog \|\| \[\]\) n\.read = true/.test(app));
+ok("the dot means something unread, not something undismissed",
+   /function paintBell\(/.test(app) && /\.some\(\(n\) => !n\.read\)/.test(app));
+ok("the panel has a cross", /id="notif-close"/.test(app));
+ok("...and Escape closes it too",
+   /e\.key === "Escape" && S\._notifOpen/.test(app));
+ok("a recorded signal can still be opened on a chart",
+   /notif-go/.test(app) && /openSignalChart\(/.test(app.slice(app.indexOf("function bindNotifPanel("))));
+ok("the bell is wired up at boot", /bindNotifPanel\(\);/.test(app));
+
+/* The z-index is the requirement, not a detail: the bell lives in the
+   header, and on a narrow screen the navigation drawer sits at 210 over
+   a scrim at 200. A panel below that range would open BEHIND the menu
+   it was opened in front of. */
+const panelCss = css.slice(css.indexOf(".notif-panel{"), css.indexOf(".notif-panel{") + 900);
+const zPanel = Number((panelCss.match(/z-index:(\d+)/) || [])[1]);
+const navCss = css.slice(css.indexOf(".nav-scrim"), css.indexOf(".nav-scrim") + 600);
+const zNav = Math.max(...(navCss.match(/z-index:(\d+)/g) || ["z-index:210"])
+  .map((m) => Number(m.split(":")[1])));
+ok("the panel opens above the menu panel", zPanel > zNav,
+   `panel ${zPanel} vs menu ${zNav}`);
+ok("...and its scrim is above the menu as well",
+   Number((css.slice(css.indexOf(".notif-scrim{"), css.indexOf(".notif-scrim{") + 400)
+     .match(/z-index:(\d+)/) || [])[1]) > zNav);
+ok("the panel is bigger than a notification card",
+   /inline-size:min\(440px/.test(panelCss),
+   "a card is 380px; the panel is where the text is actually read");
+ok("the panel is capped to the viewport rather than overflowing it",
+   /calc\(100vw - 28px\)/.test(panelCss) && /max-block-size:min\(70vh/.test(panelCss));
+const mobile = css.slice(css.indexOf(".notif-panel{"));
+ok("on a phone it becomes a bottom sheet, not a floating card",
+   /@media \(max-width: 760px\)\{[\s\S]{0,600}?\.notif-panel\{[\s\S]{0,300}?inset-block-end:0/.test(mobile));
+ok("...clear of the home indicator", /padding-block-end:var\(--safe-b/.test(mobile));
+ok("...with a thumb-sized button on it", /\.notif-go\{min-block-size:40px\}/.test(mobile));
+
+/* Four kinds of card, one clock. Asked for explicitly: news, signal,
+   trade and profit/loss exit notifications must live five seconds like
+   everything else. */
+ok("there is one notification lifetime, not four",
+   /const NOTIFY_LIFE_MS = 5000;/.test(app));
+const lives = (app.match(/\n\s*autoDismiss\(/g) || []).length;
+ok("every path that raises a card puts it on that clock", lives >= 5,
+   `found ${lives} autoDismiss calls`);
+ok("...and a card nobody asked to keep uses the shared default",
+   /const life = Number\(ms\) > 0 \? Number\(ms\) : NOTIFY_LIFE_MS;/.test(app));
+
 console.log(`\n${passed} checks passed`);

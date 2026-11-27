@@ -174,6 +174,22 @@ check("the reason it was moved is written where it could be moved back", () => {
   return "noted in app.css";
 });
 
+/* --- "go to chart" must open the whole chart -------------------------
+   Reported: the button on a buy/sell notification opened a chart that
+   was not all there. Opening the same instrument from the chart list
+   gives the full-screen desk, and that is what the trader is comparing
+   it against - a half-drawn panel behind the notification stack is not
+   the chart they asked for. */
+
+check("the notification's chart button opens the full desk", () => {
+  const fn = APP.slice(APP.indexOf("function openSignalChart("));
+  const body = fn.slice(0, fn.indexOf("\n}\n"));
+  must(/openChartDesk\(/.test(body), "it does not open the chart desk at all");
+  must(/fullscreen:\s*true/.test(body),
+    "it opens the desk without asking for full screen, which is the half-chart reported");
+  return "openChartDesk(..., { fullscreen: true })";
+});
+
 /* --------------------------------------------------------------------- */
 
 if (failures.length) {
