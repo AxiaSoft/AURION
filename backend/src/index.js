@@ -1696,14 +1696,47 @@ wss.on("connection", (socket, req) => {
 
 const host = process.env.AURION_HOST || cfg.backend.host || "0.0.0.0";
 const port = Number(process.env.AURION_PORT || cfg.backend.port || 8080);
-// Start update auto-checker
+/* Whether this is a safe moment to replace the files and restart.
+ *
+ * Only consulted for an AUTOMATIC install - an owner pressing the
+ * button has decided for themselves and is not second-guessed here.
+ *
+ * The rule is the one stated further down for the crash handlers: a
+ * desk that is still up beats a clean exit while positions are open.
+ * An automatic install waits for a quiet moment rather than taking
+ * one, and declining costs nothing because there is another check
+ * along in half an hour.
+ *
+ * An engine that cannot be reached is a refusal, not a green light.
+ * "I could not tell" must never be read as "nothing is open". */
+updater.setAutoInstallGuard(async () => {
+  let data = null;
+  try {
+    data = await engine.proxy("GET", "/v1/positions");
+  } catch {
+    return { ok: false, why: "engine_unreachable" };
+  }
+  if (!data || data.error) return { ok: false, why: "engine_unreachable" };
+  const rows = Array.isArray(data) ? data
+    : Array.isArray(data.positions) ? data.positions
+    : Array.isArray(data.data) ? data.data
+    : null;
+  if (rows === null) return { ok: false, why: "positions_unknown" };
+  if (rows.length) return { ok: false, why: "positions_open" };
+  return { ok: true };
+});
+
+// Start update auto-checker. It runs whatever the switch says: the
+// switch decides whether what it finds is installed, not whether the
+// desk is allowed to know about it.
 try { updater.startAutoChecker(); } catch {}
 
 /* The support clock has to be wound by something.
  *
- * The auto-checker above is the user's: it is off by default and they
- * may turn it off again. Enforcement cannot depend on a switch the
- * thing being enforced upon owns, so this runs unconditionally - four
+ * The auto-checker above now runs unconditionally too, but it is the
+ * user's: they own its settings file and could empty it. Enforcement
+ * cannot depend on anything the thing being enforced upon owns, so
+ * this keeps its own independent tick - four
  * checks a day, which is three GitHub requests cold and none when
  * nothing has moved, against a ceiling of sixty an hour.
  *

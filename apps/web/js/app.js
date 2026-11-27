@@ -10686,7 +10686,10 @@ const views = {
         <div class="card">
           <h3>${I18N.t("upd.settings")}</h3>
           <div class="stx-toggle">
-            <div class="stx-toggle-txt"><b>${I18N.t("upd.auto")}</b></div>
+            <div class="stx-toggle-txt">
+              <b>${I18N.t("upd.auto")}</b>
+              <span class="sub">${esc(I18N.t("upd.auto_hint"))}</span>
+            </div>
             ${switchHtml({ id: "upd-auto", label: I18N.t("upd.auto") })}
           </div>
           <!-- The "check every N hours" box is gone. Nobody knows when
@@ -10696,9 +10699,14 @@ const views = {
                support window that starts counting at publication. The
                cadence is fixed at half an hour now, and said plainly
                rather than asked for. -->
+          <!-- No save button. A switch that needs confirming is a
+               switch you can leave half-set: the reported behaviour was
+               flipping it, walking away, and the desk still doing what
+               it did before. It writes when it is pressed, and says so.
+               The checking itself is unconditional, which is the other
+               half of the same fix - see upd.auto_how. -->
           <p class="sub">${esc(I18N.t("upd.auto_how"))}</p>
-          <button class="btn block" id="upd-save" type="button">${I18N.t("upd.save")}</button>
-          <p class="sub" id="upd-save-msg"></p>
+          <p class="sub" id="upd-save-msg" aria-live="polite"></p>
         </div>
         <div class="card">
           <h3>${I18N.t("upd.status")}</h3>
@@ -12124,19 +12132,34 @@ async function bindUpdatePanel(){
     }
   } catch {}
 
-  const saveBtn = document.getElementById('upd-save');
-  if(saveBtn) saveBtn.onclick = async () => {
-    const body = {
-      auto_check_enabled: autoEl ? autoEl.classList.contains('on') : false,
-    };
-    const r = await API.post('/api/system/update/settings', body);
-    const txt = r.ok ? I18N.t('upd.saved') : (r.error||I18N.t('upd.error'));
-    /* The tick is an icon in the panel; the toast is plain text by nature,
-       and its own wording already says the save succeeded. */
-    if(saveMsg) saveMsg.innerHTML = (r.ok ? icon("check") + ' ' : '') + esc(txt);
-    toast(txt);
+  /* The switch writes itself.
+   *
+   * It used to only paint, and a separate Save button underneath did
+   * the writing - so flipping it and walking away changed nothing,
+   * which is exactly what was reported. Painted first so the control
+   * answers the finger immediately, then written; if the write fails
+   * the paint is put back, because a switch showing a state the server
+   * never accepted is worse than one that refused visibly.
+   */
+  if (autoEl) autoEl.onclick = async () => {
+    if (autoEl.dataset.busy === "1") return;
+    const want = !autoEl.classList.contains('on');
+    const before = !want;
+    autoEl.dataset.busy = "1";
+    paintSwitch(autoEl, want);
+    if (saveMsg) saveMsg.textContent = I18N.t('common.save');
+    const r = await API.post('/api/system/update/settings', { auto_check_enabled: want });
+    autoEl.dataset.busy = "";
+    if (!r || !r.ok) {
+      paintSwitch(autoEl, before);
+      const txt = (r && r.error) || I18N.t('upd.error');
+      if (saveMsg) saveMsg.innerHTML = '<span class="err">' + esc(txt) + '</span>';
+      toast(txt);
+      return;
+    }
+    if (saveMsg) saveMsg.innerHTML = icon("check") + ' ' + esc(I18N.t('upd.saved'));
+    toast(I18N.t('upd.saved'));
   };
-  if(autoEl) autoEl.onclick = () => paintSwitch(autoEl, !autoEl.classList.contains('on'));
 
   const checkBtn = document.getElementById('upd-check');
   if(checkBtn) checkBtn.onclick = async () => {
@@ -21127,12 +21150,31 @@ function applySupportState(st) {
  */
 
 /** Has this launch already shown the notice? */
-function updateNagShown() {
-  try { return sessionStorage.getItem("aurion.updNag") === "1"; } catch { return Boolean(S._updNag); }
+/* Keyed by the build it is about, not by a bare flag.
+ *
+ * It was once per launch full stop, which answered "do not nag" but
+ * also meant that an update appearing an hour into a session - which
+ * is the normal case now that the desk checks every half hour - was
+ * announced only by a bar at the bottom of the screen. The ask was
+ * the opposite: say it WHENEVER one is found.
+ *
+ * So the record is which build has been announced. A new build is a
+ * new thing to say and raises the notice again; the same build does
+ * not, however many times the poll re-reads it. Still sessionStorage,
+ * so closing the app and opening it says it once more.
+ */
+function updateNagKey(latest) {
+  const v = String((latest && latest.version) || "").trim();
+  const d = String((latest && (latest.build_date || latest.published_at)) || "").trim();
+  const id = String((latest && latest.id) || "").trim();
+  return [v, d, id].filter(Boolean).join("|") || "unknown";
 }
-function markUpdateNagShown() {
-  S._updNag = true;
-  try { sessionStorage.setItem("aurion.updNag", "1"); } catch { /* private mode */ }
+function updateNagShown(key) {
+  try { return sessionStorage.getItem("aurion.updNag") === key; } catch { return S._updNag === key; }
+}
+function markUpdateNagShown(key) {
+  S._updNag = key;
+  try { sessionStorage.setItem("aurion.updNag", key); } catch { /* private mode */ }
 }
 
 /**
@@ -21164,7 +21206,6 @@ function updateNagDeadlineHtml(st) {
  * urgent. None of those is a case for a dialog.
  */
 async function maybeShowUpdateNotice() {
-  if (updateNagShown()) return false;
   /* The lock screen is its own, louder, version of this conversation.
      Two modals about the same deadline is one too many. */
   if (document.getElementById("sup-lock")) return false;
@@ -21184,8 +21225,13 @@ async function maybeShowUpdateNotice() {
     state = st.data;
   } catch { return false; }
 
+  /* Read AFTER the state is known, because the question is "has this
+     build been announced", not "has anything been announced". */
+  const key = updateNagKey(latest);
+  if (updateNagShown(key)) return false;
+
   const sup = supportLive(null);
-  markUpdateNagShown();
+  markUpdateNagShown(key);
 
   let host = document.getElementById("upd-nag");
   if (!host) {
@@ -21197,7 +21243,16 @@ async function maybeShowUpdateNotice() {
   host.innerHTML = `
     <div class="modal-card upd-nag-card" role="alertdialog" aria-modal="true" aria-labelledby="upd-nag-title">
       <div class="upd-nag-mark" aria-hidden="true">${icon("spark")}</div>
-      <h3 id="upd-nag-title">${esc(I18N.t("upd.nag_title"))}</h3>
+      <!-- The headline leads with the consequence when there is one.
+           "A new version is available" is news about the product; "this
+           build stops working on Thursday" is news about the reader's
+           own desk, and that is the sentence that was asked for. With
+           no publication date there is no deadline to lead with, so it
+           falls back to the plain announcement rather than inventing
+           urgency. -->
+      <h3 id="upd-nag-title">${esc(sup && sup.deadline
+        ? I18N.t("upd.nag_title_deadline", { n: fmtNum(supportGraceDays(), 0) })
+        : I18N.t("upd.nag_title"))}</h3>
       <p class="modal-body">${esc(I18N.t("upd.nag_body"))}</p>
       <dl class="upd-nag-facts">
         <div><dt>${esc(I18N.t("upd.nag_installed"))}</dt>
@@ -21209,7 +21264,14 @@ async function maybeShowUpdateNotice() {
       <p class="upd-nag-warn">${icon("hourglass")} ${esc(I18N.t("upd.nag_warn", { n: fmtNum(supportGraceDays(), 0) }))}</p>
       <div class="modal-actions">
         <button type="button" class="btn ghost" id="upd-nag-later">${esc(I18N.t("upd.nag_later"))}</button>
-        <button type="button" class="btn" id="upd-nag-go">${icon("download")} ${esc(I18N.t("upd.nag_now"))}</button>
+        <!-- Opens the update page rather than installing from here.
+             Asked for in those words, and it is the better of the two
+             anyway: that page shows the size, the changelog and what
+             the install will replace, and it has carried its own
+             install button in every state since the offer card was
+             shared. A modal is the wrong place to begin something that
+             rewrites the installation and restarts it. -->
+        <button type="button" class="btn" id="upd-nag-go">${icon("download")} ${esc(I18N.t("upd.nag_open"))}</button>
       </div>
     </div>`;
   host.hidden = false;
@@ -21234,26 +21296,12 @@ async function maybeShowUpdateNotice() {
   const later = document.getElementById("upd-nag-later");
   if (later) later.onclick = close;
   const go = document.getElementById("upd-nag-go");
-  if (go) go.onclick = async () => {
-    /* Straight into the install, with the same confirmation the panel
-       asks. Sending the reader to the settings page to find the button
-       themselves is how a call to action becomes a chore. */
+  if (go) go.onclick = () => {
+    /* Straight to the update section, which is where the offer, its
+       size, its notes and its install button already are. */
     close();
-    const ok = await askConfirm({
-      title: I18N.t("upd.download_apply"),
-      body: I18N.t("upd.confirm").replace("%s", updateStamp(latest)),
-      ok: I18N.t("upd.download_apply"),
-      cancel: I18N.t("common.cancel"),
-    });
-    if (!ok) {
-      /* Changed their mind at the confirmation, not at the notice.
-         Leave them on the panel, where the offer and its install
-         button are both waiting. */
-      show("settings");
-      setTimeout(() => showSetTab("set-update"), 60);
-      return;
-    }
-    await runUpdateInstall(latest);
+    show("settings");
+    setTimeout(() => showSetTab("set-update"), 60);
   };
   void state;
   return true;
