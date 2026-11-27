@@ -76,37 +76,96 @@ function wipeDeskState() {
  * of them would be re-read, so the files would be new and the
  * running program would not be.
  */
-function scheduleRestart(kind) {
+/** The script that has been promised but not yet started, if any. */
+let pending = null;
+
+/** Start the script now. Safe to call twice: the second call is a no-op. */
+function runScriptNow(kind) {
+  if (!pending && kind === undefined) return false;
+  const job = pending || { full: String(kind || "restart") === "relaunch", timer: null };
+  pending = null;
+  try { if (job.timer) clearTimeout(job.timer); } catch { /* */ }
   const log = path.join(DATA, "logs", "desk.log");
   try { fs.mkdirSync(path.join(DATA, "logs"), { recursive: true }); } catch { /* */ }
   const hidden = path.join(ROOT, "scripts", "hidden.vbs");
-  const full = String(kind || "restart") === "relaunch";
-  const win = path.join(ROOT, "scripts", full ? "relaunch-aurion.cmd" : "restart-aurion.cmd");
-  const sh = path.join(ROOT, "scripts", full ? "relaunch-aurion.sh" : "restart-aurion.sh");
-  setTimeout(() => {
-    try {
-      if (process.platform === "win32") {
-        const child = spawn(
-          "cscript.exe",
-          ["//nologo", hidden, ROOT, log, "cmd", "/c", win],
-          { detached: true, stdio: "ignore", windowsHide: true, cwd: ROOT }
-        );
-        child.unref();
-      } else {
-        const child = spawn("bash", [sh], {
-          detached: true,
-          stdio: "ignore",
-          cwd: ROOT,
-        });
-        child.unref();
-      }
-    } catch (err) {
-      try { fs.appendFileSync(log, `${full ? "relaunch" : "restart"} spawn failed: ${err.message}\n`); } catch { /* */ }
+  const win = path.join(ROOT, "scripts", job.full ? "relaunch-aurion.cmd" : "restart-aurion.cmd");
+  const sh = path.join(ROOT, "scripts", job.full ? "relaunch-aurion.sh" : "restart-aurion.sh");
+  try {
+    if (process.platform === "win32") {
+      const child = spawn(
+        "cscript.exe",
+        ["//nologo", hidden, ROOT, log, "cmd", "/c", win],
+        { detached: true, stdio: "ignore", windowsHide: true, cwd: ROOT }
+      );
+      child.unref();
+    } else {
+      const child = spawn("bash", [sh], {
+        detached: true,
+        stdio: "ignore",
+        cwd: ROOT,
+      });
+      child.unref();
     }
+    return true;
+  } catch (err) {
+    try { fs.appendFileSync(log, `${job.full ? "relaunch" : "restart"} spawn failed: ${err.message}\n`); } catch { /* */ }
+    return false;
+  }
+}
+
+/**
+ * Start whatever was promised, immediately, because this process is
+ * about to end.
+ *
+ * The reported fault, and it was introduced by making the update
+ * ending work: "I asked for the app to close and open again after an
+ * update. It closes. It never opens."
+ *
+ * The scheduling below waits 600 ms before spawning, so the HTTP
+ * reply that asked for it can reach the desk first. That was safe for
+ * as long as nothing else was in a hurry. It stopped being safe the
+ * moment the update started ENDING the product itself: the page asks
+ * for the relaunch and then tells the window to close, the window
+ * stops the engine and posts /api/shutdown, and this process calls
+ * process.exit - which throws away pending timers without running
+ * them. The script was never started, so nothing was ever going to
+ * open AURION again.
+ *
+ * A promise to restart must therefore survive the shutdown that
+ * follows it. shutdownAurion calls this on its way out, and the exit
+ * hook below is the backstop for every other way this process can
+ * end.
+ */
+function flushPendingRestart() {
+  if (!pending) return false;
+  return runScriptNow();
+}
+
+process.on("exit", () => { try { flushPendingRestart(); } catch { /* */ } });
+
+function scheduleRestart(kind) {
+  const full = String(kind || "restart") === "relaunch";
+  try { if (pending && pending.timer) clearTimeout(pending.timer); } catch { /* */ }
+  /* A relaunch already promised is not replaced by a lesser restart:
+     an update's full relaunch must not be downgraded by whatever
+     else happens to call this while it is being carried out. */
+  const job = { full: full || Boolean(pending && pending.full), timer: null };
+  pending = job;
+  job.timer = setTimeout(() => {
+    if (pending === job) runScriptNow();
   }, 600);
+  /* Deliberately NOT unref'd: an unreferenced timer would let Node
+     exit with the promise unkept. */
 }
 
 /** Close AURION completely and open it again. See scheduleRestart. */
 function scheduleRelaunch() { return scheduleRestart("relaunch"); }
 
-module.exports = { restoreFactoryConfig, wipeDeskState, scheduleRestart, scheduleRelaunch, FACTORY };
+module.exports = {
+  restoreFactoryConfig,
+  wipeDeskState,
+  scheduleRestart,
+  scheduleRelaunch,
+  flushPendingRestart,
+  FACTORY,
+};
