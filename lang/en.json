@@ -1012,6 +1012,8 @@
     "bell": "Notifications",
     "empty": "No notifications",
     "dismiss": "Dismiss",
+    "clear": "Clear all",
+    "cleared": "Notifications cleared",
     "sounds": "Notification sounds",
     "sounds_hint": "Pick what each event sounds like. Played in the desk, and sent to Windows as well when the window is in the background.",
     "entry": "Trade opened",
