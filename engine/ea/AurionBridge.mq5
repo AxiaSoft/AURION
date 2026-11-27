@@ -1387,6 +1387,30 @@ void SendAccount()
    SendRaw(json);
   }
 
+// How many decimals ONE symbol's prices are written with.
+//
+// Not _Digits. _Digits is the precision of the chart this expert is
+// attached to, and the position and order lists below are the whole
+// terminal's, not this chart's. An expert sitting on gold - two digits -
+// was reporting a GBPUSD position's entry, stop and target as 1.31,
+// 1.31 and 1.31, whatever they really were.
+//
+// Reported exactly that way: "I opened a trade, target 1.3101, stop
+// 1.3094, entry 1.3100, and it keeps changing these numbers to 1.3100."
+// It was not changing them - it was reading them back through the wrong
+// symbol's precision, on every refresh. And it is not only cosmetic:
+// the desk's stop rules act on the numbers this feed reports.
+//
+// SendDeals already did this correctly, which is where the shape of
+// this helper comes from; the other two lists simply never got it.
+int DigitsOf(const string symbol)
+  {
+   int digits = (int)SymbolInfoInteger(symbol, SYMBOL_DIGITS);
+   if(digits <= 0)
+      digits = _Digits;
+   return digits;
+  }
+
 void SendPositions()
   {
    string json = "{\"type\":\"positions\"," + TapeTag() + ",\"items\":[";
@@ -1400,15 +1424,20 @@ void SendPositions()
       if(!first) json += ",";
       first = false;
       string type = (PositionGetInteger(POSITION_TYPE) == POSITION_TYPE_BUY) ? "buy" : "sell";
+      string psym = PositionGetString(POSITION_SYMBOL);
+      // This position's own precision - see DigitsOf. The list is the
+      // terminal's, so the chart's digits are the wrong answer for
+      // every row that is not this chart's symbol.
+      int pdig = DigitsOf(psym);
       json += "{";
       json += "\"ticket\":" + IntegerToString((long)ticket) + ",";
-      json += "\"symbol\":\"" + JsonEsc(PositionGetString(POSITION_SYMBOL)) + "\",";
+      json += "\"symbol\":\"" + JsonEsc(psym) + "\",";
       json += "\"type\":\"" + type + "\",";
       json += "\"volume\":" + DoubleToString(PositionGetDouble(POSITION_VOLUME), 2) + ",";
-      json += "\"price_open\":" + DoubleToString(PositionGetDouble(POSITION_PRICE_OPEN), _Digits) + ",";
-      json += "\"price_current\":" + DoubleToString(PositionGetDouble(POSITION_PRICE_CURRENT), _Digits) + ",";
-      json += "\"sl\":" + DoubleToString(PositionGetDouble(POSITION_SL), _Digits) + ",";
-      json += "\"tp\":" + DoubleToString(PositionGetDouble(POSITION_TP), _Digits) + ",";
+      json += "\"price_open\":" + DoubleToString(PositionGetDouble(POSITION_PRICE_OPEN), pdig) + ",";
+      json += "\"price_current\":" + DoubleToString(PositionGetDouble(POSITION_PRICE_CURRENT), pdig) + ",";
+      json += "\"sl\":" + DoubleToString(PositionGetDouble(POSITION_SL), pdig) + ",";
+      json += "\"tp\":" + DoubleToString(PositionGetDouble(POSITION_TP), pdig) + ",";
       json += "\"profit\":" + DoubleToString(PositionGetDouble(POSITION_PROFIT), 2) + ",";
       json += "\"time\":\"" + IsoTime((datetime)PositionGetInteger(POSITION_TIME)) + "\",";
       json += "\"magic\":" + IntegerToString((long)PositionGetInteger(POSITION_MAGIC)) + ",";
@@ -1457,9 +1486,7 @@ void SendDeals()
       if(dtype != DEAL_TYPE_BUY && dtype != DEAL_TYPE_SELL)
          continue;
       string type = (dtype == DEAL_TYPE_SELL) ? "sell" : "buy";
-      int digits = (int)SymbolInfoInteger(symbol, SYMBOL_DIGITS);
-      if(digits <= 0)
-         digits = _Digits;
+      int digits = DigitsOf(symbol);
       if(!first)
          json += ",";
       first = false;
@@ -1498,14 +1525,17 @@ void SendOrders()
       if(ticket == 0) continue;
       if(!first) json += ",";
       first = false;
+      string osym = OrderGetString(ORDER_SYMBOL);
+      // Same again: a resting order's price belongs to its own symbol.
+      int odig = DigitsOf(osym);
       json += "{";
       json += "\"ticket\":" + IntegerToString((long)ticket) + ",";
-      json += "\"symbol\":\"" + JsonEsc(OrderGetString(ORDER_SYMBOL)) + "\",";
+      json += "\"symbol\":\"" + JsonEsc(osym) + "\",";
       json += "\"type\":\"" + OrderTypeName((ENUM_ORDER_TYPE)OrderGetInteger(ORDER_TYPE)) + "\",";
       json += "\"volume\":" + DoubleToString(OrderGetDouble(ORDER_VOLUME_CURRENT), 2) + ",";
-      json += "\"price\":" + DoubleToString(OrderGetDouble(ORDER_PRICE_OPEN), _Digits) + ",";
-      json += "\"sl\":" + DoubleToString(OrderGetDouble(ORDER_SL), _Digits) + ",";
-      json += "\"tp\":" + DoubleToString(OrderGetDouble(ORDER_TP), _Digits) + ",";
+      json += "\"price\":" + DoubleToString(OrderGetDouble(ORDER_PRICE_OPEN), odig) + ",";
+      json += "\"sl\":" + DoubleToString(OrderGetDouble(ORDER_SL), odig) + ",";
+      json += "\"tp\":" + DoubleToString(OrderGetDouble(ORDER_TP), odig) + ",";
       json += "\"magic\":" + IntegerToString(OrderGetInteger(ORDER_MAGIC)) + ",";
       // The desk expires its own resting orders, which it cannot do without
       // knowing when each one was placed.
@@ -1699,7 +1729,12 @@ void TradePending(const string line)
    req.action = TRADE_ACTION_PENDING;
    req.symbol = _Symbol;
    req.volume = volume;
-   req.price = NormalizeDouble(price, _Digits);
+   // DigitsOf(_Symbol), not _Digits - the same number here, because a
+   // pending order is only ever placed on this chart's symbol, but
+   // written the one way so no trade path in this file is left reading
+   // a precision off the chart instead of off the instrument.
+   int rdig = DigitsOf(_Symbol);
+   req.price = NormalizeDouble(price, rdig);
    req.deviation = 30;
    req.magic = 908173;
    req.type_time = ORDER_TIME_GTC;
@@ -1712,8 +1747,8 @@ void TradePending(const string line)
    else if(kind == "sell_stop")  req.type = ORDER_TYPE_SELL_STOP;
    else if(kind == "buy_stop")   req.type = ORDER_TYPE_BUY_STOP;
    else                          req.type = ORDER_TYPE_BUY_LIMIT;
-   if(sl > 0.0) req.sl = NormalizeDouble(sl, _Digits);
-   if(tp > 0.0) req.tp = NormalizeDouble(tp, _Digits);
+   if(sl > 0.0) req.sl = NormalizeDouble(sl, rdig);
+   if(tp > 0.0) req.tp = NormalizeDouble(tp, rdig);
    bool ok = OrderSend(req, res);
    bool good = ok && (res.retcode == TRADE_RETCODE_DONE || res.retcode == TRADE_RETCODE_PLACED);
    Reply(good, "retcode=" + IntegerToString(res.retcode) + " " + res.comment);

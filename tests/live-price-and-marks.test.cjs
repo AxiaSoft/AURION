@@ -297,5 +297,74 @@ function priceKit(opts) {
   ok(/barTime\(/.test(merge), "an older slab can still re-add bars the chart already holds");
 }
 
+/* --- a price belongs to its symbol, not to the chart ----------------
+ *
+ * Reported, after the desk's own rounding had already been fixed:
+ *
+ *   "I opened a trade - target 1.3101, stop 1.3094, entry 1.3100 -
+ *    and it keeps changing these numbers to 1.3100."
+ *
+ * Nothing was changing them. The expert serialises its position and
+ * order lists with `_Digits`, which is the precision of the CHART IT
+ * IS ATTACHED TO - and those two lists are the whole terminal's, not
+ * that chart's. An expert sitting on gold reports two decimals for
+ * every row, so a GBPUSD position's entry, stop and target all came
+ * back as 1.31, on every refresh.
+ *
+ * Not cosmetic either: the desk's stop rules act on the numbers this
+ * feed reports.
+ *
+ * SendDeals already read each row's own symbol. These checks pin the
+ * other two onto the same rule.
+ */
+{
+  ok(/int DigitsOf\(const string symbol\)/.test(EA),
+    "there is no per-symbol precision helper to share");
+  const helper = EA.slice(EA.indexOf("int DigitsOf(const string symbol)"));
+  ok(/SymbolInfoInteger\(symbol, SYMBOL_DIGITS\)/.test(helper.slice(0, 220)),
+    "the helper does not ask the symbol itself");
+  ok(/digits = _Digits;/.test(helper.slice(0, 260)),
+    "a symbol the terminal cannot describe has no fallback");
+
+  /* The DEFINITION, not the forward declaration at the top of the
+     file: `EA.indexOf("void SendOrders()")` finds the prototype, and a
+     slice taken from there measures a region with no code in it and
+     passes however broken the real body is. */
+  const bodyOf = (name) => {
+    const at = EA.indexOf(name + "\n  {");
+    if (at < 0) return "";
+    const end = EA.indexOf("\n  }\n", at);
+    return EA.slice(at, end > at ? end : at + 3000);
+  };
+  for (const [name, fields] of [
+    ["void SendPositions()", ["price_open", "price_current", "sl", "tp"]],
+    ["void SendOrders()", ["price", "sl", "tp"]],
+  ]) {
+    const body = bodyOf(name);
+    ok(Boolean(body), `${name} is gone`);
+    ok(/DigitsOf\(/.test(body), `${name} does not take the row's own precision`);
+    ok(!/_Digits\)/.test(body),
+      `${name} still writes a price at the chart's precision, not the instrument's`);
+    for (const f of fields) {
+      const line = body.split("\n").find((l) => l.includes(`\\"${f}\\":`));
+      ok(Boolean(line), `${name} no longer reports ${f}`);
+      ok(line && !/_Digits/.test(line), `${name}'s ${f} is still rounded to the chart`);
+    }
+  }
+
+  /* The tick and candle feeds are this chart's symbol and only ever
+     that, so _Digits is the right answer there - checked so the fix
+     above is not "mis-corrected" later into something that costs a
+     lookup on every tick. */
+  const tickFeed = EA.slice(EA.indexOf('\\"bid\\":'), EA.indexOf('\\"bid\\":') + 400);
+  ok(/_Digits/.test(tickFeed), "the tick feed lost the precision it was right to use");
+
+  /* And nothing on a trade path may read the chart any more. */
+  const pend = EA.slice(EA.indexOf("void TradePending("));
+  const pendBody = pend.slice(0, pend.indexOf("\n  }\n"));
+  ok(/NormalizeDouble\(sl, rdig\)/.test(pendBody) && /NormalizeDouble\(tp, rdig\)/.test(pendBody),
+    "a resting order's levels are still normalised against the chart");
+}
+
 console.log(fails ? "\nlive-price-and-marks: " + fails + " check(s) failed" : "\nall good");
 process.exit(fails ? 1 : 0);
