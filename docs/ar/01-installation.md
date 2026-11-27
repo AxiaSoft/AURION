@@ -27,12 +27,12 @@ AURION لا يخترع سوقاً. بعد التثبيت يبقى المكتب �
 | المكتب | `npm install` في `backend` |
 | ملف المستشار | ينسخه `start-aurion.cmd` إلى مجلدات Experts |
 
-## ميتاتريدر 5 وEA 1.30
+## ميتاتريدر 5 وEA 1.31
 
 1. ثبّت طرفية الوسيط وادخل حساباً يحق لك تداوله.
-2. MetaEditor → `AurionBridge.mq5` → **F7**. الإصدار **1.30**.
+2. MetaEditor → `AurionBridge.mq5` → **F7**. الإصدار **1.31**.
 3. أرفقه على كل رسم تريده في المكتب. AutoTrading أخضر. ليس المختبر.
-4. Experts: `hello delivered v1.30` أو `file inbox writing`.
+4. Experts: `hello delivered v1.31` أو `file inbox writing`.
 5. WebRequest اختياري. للقائمة: `127.0.0.1` و`http://127.0.0.1` و`http://127.0.0.1:18765`.
 
 المدخلات: `InpEngineHost=127.0.0.1` على نفس الجهاز و`InpHttpPort=18765`.
