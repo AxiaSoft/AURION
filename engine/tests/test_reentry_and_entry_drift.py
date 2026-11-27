@@ -355,3 +355,62 @@ def test_an_expired_cooldown_leaves_nothing_behind() -> None:
     assert bot._reentry_ok("EURUSD")[0]
     assert bot.reentry_state() == []
     assert "EURUSD" not in bot._reentry_block, "a spent cooldown was never swept"
+
+
+# ------------------------------- a blocked setup is not announced either
+#
+# Reported after the first round of brakes shipped:
+#
+#   "I close a trade and right after it says it entered at the same
+#    entry point I was already in, and then it closes with a profit or
+#    a loss - but nothing is recorded, because it never opened at all.
+#    And the signals are sometimes spammed too."
+#
+# They were right that nothing opened: the cooldown and the setup
+# fingerprint were refusing the entry. But they ran a hundred lines
+# BELOW the announcement, so the desk published a signal - once per
+# bar, for as long as the strategy's condition stayed true - for an
+# entry the gates had already decided to throw away.
+#
+# The rule that fixes it is a rule about what counts as news. Every
+# other gate refuses something real (the AI disagrees, the money rule
+# will not pay, the broker refused) and the trader wants to hear it.
+# These two say it is not a new opportunity at all.
+
+
+def _dispatch_order() -> tuple[int, int]:
+    """Where the brakes sit in _dispatch_signal, against the publish."""
+    import inspect
+
+    src = inspect.getsource(Trader._dispatch_signal)
+    return src.index("_reentry_ok("), src.index('bus.publish("signal"')
+
+
+def test_a_cooling_symbol_is_never_announced_as_an_entry() -> None:
+    brake, publish = _dispatch_order()
+    assert brake < publish, (
+        "the cooldown runs after the signal is published, so a refused entry is "
+        "still announced - the phantom trade the trader reported"
+    )
+
+
+def test_a_repeat_of_a_taken_setup_is_never_announced() -> None:
+    import inspect
+
+    src = inspect.getsource(Trader._dispatch_signal)
+    assert src.index("same_setup(") < src.index('bus.publish("signal"'), (
+        "a setup already taken is re-announced every bar - the signal spam"
+    )
+
+
+def test_the_other_refusals_still_speak() -> None:
+    """The announcement was moved up on purpose once before: a setup the
+    AI refused used to vanish silently and the trader learned about the
+    move from the chart afterwards. Only the two "this is not news"
+    gates may sit above it."""
+    import inspect
+
+    src = inspect.getsource(Trader._dispatch_signal)
+    publish = src.index('bus.publish("signal"')
+    for late in ("ai_low", "ai_disagree", "slots_full", "order_refused"):
+        assert src.index(late) > publish, f"{late} no longer reaches the trader"

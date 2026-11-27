@@ -607,8 +607,19 @@ check("the EA version moves for behaviour, and only for behaviour", () => {
      handling one. The idle timer drops from 400ms to 100ms with a 20ms
      burst after a command lands. The engine sees commands acknowledged
      that used to vanish, and sees them acknowledged sooner, so the
-     number moves. */
-  if (!/#define AURION_EA_VERSION "1\.32"/.test(ea)) {
+     number moves.
+     1.33 stops two rejects reaching the trader as bare numbers on
+     some symbols and not others. 10017 is the SYMBOL being
+     close-only, long-only or disabled - not the account and not the
+     terminal, both of which were already checked - and nothing asked,
+     so the request went to the server to be refused. 10016 is a stop
+     nearer the price than SYMBOL_TRADE_STOPS_LEVEL allows, or off the
+     SYMBOL_TRADE_TICK_SIZE grid; the expert had been reporting both
+     of those fields to the engine since 1.29 and never applied either
+     to its own requests. The engine now gets orders that are accepted
+     where they used to be refused, and a sentence where it used to
+     get a number, so the number moves. */
+  if (!/#define AURION_EA_VERSION "1\.33"/.test(ea)) {
     throw new Error("the version moved again; bump it only for a change the engine can see");
   }
   /* 1.30, asserted rather than described. The elapsed-time form

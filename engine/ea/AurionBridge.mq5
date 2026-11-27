@@ -2,6 +2,17 @@
 //| AurionBridge.mq5                                                 |
 //| Live chart agent for the AURION engine.                          |
 //|                                                                  |
+//| v1.33 — two rejects that only ever appeared on some symbols.   |
+//|   10017 TRADE_DISABLED: the SYMBOL was close-only, long-only   |
+//|   or disabled, which nothing asked about, so the request went  |
+//|   to the server to be refused and came back a bare number.     |
+//|   Now answered as a sentence before anything is sent.          |
+//|   10016 INVALID_STOPS: the stop sat nearer than                |
+//|   SYMBOL_TRADE_STOPS_LEVEL allows, or off the tick grid. Both  |
+//|   fields have been REPORTED to the engine since 1.29 and were  |
+//|   never applied to the expert's own requests. FixStops now     |
+//|   moves a stop out to the nearest level the broker will take.  |
+//|                                                                 |
 //| v1.32 — a close the trader waited seconds for.                 |
 //|   Commands reach this expert through a file, and the engine    |
 //|   OVERWROTE it. Two commands inside one poll window left only  |
@@ -188,10 +199,10 @@
 // nobody could tell. AURION_EA_VERSION is the value sent to the engine;
 // engine/tests/test_ea_version.py fails the build if the #property below
 // drifts from it, because #property will not take a macro.
-#define AURION_EA_VERSION "1.32"
-#property version   "1.32"
+#define AURION_EA_VERSION "1.33"
+#property version   "1.33"
 #property strict
-#property description "AURION live bridge 1.32 — one engine, one port; the file inbox is the only fallback"
+#property description "AURION live bridge 1.33 — one engine, one port; the file inbox is the only fallback"
 
 input string InpEngineHost   = "127.0.0.1";
 input int    InpEnginePort   = 18766;
@@ -1720,6 +1731,90 @@ ENUM_ORDER_TYPE_FILLING FillOf(const string symbol)
    return ORDER_FILLING_RETURN;
   }
 
+// ---- what the broker will actually accept -----------------------------
+//
+// Two rejects kept reaching the trader as bare numbers, and only on
+// some symbols, which is the worst way to meet them:
+//
+//   10017 TRADE_DISABLED  - the SYMBOL is not tradable right now. Not
+//     the account and not the terminal, both of which are already
+//     checked: brokers routinely set a symbol to close-only out of
+//     session, long-only, or disabled outright, and nothing here ever
+//     asked. The request went to the server to be refused.
+//
+//   10016 INVALID_STOPS   - the stop or target sits nearer the price
+//     than SYMBOL_TRADE_STOPS_LEVEL allows, or is not on a multiple of
+//     SYMBOL_TRADE_TICK_SIZE. The expert has been REPORTING both of
+//     those fields to the engine since 1.29 and never once applied
+//     them to its own requests. On an index or a synthetic with a
+//     twenty-point stops level, every stop a sane strategy produces is
+//     inside it.
+//
+// The first cannot be fixed here - it is the broker's rule - so it is
+// turned into a sentence before the order is sent. The second can: a
+// stop too close is moved out to the nearest distance the broker will
+// take, which is what the trader meant anyway.
+
+int StopsGapPoints(const string symbol)
+  {
+   int stops = (int)SymbolInfoInteger(symbol, SYMBOL_TRADE_STOPS_LEVEL);
+   int freeze = (int)SymbolInfoInteger(symbol, SYMBOL_TRADE_FREEZE_LEVEL);
+   return (stops > freeze ? stops : freeze);
+  }
+
+// A price the broker will not round for us. Anything off the tick grid
+// is an invalid request, and the grid is not always one point wide.
+double SnapToTick(const string symbol, const double price)
+  {
+   int digits = DigitsOf(symbol);
+   double step = SymbolInfoDouble(symbol, SYMBOL_TRADE_TICK_SIZE);
+   if(step <= 0.0)
+      return NormalizeDouble(price, digits);
+   return NormalizeDouble(MathRound(price / step) * step, digits);
+  }
+
+// Move a stop or target out to the nearest level the broker accepts,
+// and put both on the tick grid. Nothing is invented: a stop that is
+// already far enough away is only snapped.
+void FixStops(const string symbol, const bool buy, const double price,
+              double &sl, double &tp)
+  {
+   double point = SymbolInfoDouble(symbol, SYMBOL_POINT);
+   if(point <= 0.0)
+      point = 1.0 / MathPow(10.0, DigitsOf(symbol));
+   // The level is a MINIMUM, and price keeps moving while the request
+   // is in flight, so a couple of points of cushion is the difference
+   // between usually working and usually not.
+   double gap = (StopsGapPoints(symbol) + 2) * point;
+   if(sl > 0.0)
+     {
+      if(buy && price - sl < gap)   sl = price - gap;
+      if(!buy && sl - price < gap)  sl = price + gap;
+      sl = SnapToTick(symbol, sl);
+     }
+   if(tp > 0.0)
+     {
+      if(buy && tp - price < gap)   tp = price + gap;
+      if(!buy && price - tp < gap)  tp = price - gap;
+      tp = SnapToTick(symbol, tp);
+     }
+  }
+
+// "" when this symbol can be traded in this direction right now.
+string WhyNotTradable(const string symbol, const bool buy)
+  {
+   long mode = SymbolInfoInteger(symbol, SYMBOL_TRADE_MODE);
+   if(mode == SYMBOL_TRADE_MODE_DISABLED)
+      return symbol + ": the broker has trading disabled for this symbol";
+   if(mode == SYMBOL_TRADE_MODE_CLOSEONLY)
+      return symbol + ": close-only right now — the broker is not taking new positions in it";
+   if(mode == SYMBOL_TRADE_MODE_LONGONLY && !buy)
+      return symbol + ": long-only right now — the broker is not taking sells in it";
+   if(mode == SYMBOL_TRADE_MODE_SHORTONLY && buy)
+      return symbol + ": short-only right now — the broker is not taking buys in it";
+   return "";
+  }
+
 bool Filled(const MqlTradeResult &res)
   {
    return (res.retcode == TRADE_RETCODE_DONE
@@ -1766,7 +1861,13 @@ string WhyNot(const MqlTradeResult &res)
    if(res.retcode == TRADE_RETCODE_INVALID_FILL)
       why += " broker refused every filling mode for this symbol";
    else if(res.retcode == TRADE_RETCODE_INVALID_STOPS)
-      why += " stop or target too close to price";
+      why += " stop or target too close to price, or off the tick grid";
+   else if(res.retcode == TRADE_RETCODE_TRADE_DISABLED)
+      why += " the broker is not accepting this trade on this symbol right now";
+   else if(res.retcode == TRADE_RETCODE_MARKET_CLOSED)
+      why += " the market for this symbol is closed";
+   else if(res.retcode == TRADE_RETCODE_NO_MONEY)
+      why += " not enough free margin for this size";
    if(res.comment != "") why += " " + res.comment;
    return why;
   }
@@ -1808,6 +1909,15 @@ void TradeMarket(const string line)
       req.type = ORDER_TYPE_BUY;
       req.price = SymbolInfoDouble(_Symbol, SYMBOL_ASK);
      }
+   // Ask the symbol before asking the server. A close-only or
+   // long-only symbol answers 10017, which told the trader nothing.
+   string refusal = WhyNotTradable(_Symbol, req.type == ORDER_TYPE_BUY);
+   if(refusal != "") { Reply(false, refusal); return; }
+   // And put the stops where the broker will take them. Both of these
+   // fields have been reported to the engine since 1.29 and were never
+   // applied to the expert's own requests, which is every 10016.
+   FixStops(_Symbol, req.type == ORDER_TYPE_BUY, req.price, sl, tp);
+   req.price = SnapToTick(_Symbol, req.price);
    if(sl > 0.0) req.sl = sl;
    if(tp > 0.0) req.tp = tp;
    bool good = SendOrder(req, res, _Symbol);
@@ -1858,6 +1968,14 @@ void TradePending(const string line)
    else if(kind == "sell_stop")  req.type = ORDER_TYPE_SELL_STOP;
    else if(kind == "buy_stop")   req.type = ORDER_TYPE_BUY_STOP;
    else                          req.type = ORDER_TYPE_BUY_LIMIT;
+   bool pend_buy = (req.type == ORDER_TYPE_BUY_LIMIT || req.type == ORDER_TYPE_BUY_STOP);
+   string pend_refusal = WhyNotTradable(_Symbol, pend_buy);
+   if(pend_refusal != "") { Reply(false, pend_refusal); return; }
+   // A resting order's stops are measured from its own price, not from
+   // the market - that is the level the broker will check them against
+   // when it fills.
+   FixStops(_Symbol, pend_buy, req.price, sl, tp);
+   req.price = SnapToTick(_Symbol, req.price);
    if(sl > 0.0) req.sl = NormalizeDouble(sl, rdig);
    if(tp > 0.0) req.tp = NormalizeDouble(tp, rdig);
    bool good = SendOrder(req, res, _Symbol);
@@ -1934,11 +2052,22 @@ void TradeModify(const string line)
    ZeroMemory(res);
    req.action = TRADE_ACTION_SLTP;
    req.position = ticket;
-   req.symbol = PositionGetString(POSITION_SYMBOL);
-   req.sl = StringToDouble(Extract(line, "sl"));
-   req.tp = StringToDouble(Extract(line, "tp"));
+   string msym = PositionGetString(POSITION_SYMBOL);
+   req.symbol = msym;
+   double msl = StringToDouble(Extract(line, "sl"));
+   double mtp = StringToDouble(Extract(line, "tp"));
+   // Measured from where the market is NOW, not from the entry: the
+   // broker checks a stop against the current price, which is why a
+   // level that was fine when the position opened is refused as 10016
+   // once price has walked towards it.
+   bool mbuy = (PositionGetInteger(POSITION_TYPE) == POSITION_TYPE_BUY);
+   double mref = SymbolInfoDouble(msym, mbuy ? SYMBOL_BID : SYMBOL_ASK);
+   if(mref <= 0.0) mref = PositionGetDouble(POSITION_PRICE_CURRENT);
+   FixStops(msym, mbuy, mref, msl, mtp);
+   req.sl = msl;
+   req.tp = mtp;
    bool ok = OrderSend(req, res);
-   Reply(ok, "retcode=" + IntegerToString(res.retcode));
+   Reply(ok && Filled(res), WhyNot(res));
   }
 
 void Flatten()
