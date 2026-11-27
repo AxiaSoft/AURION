@@ -323,6 +323,68 @@ check("the closing screen says so, in every language", () => {
   }
 });
 
+/* ── 5. ...and it actually comes back ─────────────────────────────── */
+
+/* Reported after the close was fixed: "I asked for the app to close
+ * and open again after an update. It closes. It never opens."
+ *
+ * Two causes, and the second one is still true even though the
+ * product is running afterwards - there is simply nothing on screen. */
+
+check("a promised relaunch survives the shutdown that follows it", () => {
+  /* The script sits on a 600 ms timer so the HTTP reply can get out
+     first. process.exit throws pending timers away without running
+     them - and the update now ends by shutting the product down
+     within those 600 ms. */
+  if (!/function flushPendingRestart\(/.test(HOST)) {
+    throw new Error("nothing can start the script early, so a fast shutdown loses it");
+  }
+  if (!/flushPendingRestart/.test(HOST.slice(HOST.indexOf("module.exports")))) {
+    throw new Error("flushPendingRestart is not exported");
+  }
+  if (!/process\.on\("exit"/.test(HOST)) {
+    throw new Error("no backstop for the other ways this process can end");
+  }
+  const BACKEND = read("backend", "src", "index.js");
+  const fn = BACKEND.slice(BACKEND.indexOf("function shutdownAurion("));
+  const head = fn.slice(0, fn.indexOf("supervisor.stop()"));
+  if (!/hostctl\.flushPendingRestart\(\)/.test(head)) {
+    throw new Error("the shutdown does not keep the promise to come back, or keeps it too late");
+  }
+});
+
+check("a relaunch already promised is not downgraded to a restart", () => {
+  if (!/full: full \|\| Boolean\(pending && pending\.full\)/.test(HOST)) {
+    throw new Error("a later engine-only restart can replace an update's full relaunch");
+  }
+});
+
+check("the relaunch puts the window back on screen", () => {
+  /* start-aurion.cmd starts the engine and the desk and stops there.
+     It opens a browser only when AURION_NO_BROWSER is unset - and the
+     window sets exactly that, so the desk and this script inherit it.
+     Nothing opened AURION again. */
+  const cmd = read("scripts", "relaunch-aurion.cmd");
+  if (!/:OPENWINDOW/.test(cmd)) throw new Error("the relaunch never opens the window");
+  const body = cmd.slice(cmd.indexOf(":OPENWINDOW"));
+  if (!/start "" "%~dp0[.][.][\\/]+AURION[.]exe"/.test(body)) {
+    throw new Error("the window is not started by name");
+  }
+  if (!/start "" "http:\/\/127\.0\.0\.1:8080"/.test(body)) {
+    throw new Error("a tree with no shell beside it is left with nothing on screen");
+  }
+  /* Both endings - the clean one and the port-held one - have to show
+     the trader something. */
+  const calls = cmd.match(/call :OPENWINDOW/g) || [];
+  if (calls.length < 2) {
+    throw new Error("one of the two endings still finishes with no window");
+  }
+  const start = cmd.indexOf("start-aurion.cmd");
+  if (start < 0 || cmd.indexOf("call :OPENWINDOW") < start) {
+    throw new Error("the window is opened before there is a desk for it to show");
+  }
+});
+
 console.log("");
 const bad = results.filter((r) => !r).length;
 console.log(`update-recovery-and-relaunch: ${bad ? bad + " of " + results.length + " checks FAILED" : results.length + " checks passed"}`);

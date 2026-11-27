@@ -97,6 +97,36 @@ call :WIPE "%~dp0..\data\tmp"
 REM Quiet. Start the product as if it were being opened for the first
 REM time today.
 call "%~dp0..\start-aurion.cmd"
+call :OPENWINDOW
+exit /b 0
+
+:OPENWINDOW
+REM And put AURION back on screen.
+REM
+REM The second half of "it closes and never opens again", and the one
+REM that is easy to miss because the product IS running afterwards:
+REM start-aurion.cmd brings up the engine and the desk and stops
+REM there. It opens a browser only when AURION_NO_BROWSER is NOT set -
+REM and AURION.exe sets exactly that variable before it runs this
+REM tree, so the desk process inherits it, and so does this script.
+REM
+REM For as long as the window survived an update, nobody noticed: the
+REM relaunch restarted the services underneath a window that was still
+REM on screen. Now that the window really closes - which is what was
+REM asked for - the relaunch ended with two background processes, no
+REM window, no browser tab and nothing for the trader to look at.
+REM
+REM So the window is opened here, by name. A browser is the fallback
+REM for a tree that has no shell built next to it, and it is opened
+REM whatever AURION_NO_BROWSER says: the window that set it is gone,
+REM so the reason for it is gone too.
+if exist "%~dp0..\AURION.exe" (
+  start "" "%~dp0..\AURION.exe"
+  >>"%LOG%" echo {"msg":"relaunch: the window was started again"}
+  exit /b 0
+)
+start "" "http://127.0.0.1:8080"
+>>"%LOG%" echo {"msg":"relaunch: no AURION.exe beside this tree - opened the desk in a browser"}
 exit /b 0
 
 :WIPE
@@ -117,4 +147,5 @@ echo AURION could not be stopped completely - see data\logs\desk.log
 echo Opening it anyway so the problem can be seen and acted on.
 >>"%LOG%" echo {"msg":"relaunch: a port was still held; opening the desk anyway so the state is visible"}
 call "%~dp0..\start-aurion.cmd"
+call :OPENWINDOW
 exit /b 0

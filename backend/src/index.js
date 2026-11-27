@@ -318,6 +318,18 @@ function shutdownAurion(reason, opts) {
   const hard = Boolean(opts && opts.hard);
   shuttingDown = (async () => {
     const steps = [];
+    /* First of all: keep the promise to come back.
+     *
+     * If an update has asked for a relaunch, the script that reopens
+     * AURION is sitting on a short timer in this process - and this
+     * function ends in process.exit, which discards timers without
+     * running them. That is the whole of "it closes and never opens
+     * again": the shutdown raced the promise and won. Started here,
+     * before anything is stopped, so it is already running by the
+     * time the engine and the desk go. See host.flushPendingRestart. */
+    try {
+      if (hostctl.flushPendingRestart()) steps.push("relaunch script started");
+    } catch { /* never block a shutdown over this */ }
     /* Before anything else: nothing may restart what we are stopping. */
     try { supervisor.stop(); steps.push("supervisor stopped"); } catch { /* */ }
     try {
