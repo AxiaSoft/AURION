@@ -3262,6 +3262,10 @@ html[data-glass="off"] *{
   opacity:0;transform:translateY(6px);
   transition:opacity .22s ease-out .08s, transform .22s ease-out .08s;
 }
+/* A close that has been sent but not yet confirmed by the terminal.
+   The button no longer asks a question, so this is the only feedback
+   between the press and the position leaving the board. */
+[data-close].is-busy{ opacity:.6; cursor:progress }
 #theme-veil.is-busy{ pointer-events:auto; cursor:progress }
 #theme-veil.is-busy .tv-card{opacity:1;transform:none}
 #theme-veil .tv-text{display:flex;flex-direction:column;gap:2px;text-align:start}

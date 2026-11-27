@@ -594,8 +594,21 @@ check("the EA version moves for behaviour, and only for behaviour", () => {
      close-all, which routes through it - came back 10030 and the
      position stayed open. Both are plainly visible to the engine: it
      parses different prices out of the same message and gets a filled
-     close where it used to get a reject, so the number moves. */
-  if (!/#define AURION_EA_VERSION "1\.31"/.test(ea)) {
+     close where it used to get a reject, so the number moves.
+     1.32 changes how commands reach the expert at all. The engine
+     writes them to a file and used to OVERWRITE it, so two commands
+     issued inside one poll window left only the second - the first was
+     dropped and the engine then sat out its twelve-second
+     acknowledgement timeout waiting for a reply to a command nobody
+     held. Closing several positions sends one command per ticket, back
+     to back, so that was the ordinary case rather than a rare race, and
+     it is why a close could take seconds. The file is appended now, one
+     JSON object per line, and PollCommands drains every line instead of
+     handling one. The idle timer drops from 400ms to 100ms with a 20ms
+     burst after a command lands. The engine sees commands acknowledged
+     that used to vanish, and sees them acknowledged sooner, so the
+     number moves. */
+  if (!/#define AURION_EA_VERSION "1\.32"/.test(ea)) {
     throw new Error("the version moved again; bump it only for a change the engine can see");
   }
   /* 1.30, asserted rather than described. The elapsed-time form

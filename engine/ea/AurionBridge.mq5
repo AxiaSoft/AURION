@@ -2,6 +2,17 @@
 //| AurionBridge.mq5                                                 |
 //| Live chart agent for the AURION engine.                          |
 //|                                                                  |
+//| v1.32 — a close the trader waited seconds for.                 |
+//|   Commands reach this expert through a file, and the engine    |
+//|   OVERWROTE it. Two commands inside one poll window left only  |
+//|   the second; the first was dropped and the engine then sat    |
+//|   out its twelve-second acknowledgement timeout. Closing       |
+//|   several positions sends one command per ticket, so that was  |
+//|   the ordinary case. The file is appended now, one object per  |
+//|   line, and PollCommands drains all of them.                   |
+//|   The idle timer also drops from 400ms to 100ms, with a 20ms   |
+//|   burst for three seconds after a command lands.               |
+//|                                                                 |
 //| v1.31 — two numbers the expert had no business guessing.       |
 //|   Positions and orders were serialised with _Digits, which is  |
 //|   the precision of the CHART THIS EXPERT IS ATTACHED TO - and  |
@@ -177,10 +188,10 @@
 // nobody could tell. AURION_EA_VERSION is the value sent to the engine;
 // engine/tests/test_ea_version.py fails the build if the #property below
 // drifts from it, because #property will not take a macro.
-#define AURION_EA_VERSION "1.31"
-#property version   "1.31"
+#define AURION_EA_VERSION "1.32"
+#property version   "1.32"
 #property strict
-#property description "AURION live bridge 1.31 — one engine, one port; the file inbox is the only fallback"
+#property description "AURION live bridge 1.32 — one engine, one port; the file inbox is the only fallback"
 
 input string InpEngineHost   = "127.0.0.1";
 input int    InpEnginePort   = 18766;
@@ -308,6 +319,20 @@ ulong     g_last_quote = 0;
 ulong     g_last_spec      = 0;
 ulong     g_up_since = 0;
 ulong     g_next_try = 0;
+
+// How often the expert looks for work when nothing is happening, and how
+// often it looks just after a command arrived.
+//
+// The idle rate was 400ms, which is most of half a second added to every
+// close the trader presses before the terminal has even been asked. A
+// command poll is one small file read; ten a second costs nothing and is
+// the difference between a button that feels instant and one that does
+// not.
+#define AURION_IDLE_TIMER_MS   100
+#define AURION_FAST_TIMER_MS    20
+#define AURION_FAST_WINDOW_MS 3000
+
+ulong     g_fast_until = 0;
 int      g_phase = 0;
 bool     g_hello_ok = false;
 bool     g_logged_http = false;
@@ -346,7 +371,7 @@ void PumpHistory();
 string HistoryDepthTag(const ENUM_TIMEFRAMES tf, const int requested);
 void SendHistoryShortfall(const int requested);
 void MaybeClosedBar();
-void PollCommands();
+bool PollCommands();
 bool WriteInbox(const string json);
 
 string ChartIdToken()
@@ -382,6 +407,7 @@ int OnInit()
    g_last_beat = 0;
    g_last_quote = 0;
    g_next_try = 0;
+   g_fast_until = 0;
    g_hist_pos = -1;
    g_hist_count = 0;
    g_hist_tries = 0;
@@ -487,7 +513,11 @@ void OnTimer()
       return;
      }
    MaybeClosedBar();
-   PollCommands();
+   if(PollCommands())
+      // A command just landed. Commands come in bursts - closing three
+      // positions is three of them - and the trader is watching, so the
+      // next poll is in a few milliseconds rather than at the idle rate.
+      g_fast_until = now + AURION_FAST_WINDOW_MS;
    if(g_hist_pos >= 0)
      {
       /* History moves at the timer's speed, and the timer is a
@@ -519,7 +549,7 @@ void OnTimer()
    if(!FlushOut())
       g_next_try = now + 600;
    if(g_hist_pos < 0)
-      EventSetMillisecondTimer(400);
+      EventSetMillisecondTimer(now < g_fast_until ? AURION_FAST_TIMER_MS : AURION_IDLE_TIMER_MS);
   }
 
 void BurstConnect()
@@ -552,7 +582,7 @@ void BurstConnect()
       PumpHistory();
       FlushOut();
      }
-   EventSetMillisecondTimer(120);
+   EventSetMillisecondTimer(AURION_IDLE_TIMER_MS);
   }
 
 void OnTrade()
@@ -732,14 +762,44 @@ void DropCmdFiles()
    FileDelete(CmdName());
   }
 
-void PollCommands()
+// Every command that arrived since the last look, not just one.
+//
+// The engine appends one JSON object per line, because two commands
+// issued inside one poll window used to overwrite each other and the
+// first was lost - the engine then waited out its twelve-second
+// acknowledgement timeout for a command nobody still held. Closing
+// several positions sends one command per ticket, back to back, so that
+// was the ordinary case and not a rare race.
+//
+// Returns true when something was handled, which puts the timer into
+// its fast lane: commands arrive in bursts, and the next one is
+// usually already on its way.
+bool PollCommands()
   {
-   string line = ReadCmdFlags(FILE_COMMON);
-   if(line == "")
-      line = ReadCmdFlags(0);
-   if(line == "")
-      return;
-   HandleCommand(line);
+   string blob = ReadCmdFlags(FILE_COMMON);
+   if(blob == "")
+      blob = ReadCmdFlags(0);
+   if(blob == "")
+      return false;
+   string lines[];
+   int n = StringSplit(blob, (ushort)'\n', lines);
+   if(n <= 0)
+     {
+      HandleCommand(blob);
+      return true;
+     }
+   bool did = false;
+   for(int i = 0; i < n; i++)
+     {
+      string line = lines[i];
+      StringTrimLeft(line);
+      StringTrimRight(line);
+      if(StringLen(line) < 5)
+         continue;
+      HandleCommand(line);
+      did = true;
+     }
+   return did;
   }
 
 bool PostJson(const string json, const int port)

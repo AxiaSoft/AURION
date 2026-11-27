@@ -160,8 +160,17 @@ check("history is streamed fast enough to beat the engine's patience", () => {
   if (!/for\(int k = 0; k < \d+ && g_hist_pos >= 0; k\+\+\)/.test(timer)) {
     throw new Error("only one chunk goes per timer pass");
   }
-  if (!/g_hist_pos < 0[\s\S]{0,80}EventSetMillisecondTimer\(400\)/.test(timer)) {
+  /* The idle rate is a named constant now, and it is no longer 400ms:
+     1.32 took it to 100 so a command the trader is waiting on is not
+     sitting behind half a second of nothing. What this line is here to
+     check is unchanged - the streaming rate must be handed back once
+     the stream ends, not kept for ever. */
+  if (!/g_hist_pos < 0[\s\S]{0,160}EventSetMillisecondTimer\(now < g_fast_until/.test(timer)) {
     throw new Error("the fast timer is never given back");
+  }
+  const idle = /#define AURION_IDLE_TIMER_MS\s+(\d+)/.exec(EA);
+  if (!idle || Number(idle[1]) <= 25) {
+    throw new Error("the idle rate is not a rate the expert can rest at");
   }
   return chunk + " bars a chunk, several chunks a pass, 25ms while streaming";
 });
