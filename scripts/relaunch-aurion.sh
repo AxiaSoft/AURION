@@ -56,6 +56,19 @@ rm -rf "$HOME/.config/AxiaSoft/AURION/Window/EBWebView/Default/Cache" \
        "$HOME/.config/AxiaSoft/AURION/Window/EBWebView/Default/Service Worker" 2>/dev/null || true
 find engine -name '__pycache__' -type d -prune -exec rm -rf {} + 2>/dev/null || true
 
+# The owner pid must not survive this script.
+#
+# The window sets AURION_OWNER_PID for the desk it starts, so the desk
+# can take the engine down if the window is killed. The variable reached
+# here through the desk, and this script has just stopped everything the
+# window owned - so handing it to the desk we are about to start would
+# give that desk the pid of a process that is gone. It would look its
+# owner up, find nothing, and shut itself down seconds after starting.
+# Reported on Windows as "the update finishes and the app just closes";
+# the same wiring exists here.
+unset AURION_OWNER_PID
+unset AURION_NO_BROWSER
+
 PY="${AURION_PYTHON:-}"
 if [ -z "$PY" ]; then
   if command -v python3 >/dev/null 2>&1; then PY=python3

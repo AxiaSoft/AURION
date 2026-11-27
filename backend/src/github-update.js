@@ -488,6 +488,62 @@ async function containedInMain(src, ref) {
  * no statement, never as 01 - a guess that looks like a fact is the
  * fault being fixed.
  */
+/**
+ * The first-parent walk through a page of commits, newest first.
+ *
+ * GitHub has no `first_parent` option on the commits endpoint, but each
+ * entry carries its parents, so the chain can be followed here without
+ * another request. Anything the walk does not reach arrived as part of
+ * a merge and is not a separate landing.
+ *
+ * Starting point: the newest commit that nothing else in the page
+ * claims as a parent - the tip. Falling back to the first entry keeps
+ * this honest on a page that has no identifiable tip.
+ */
+function firstParentChain(list) {
+  const rows = (Array.isArray(list) ? list : []).filter((c) => c && c.sha);
+  if (!rows.length) return [];
+  const bySha = new Map(rows.map((c) => [String(c.sha), c]));
+  const claimed = new Set();
+  for (const c of rows) {
+    for (const p of Array.isArray(c.parents) ? c.parents : []) {
+      if (p && p.sha) claimed.add(String(p.sha));
+    }
+  }
+  const tip = rows.find((c) => !claimed.has(String(c.sha))) || rows[0];
+  const chain = [];
+  const seen = new Set();
+  let at = tip;
+  while (at && !seen.has(String(at.sha))) {
+    seen.add(String(at.sha));
+    chain.push(String(at.sha));
+    const parents = Array.isArray(at.parents) ? at.parents : [];
+    const first = parents[0] && parents[0].sha ? String(parents[0].sha) : "";
+    at = first ? bySha.get(first) : null;
+  }
+  return chain;
+}
+
+/**
+ * The landing that brought `sha` onto the branch.
+ *
+ * A release tag usually points at the work, not at the merge that
+ * published it. Returns the merge commit that lists `sha` as a parent,
+ * or "" when there is none to find - a commit pushed straight to the
+ * branch is its own landing and is already in the chain.
+ */
+function landingFor(list, chain, sha) {
+  const want = String(sha || "");
+  if (!want) return "";
+  if (chain.includes(want)) return want;
+  for (const c of Array.isArray(list) ? list : []) {
+    if (!c || !Array.isArray(c.parents)) continue;
+    if (!c.parents.some((p) => p && String(p.sha) === want)) continue;
+    if (chain.includes(String(c.sha))) return String(c.sha);
+  }
+  return "";
+}
+
 async function dailySeq(src, isoWhen, sha) {
   const day = String(isoWhen || "").slice(0, 10);
   if (!/^\d{4}-\d{2}-\d{2}$/.test(day)) return "";
@@ -500,15 +556,34 @@ async function dailySeq(src, isoWhen, sha) {
       20000
     );
     if (!Array.isArray(list) || !list.length) return "";
-    /* GitHub answers newest first, and the stamp counts from the start
-       of the day, so the position is measured from the far end. */
+    /* Count LANDINGS, not commits.
+     *
+     * Reported from the field: "the build number is going up two at a
+     * time - I took two updates, it should have been 12 and it counted
+     * 14." It was. This list is every commit reachable from the update
+     * branch in the day's window, and a pull request merged with a
+     * merge commit puts TWO of those there: the work itself, and the
+     * merge that brought it in. Every update therefore moved the
+     * number by two, and a branch of three commits would have moved it
+     * by four - the number was counting how the work was written, not
+     * how many builds were published.
+     *
+     * What a build number means is "how many times the branch moved
+     * today", which is its first-parent history: from the newest commit,
+     * follow parents[0] and ignore everything that was merged IN. That
+     * is one step per landing, whatever shape the branch had. */
+    const chain = firstParentChain(list);
     const want = String(sha || "");
-    const at = want ? list.findIndex((c) => String((c && c.sha) || "") === want) : -1;
-    /* A tag resolves to a commit that may not be in this window (an
-       annotated tag, a release cut from an earlier commit). The build
-       being offered is then the newest one of that day, which is what
-       the full count says. */
-    const n = at < 0 ? list.length : list.length - at;
+    /* The commit being offered may be the work rather than the merge -
+       a release tag usually points at the branch commit. Map it to the
+       landing that brought it in, so it is counted in the same terms. */
+    const target = want ? (landingFor(list, chain, want) || want) : "";
+    const at = target ? chain.findIndex((c) => c === target) : -1;
+    /* A tag can also resolve to a commit outside this window entirely
+       (an annotated tag, a release cut from an earlier day). The build
+       being offered is then the newest landing of that day, which is
+       what the full count says. */
+    const n = at < 0 ? chain.length : chain.length - at;
     return String(Math.max(1, Math.min(99, n))).padStart(2, "0");
   } catch {
     /* A rate limit or a network fault is not a build number. */
@@ -935,6 +1010,11 @@ async function fetchFile(cfg, file) {
 
 module.exports = {
   UPDATE_BRANCH,
+  /* Exported for the tests: the two-at-a-time build number was a
+     counting bug, and counting is the kind of thing that has to be
+     checked against a real merge shape rather than reasoned about. */
+  firstParentChain,
+  landingFor,
   remoteVersion,
   containedInMain,
   INCLUDE_DIRS,
