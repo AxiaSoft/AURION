@@ -502,6 +502,29 @@ check("the search chrome is styled and has narrow-screen rules", () => {
   return "styled, with a 620px block";
 });
 
+check("the chart search is centred and does not stretch", () => {
+  // It used to be flex:1 1 260px, so on a wide desk it ran the whole
+  // width of the row -- far longer than the only thing ever typed into
+  // it, a symbol name -- and shoved the match count out to the far
+  // edge, away from its own box.
+  const row = (appCss.match(/\.ch-find\{([^}]*)\}/) || [])[1] || "";
+  if (!/justify-content:\s*center/.test(row)) {
+    throw new Error("the search row is not centred over the grid it searches");
+  }
+  const box = (appCss.match(/\.ch-find-box\{([^}]*)\}/) || [])[1] || "";
+  const grow = (box.match(/flex:\s*([\d.]+)/) || [])[1];
+  if (grow !== "0") throw new Error("the box still grows to fill the row: " + box.trim());
+  const basis = Number((box.match(/flex:\s*[\d.]+\s+[\d.]+\s+(\d+)px/) || [])[1] || 0);
+  if (!basis || basis > 420) throw new Error("the box is still too long: " + box.trim());
+  // Narrow screens are the one place full width is right, and that rule
+  // lives in the phone block, so it must still win.
+  const phone = appCss.slice(appCss.indexOf("@media (max-width:560px){", appCss.indexOf(".ch-find{")));
+  if (!/\.ch-find-box\{\s*flex:1 1 100%/.test(phone.slice(0, 400))) {
+    throw new Error("the phone rule no longer gives the box the full width");
+  }
+  return "centred, " + basis + "px, full width on a phone";
+});
+
 check("the search is translated in all three languages", () => {
   for (const lang of ["en", "fa", "ar"]) {
     const pack = JSON.parse(fs.readFileSync(path.join(ROOT, "lang", lang + ".json"), "utf8"));

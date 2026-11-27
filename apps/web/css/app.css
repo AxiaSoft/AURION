@@ -6383,10 +6383,16 @@ html[dir="rtl"] .pc-stat b{ text-align:right }
    hidden. A grid container orders its own children, which is why the
    rule sits on the card and not on a wrapper.
    ------------------------------------------------------------------ */
-.ch-find{ display:flex; align-items:center; gap:10px; margin-block:2px 12px; flex-wrap:wrap }
+/* Centred: the box sits over the middle of the grid it searches rather
+   than being pinned to one edge of a very wide desk. */
+.ch-find{ display:flex; align-items:center; justify-content:center; gap:10px; margin-block:2px 12px; flex-wrap:wrap }
 /* Only the width it should claim in its row; everything it looks like
-   comes from .dsk-search, which every search on the desk now shares. */
-.ch-find-box{ flex:1 1 260px }
+   comes from .dsk-search, which every search on the desk now shares.
+   It does not grow: stretched across a wide desk the field was far
+   longer than anything ever typed into it -- a symbol name -- and it
+   pushed the match count out to the far edge, away from the box it
+   belongs to. A fixed basis keeps the two together. */
+.ch-find-box{ flex:0 1 320px }
 .ch-find-n{ font-variant-numeric:tabular-nums; white-space:nowrap }
 
 .chart-card[hidden]{ display:none }
