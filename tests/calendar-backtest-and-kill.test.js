@@ -581,8 +581,21 @@ check("the EA version moves for behaviour, and only for behaviour", () => {
      here; what the engine saw was the expert disappearing from a
      terminal that was plainly still running. MetaTrader is routinely
      left up for months, which is exactly the uptime that reaches 49.7
-     days, so the number moves. */
-  if (!/#define AURION_EA_VERSION "1\.30"/.test(ea)) {
+     days, so the number moves.
+     1.31 changes two numbers the engine reads on every refresh. The
+     positions and orders lists were serialised with _Digits, which is
+     the precision of the CHART THE EXPERT IS ATTACHED TO, while those
+     lists cover the whole terminal: an expert on a two-digit gold
+     chart reported a GBPUSD position's entry, stop and target all as
+     1.3100, re-sent every second, and the desk's stop rules act on
+     those numbers. Each row now resolves its own symbol. And
+     TradeClose sent one hardcoded ORDER_FILLING_IOC with no fallback,
+     so on a symbol the broker runs FOK-only every close - including
+     close-all, which routes through it - came back 10030 and the
+     position stayed open. Both are plainly visible to the engine: it
+     parses different prices out of the same message and gets a filled
+     close where it used to get a reject, so the number moves. */
+  if (!/#define AURION_EA_VERSION "1\.31"/.test(ea)) {
     throw new Error("the version moved again; bump it only for a change the engine can see");
   }
   /* 1.30, asserted rather than described. The elapsed-time form

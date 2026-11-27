@@ -2,6 +2,21 @@
 //| AurionBridge.mq5                                                 |
 //| Live chart agent for the AURION engine.                          |
 //|                                                                  |
+//| v1.31 — two numbers the expert had no business guessing.       |
+//|   Positions and orders were serialised with _Digits, which is  |
+//|   the precision of the CHART THIS EXPERT IS ATTACHED TO - and  |
+//|   those two lists are the whole terminal's. On a gold chart a  |
+//|   GBPUSD position reported entry, stop and target rounded to  |
+//|   two decimals - 1.3100 for all three, on every refresh.      |
+//|   Each row now resolves its own symbol through DigitsOf().     |
+//|                                                                 |
+//|   And TradeClose hardcoded ORDER_FILLING_IOC with no fallback, |
+//|   so every close on a FOK-only symbol came back 10030 - which  |
+//|   looked like "positions opened by hand cannot be closed",     |
+//|   because those are the ones on some other symbol. The filling |
+//|   ladder TradeMarket always had is now SendOrder(), and every  |
+//|   deal path goes through it.                                   |
+//|                                                                 |
 //| v1.30 — the 49.7-day clock wrap that froze the bridge in place. |
 //|   GetTickCount() restarts at zero every 49.7 days. The retry    |
 //|   and history deadlines were absolute comparisons against it,   |
@@ -162,10 +177,10 @@
 // nobody could tell. AURION_EA_VERSION is the value sent to the engine;
 // engine/tests/test_ea_version.py fails the build if the #property below
 // drifts from it, because #property will not take a macro.
-#define AURION_EA_VERSION "1.30"
-#property version   "1.30"
+#define AURION_EA_VERSION "1.31"
+#property version   "1.31"
 #property strict
-#property description "AURION live bridge 1.25 — one engine, one port; the file inbox is the only fallback"
+#property description "AURION live bridge 1.31 — one engine, one port; the file inbox is the only fallback"
 
 input string InpEngineHost   = "127.0.0.1";
 input int    InpEnginePort   = 18766;
