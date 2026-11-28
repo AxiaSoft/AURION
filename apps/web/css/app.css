@@ -2634,7 +2634,13 @@ body.st-page-open{overflow:hidden}
     inline-size:36px;min-inline-size:36px;block-size:36px;
     padding:0;display:grid;place-items:center;flex:0 0 auto;
   }
-  .top-actions #btn-flat .hdr-flat-ic{width:17px;height:17px}
+  /* Rendered larger than the 18px the icon buttons beside it use, and
+     deliberately. The glyph it replaced reached the edges of its box;
+     a cross only spans 6..18 of 24, half the box, so at the same size
+     it would read as a noticeably smaller mark in the same row. 20px
+     puts about 10px of ink on screen, which is the usual weight for a
+     cross in a target this size and sits level with its neighbours. */
+  .top-actions #btn-flat .hdr-flat-ic{width:20px;height:20px}
 }
 
 /* The icon only ever shows on a phone: with the label present it would
