@@ -265,6 +265,25 @@ ok(resolveProp(".top-actions", "flex", 390) === "0 0 auto",
   ok(resolveProp(".top-actions #btn-flat .hdr-flat-ic", "width", 390) === "20px",
     "drawn larger than its neighbours, because a cross only fills half its box",
     "at 18px it would read as a smaller mark in the same row");
+
+  /* Being larger, it must also be drawn thinner. Stroke scales with the
+     box, so carrying the registry's 1.6 into a 20px square put 18% more
+     ink on screen than every other glyph in the row - which is what
+     "the icon has gone black" was. Checked as rendered ink, not as the
+     raw attribute, so the size and the stroke cannot drift apart. */
+  {
+    const px = Number((/\.hdr-flat-ic[^}]*width:(\d+(?:\.\d+)?)px/.exec(css.replace(/\s/g, "")) || [])[1]
+      || String(resolveProp(".top-actions #btn-flat .hdr-flat-ic", "width", 390)).replace(/[^\d.]/g, ""));
+    const sw = Number((/<svg class="hdr-flat-ic"[^>]*stroke-width="([\d.]+)"/.exec(html) || [])[1]);
+    const regSw = Number((/stroke-width=\\"([\d.]+)\\"[^`]*\$\{p\[name\]/.exec(app)
+      || /stroke-width="([\d.]+)"[^`]*\$\{p\[name\]/.exec(app) || [])[1]);
+    const ink = (w, s) => (s * w) / 24;
+    const ours = ink(20, sw), theirs = ink(18, regSw);
+    ok(regSw > 0 && sw > 0 && Math.abs(ours - theirs) < 0.03,
+      "and thinner to match, so it carries the same weight of ink as its neighbours",
+      `cross ${sw}@20px = ${ours.toFixed(2)}px vs registry ${regSw}@18px = ${theirs.toFixed(2)}px`);
+    ok(px === 20, "the size the ink sum is computed against is the size in the sheet", String(px));
+  }
   ok(resolveProp(".top-actions #btn-flat .hdr-flat-tx", "display", 390) === "none",
     "on a phone the label is hidden and the mark stands alone");
   ok(resolveProp(".hdr-flat-ic", "display", 1440) === "none"
