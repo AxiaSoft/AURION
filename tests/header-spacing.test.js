@@ -284,6 +284,39 @@ ok(resolveProp(".top-actions", "flex", 390) === "0 0 auto",
       `cross ${sw}@20px = ${ours.toFixed(2)}px vs registry ${regSw}@18px = ${theirs.toFixed(2)}px`);
     ok(px === 20, "the size the ink sum is computed against is the size in the sheet", String(px));
   }
+  /* Colour. Reported twice as the cross being black while every other
+     header icon was white, and both of my first two attempts missed it
+     because they checked the wrong thing - the second one measured
+     stroke WEIGHT. What the eye compares is the paint, so that is what
+     this compares, and it compares it against the neighbours rather
+     than against a literal, so the two can never diverge.
+
+     The mark sets its own stroke instead of inheriting one. Every other
+     header glyph is an .icon-btn child taking currentColor from the
+     button; this one hangs off a .btn, whose own colour is the near
+     black #061014, and that is the colour that was showing. */
+  {
+    const neighbour = resolveProp(".icon-btn", "color", 390);
+    const stroke = resolveProp(".top-actions #btn-flat .hdr-flat-ic", "stroke", 390);
+    const col = resolveProp(".top-actions #btn-flat .hdr-flat-ic", "color", 390);
+    ok(neighbour === "var(--ink)",
+      "the header icons take their colour from the --ink token", String(neighbour));
+    ok(stroke === neighbour,
+      "and the cross is painted from that same token, not inherited",
+      `cross stroke ${stroke} vs neighbours ${neighbour}`);
+    ok(col === neighbour,
+      "its currentColor agrees too, so the two lines cannot disagree", String(col));
+    /* --ink is the token that flips between themes, so pinning to it is
+       what makes the cross follow the theme with everything else. */
+    const inks = [...raw.matchAll(/--ink:\s*([^;]+);/g)].map((x) => x[1].trim());
+    ok(inks.length === 2 && inks[0] !== inks[1],
+      "and --ink is theme-switched, so the cross follows both themes",
+      inks.join("  /  "));
+    /* The near-black that was actually appearing must not be reachable
+       by the mark under any rule we ship. */
+    ok(!/hdr-flat-ic[^}]*#061014/.test(css.replace(/\s/g, "")),
+      "the near-black the button carries for its gradient never reaches the mark");
+  }
   ok(resolveProp(".top-actions #btn-flat .hdr-flat-tx", "display", 390) === "none",
     "on a phone the label is hidden and the mark stands alone");
   ok(resolveProp(".hdr-flat-ic", "display", 1440) === "none"
