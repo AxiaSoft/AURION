@@ -186,9 +186,17 @@ ok(resolveProp(".top-actions #btn-kill", "flex", 390) === "0 0 auto",
   "the emergency button cannot be shrunk by a crowded row");
 ok(/nowrap/.test(resolveProp(".top-actions #btn-kill", "white-space", 390) || ""),
   "nor squeezed into a wrapped sliver of itself");
-ok(resolveProp(".top-actions #btn-flat", "margin-inline-start", 390) === "auto",
-  "the two trading actions are pushed to the far end as a pair",
-  "one logical auto margin, so it is the far end in Persian too");
+/* The controls sit at the far end of the line, away from the title.
+   The auto margin used to be on #btn-flat, because the controls were a
+   full-width row of their own and the pair had to be pushed within it.
+   The header is a wrapping flex row now, so the margin belongs on the
+   group - same effect, one declaration instead of a split. Logical, so
+   "the far end" is the left in Persian and Arabic. */
+ok(resolveProp(".top-actions", "margin-inline-start", 390) === "auto",
+  "the controls sit at the far end of the header line");
+ok(resolveProp(".top-actions", "flex", 390) === "0 0 auto",
+  "and neither grow into the title's space nor let themselves be squeezed",
+  "grow would steal the line; shrink would crush the buttons before wrapping");
 
 /* Every control in the row is given an explicit order on a phone. Half
    of them used to sit on the default of 0 and therefore in DOM order,
@@ -208,13 +216,51 @@ ok(resolveProp(".top-actions #btn-flat", "margin-inline-start", 390) === "auto",
     "with the kill switch last, where it is reachable by the thumb");
 }
 
-/* The header is two rows on a phone, so the title is not competing with
-   seven controls for one line. */
+/* It used to be a fixed two-row grid on every phone. That answered the
+   clipping but was then reported as "the header has got very big on
+   mobile": a grid cannot tell a 430px handset, which has room for one
+   line, from a 360px one, which does not. It is a wrapping flex row
+   now and works the difference out for itself. */
 {
-  const areas = (resolveProp(".top", "grid-template-areas", 390) || "").replace(/\s+/g, " ");
-  ok(/"menu\s+title"/.test(areas) && /"actions actions"/.test(areas),
-    "the phone header puts the title and the controls on separate rows",
-    areas || "(none)");
+  ok(resolveProp(".top", "display", 390) === "flex",
+    "the phone header is a flex row rather than a fixed grid",
+    "a fixed two-row grid is two rows even where one would fit");
+  ok(resolveProp(".top", "flex-wrap", 390) === "wrap",
+    "which may wrap, so the controls still cannot be clipped");
+  const h2 = resolveProp(".top h2", "flex", 390) || "";
+  ok(/^1 1 /.test(h2),
+    "the title takes the spare width and yields the line when there is none",
+    "flex:" + h2);
+  const basis = Number((/(\d+)ch/.exec(h2) || [])[1] || 0);
+  ok(basis > 0 && basis <= 6,
+    "and asks for little enough that a common phone still gets one row",
+    `basis ${basis}ch — measured: one row to about 385px, two below`);
+  ok(/ellipsis/.test(resolveProp(".top h2", "text-overflow", 390) || ""),
+    "a title that does not fit is truncated, not wrapped into a taller header");
+}
+
+/* What bought the width back: the Close-all button is its mark alone
+   below 900px. It was the widest thing in the row - a two-word label -
+   and shrinking it is what lets the line hold everything else. */
+{
+  ok(/class="hdr-flat-ic"/.test(html) && /class="hdr-flat-tx"/.test(html),
+    "the close-all button has an icon and a separately labelled span");
+  ok(/data-i18n="exec\.close_all"/.test(html.slice(html.indexOf("hdr-flat-tx"), html.indexOf("hdr-flat-tx") + 120)),
+    "the label is translated on the span, not on the button",
+    "data-i18n writes textContent, which on the button would erase the svg");
+  ok(/id="btn-flat"[\s\S]{0,200}data-i18n-title="exec\.close_all"/.test(html),
+    "and the button keeps a translated title, so the icon-only state has a name",
+    "data-i18n-title maintains aria-label too");
+  ok(resolveProp(".top-actions #btn-flat .hdr-flat-tx", "display", 390) === "none",
+    "on a phone the label is hidden and the mark stands alone");
+  ok(resolveProp(".hdr-flat-ic", "display", 1440) === "none"
+    && resolveProp(".hdr-flat-ic", "display", 390) === "block",
+    "and the mark only appears where the label is gone",
+    "an icon beside its own word is decoration competing with it");
+  const w = resolveProp(".top-actions #btn-flat", "inline-size", 390);
+  ok(w !== null && Number(String(w).replace(/[^\d.]/g, "")) <= 40,
+    "the button is squared off to match the icon buttons it sits among",
+    "inline-size:" + w);
 }
 
 console.log(fails ? `\nheader spacing: ${fails} FAILED` : "\nheader spacing: all checks passed");
