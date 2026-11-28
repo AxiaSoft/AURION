@@ -226,13 +226,21 @@
                desk. Nothing near it in the header dismisses anything,
                so there is no cross for it to be confused with.
 
+               stroke-width is 1.44, not the registry's 1.6, because
+               this one is drawn into a 20px square and the others
+               into 18px. Stroke scales with the box, so 1.6 here put
+               1.42px of ink on screen against their 1.20px - 18%
+               heavier, which beside them read as the icon having gone
+               black rather than merely bolder. 1.44 x 20/24 is 1.20,
+               the same ink as every other glyph in the row.
+
                The label is its own element because data-i18n writes
                textContent, and that would erase the svg. The button
                keeps data-i18n-title, which also maintains aria-label,
                so the icon-only state still has a name to read out. -->
           <button class="btn tiny ghost hdr-flat" id="btn-flat" type="button"
                   data-i18n-title="exec.close_all" title="Close all" aria-label="Close all">
-            <svg class="hdr-flat-ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><line x1="6" y1="6" x2="18" y2="18"/><line x1="18" y1="6" x2="6" y2="18"/></svg>
+            <svg class="hdr-flat-ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.44" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><line x1="6" y1="6" x2="18" y2="18"/><line x1="18" y1="6" x2="6" y2="18"/></svg>
             <span class="hdr-flat-tx" data-i18n="exec.close_all">Close all</span>
           </button>
           <button class="btn tiny danger" id="btn-kill" type="button" data-i18n="exec.kill">Kill</button>
