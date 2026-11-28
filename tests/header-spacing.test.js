@@ -251,6 +251,20 @@ ok(resolveProp(".top-actions", "flex", 390) === "0 0 auto",
   ok(/id="btn-flat"[\s\S]{0,200}data-i18n-title="exec\.close_all"/.test(html),
     "and the button keeps a translated title, so the icon-only state has a name",
     "data-i18n-title maintains aria-label too");
+  /* The cross is the registry's own close glyph, not a second
+     hand-drawn one, so it cannot drift away from every other cross on
+     the desk. Compared as geometry, not as a string. */
+  {
+    const reg = (/close: '(.*?)',/.exec(app) || [])[1] || "";
+    const mark = (/<svg class="hdr-flat-ic"[^>]*>([\s\S]*?)<\/svg>/.exec(html) || [])[1] || "";
+    const norm = (x) => x.replace(/\s+/g, "").replace(/"/g, "'");
+    ok(reg !== "" && norm(mark) === norm(reg),
+      "the mark is a cross, and the same cross the rest of the desk draws",
+      norm(mark) || "(none)");
+  }
+  ok(resolveProp(".top-actions #btn-flat .hdr-flat-ic", "width", 390) === "20px",
+    "drawn larger than its neighbours, because a cross only fills half its box",
+    "at 18px it would read as a smaller mark in the same row");
   ok(resolveProp(".top-actions #btn-flat .hdr-flat-tx", "display", 390) === "none",
     "on a phone the label is hidden and the mark stands alone");
   ok(resolveProp(".hdr-flat-ic", "display", 1440) === "none"

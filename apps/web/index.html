@@ -216,12 +216,15 @@
           </button>
           <button class="btn tiny ghost" id="btn-lang" type="button">EN</button>
           <button class="btn tiny ghost hidden" id="btn-logout" type="button" hidden>Logout</button>
-          <!-- Close all positions. It carries a mark of its own now:
-               on a phone the label is hidden and this is all there is
-               to recognise it by, and it must not be mistakable for
-               the refresh arrow beside it or for a window close. Four
-               arrows folding inward on a point - positions being
-               brought in - which is the action, not a generic cross.
+          <!-- Close all positions. On a phone the label is hidden and
+               the mark is all there is to recognise it by.
+
+               It was four arrows folding inward; asked for a cross
+               instead. The geometry is the ICONS.close glyph from
+               app.js rather than a second hand-drawn one, so the
+               cross here is the same cross as everywhere else on the
+               desk. Nothing near it in the header dismisses anything,
+               so there is no cross for it to be confused with.
 
                The label is its own element because data-i18n writes
                textContent, and that would erase the svg. The button
@@ -229,7 +232,7 @@
                so the icon-only state still has a name to read out. -->
           <button class="btn tiny ghost hdr-flat" id="btn-flat" type="button"
                   data-i18n-title="exec.close_all" title="Close all" aria-label="Close all">
-            <svg class="hdr-flat-ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="4,9.5 9.5,9.5 9.5,4"/><line x1="3.2" y1="3.2" x2="9.5" y2="9.5"/><polyline points="20,9.5 14.5,9.5 14.5,4"/><line x1="20.8" y1="3.2" x2="14.5" y2="9.5"/><polyline points="4,14.5 9.5,14.5 9.5,20"/><line x1="3.2" y1="20.8" x2="9.5" y2="14.5"/><polyline points="20,14.5 14.5,14.5 14.5,20"/><line x1="20.8" y1="20.8" x2="14.5" y2="14.5"/></svg>
+            <svg class="hdr-flat-ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><line x1="6" y1="6" x2="18" y2="18"/><line x1="18" y1="6" x2="6" y2="18"/></svg>
             <span class="hdr-flat-tx" data-i18n="exec.close_all">Close all</span>
           </button>
           <button class="btn tiny danger" id="btn-kill" type="button" data-i18n="exec.kill">Kill</button>
