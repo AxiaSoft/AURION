@@ -2646,6 +2646,31 @@ body.st-page-open{overflow:hidden}
 /* The icon only ever shows on a phone: with the label present it would
    be decoration competing with the word beside it. */
 .hdr-flat-ic{display:none}
+
+/* The cross is painted from the token directly rather than inherited.
+   Reported twice as "every icon is white except this one, which is
+   black" - in the dark theme, where --ink is near-white.
+
+   Nothing in this sheet explains it. Every header control, this one
+   included, resolves to color:var(--ink): checked by hand against all
+   three declarations that reach the button (.btn #061014 at 11,
+   .btn.ghost var(--ink) at 21, .icon-btn var(--ink) at 11) and then
+   again through a real cascade engine, which agreed. The lang pill is
+   .btn.ghost too and is not affected, so .btn.ghost is not losing.
+
+   What is different about this one is that it is the only header glyph
+   taking its colour by INHERITANCE through currentColor from a .btn,
+   rather than sitting in an .icon-btn. #061014 - the colour .btn
+   carries for its own gradient - is exactly the near-black being
+   described, so something on the device is resolving that inheritance
+   to the .btn value.
+
+   So the mark no longer asks. stroke is set from --ink explicitly, at
+   id strength, which outranks every colour rule in play and does not
+   depend on what the button's own colour resolved to. Both themes
+   follow, because --ink is what flips between them - the same token
+   the icons it sits beside use. */
+.top-actions #btn-flat .hdr-flat-ic{color:var(--ink);stroke:var(--ink)}
 @media (max-width:900px){
   .hdr-flat-ic{display:block}
 }
