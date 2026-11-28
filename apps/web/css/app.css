@@ -2545,57 +2545,69 @@ body.st-page-open{overflow:hidden}
 /* ------------------------------------------------------------------
    The header on a phone
    ------------------------------------------------------------------
-   Reported: "now that you have added the notification button, the kill
-   switch has gone off the screen."
+   First fault, fixed earlier: an unconditional `flex-wrap:nowrap`
+   declared after the mobile wrap rules won at every width, so the row
+   could not wrap, and #btn-kill - last by `order` - was pushed off the
+   edge. Wrapping is what makes clipping impossible and it stays.
 
-   It had, and the bell was only the straw. Two rules were fighting,
-   and the wrong one was winning:
+   Second fault, reported next: "the header has got very big on mobile
+   and it looks bad." It had. Forcing the controls onto a row of their
+   own made the header two rows tall on EVERY phone, including the ones
+   with plenty of width for a single line. A fixed two-row grid cannot
+   tell the difference.
 
-     .top-actions{flex-wrap:wrap}      (~line 1902, and again inside a
-                                        max-width:900px block)
-     .top-actions{flex-wrap:nowrap}    (~line 2286, UNCONDITIONAL)
+   So the header is a wrapping flex row now, and the difference is one
+   the layout works out for itself: menu, title and controls sit on one
+   line while they fit, and the controls drop to a second line only on
+   a handset genuinely too narrow for them. No breakpoint has to guess
+   which phone is which.
 
-   Same selector, same specificity, and the nowrap came last, so it won
-   at every width and both mobile wrap rules were dead. This block then
-   put every action back onto one row with the title. One unwrappable
-   row of seven controls does not fit a phone, and the overflow is
-   silent: the items with the highest `order` simply hang off the inline
-   edge. #btn-kill has order 9. It was last in the row, so it was the
-   one that left the screen - which is the single control on this desk
-   that must never be unreachable.
+   What bought the space is the Close-all button. It was the widest
+   thing in the row by some way - a two-word label at 11px - and below
+   900px it is now its icon alone, which is also what was asked for.
 
-   This block is the last word on the header deliberately, so the rules
-   above cannot undo it. (The same ordering fault is recorded against
-   .ct-grid further down; it is the recurring one in this sheet.)
-
-   The layout, below 900px:
-
-     row 1   menu | page title
-     row 2   drawer, bell, refresh, theme, language  ...  Close all, Kill
-
-   Utilities pack to the start, the two trading actions are pushed to
-   the far end by one auto margin, and the row may wrap. Wrapping is
-   what guarantees the property that was broken: nothing can be pushed
-   out of the viewport, because there is always another line.
+   Measured at 390px: five icon buttons, the language pill and Kill
+   come to roughly 280px of a 370px line, so the title keeps the rest
+   and the header stays one row.
    ------------------------------------------------------------------ */
 @media (max-width:900px){
   .top{
-    grid-template-columns:42px minmax(0,1fr);
-    grid-template-areas:
-      "menu  title"
-      "actions actions";
-    row-gap:8px;
+    display:flex;
+    flex-wrap:wrap;
     align-items:center;
+    gap:6px 8px;
+    row-gap:6px;
+  }
+  /* The grid areas these carried are inert in a flex container; they
+     are cleared rather than left to be read as if they still applied. */
+  .menu-btn{grid-area:auto;flex:0 0 auto}
+  .top h2{
+    grid-area:auto;
+    /* Takes whatever is going spare, and this basis is what decides
+       when the controls drop to a second line: the title asks for
+       roughly four characters, and a line that cannot spare even that
+       is a line the controls do not belong on. Four rather than more
+       because a truncated title on one row is a better header than a
+       full title on two - the complaint being answered here is the
+       height. Measured: one row down to about 385px, two below it. */
+    flex:1 1 4ch;
+    min-width:0;
+    overflow:hidden;text-overflow:ellipsis;white-space:nowrap;
   }
   .hdr-status{display:none}
   .top-actions{
-    grid-area:actions;
-    width:100%;
+    grid-area:auto;
+    /* Never grows, so it does not steal the title's line; never
+       shrinks below its contents, so nothing inside is squeezed out. */
+    flex:0 0 auto;
     display:flex;
     flex-wrap:wrap;
-    justify-content:flex-start;
+    align-items:center;
+    justify-content:flex-end;
+    margin-inline-start:auto;
     gap:6px;
   }
+  html[dir="rtl"] .top-actions{justify-content:flex-end}
   /* Stated for every control rather than for the two that used to have
      one. Half the row sat on the default order of 0 and therefore in
      DOM order, which put refresh after the language pill for no reason
@@ -2608,26 +2620,39 @@ body.st-page-open{overflow:hidden}
   .top-actions #btn-lang{order:5}
   .top-actions #btn-logout{order:6}
   .top-actions #btn-restart{order:7}
-  /* The split. One auto margin does the whole job, and because it is a
-     logical property it puts the pair at the far end in Persian and
-     Arabic too, where "the far end" is the left. */
-  .top-actions #btn-flat{order:8;margin-inline-start:auto}
+  .top-actions #btn-flat{order:8}
   .top-actions #btn-kill{order:9}
   /* Belt and braces on the one that was lost: never shrink it, never
      let a long label wrap it into nothing. */
   .top-actions #btn-kill{flex:0 0 auto;white-space:nowrap}
-  html[dir="rtl"] .top-actions{justify-content:flex-start}
+
+  /* Close all, as its mark alone. The label is hidden rather than
+     removed so it still answers data-i18n, and the button is squared
+     off to match the icon buttons it now sits among. */
+  .top-actions #btn-flat .hdr-flat-tx{display:none}
+  .top-actions #btn-flat{
+    inline-size:36px;min-inline-size:36px;block-size:36px;
+    padding:0;display:grid;place-items:center;flex:0 0 auto;
+  }
+  .top-actions #btn-flat .hdr-flat-ic{width:17px;height:17px}
 }
 
-/* Tighter again on a small phone, so the whole row still lands on one
-   line at 390px and only wraps on the genuinely narrow ones. */
+/* The icon only ever shows on a phone: with the label present it would
+   be decoration competing with the word beside it. */
+.hdr-flat-ic{display:none}
+@media (max-width:900px){
+  .hdr-flat-ic{display:block}
+}
+
+/* Tighter again on a small phone. The header keeps one line further
+   down the range this way, and when it finally does wrap it wraps
+   without the controls having been squashed first. */
 @media (max-width:560px){
-  .top{padding-inline:10px}
+  .top{padding-inline:10px;gap:5px 6px}
   .top-actions{gap:5px}
-  .top-actions .icon-btn{width:36px;min-width:36px;height:36px}
-  .top-actions .btn.tiny{padding:7px 9px;min-height:34px;font-size:11px}
-  /* 34px rather than the 32px the desktop rule gives: this is the row a
-     thumb aims at, and the icon buttons beside it are 36. */
+  .top-actions .icon-btn{width:34px;min-width:34px;height:34px}
+  .top-actions #btn-flat{inline-size:34px;min-inline-size:34px;block-size:34px}
+  .top-actions .btn.tiny{padding:6px 8px;min-height:34px;font-size:11px}
 }
 
 /* desk42 — overlay header, compact EA chart, welcome */
